@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { magicLinkRequestSchema, type MagicLinkRequest } from '@confluent/shared'
 import { LoaderCircleIcon } from 'lucide-react'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
+import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -119,6 +120,7 @@ export default function AuthRoute() {
             </p>
           </form>
         )}
+        <LegalLinks className="justify-center" />
       </main>
     </>
   )

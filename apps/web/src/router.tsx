@@ -16,6 +16,8 @@ import ShareDossierRoute from '@/routes/share/dossier'
 import AuthRoute from '@/routes/auth'
 import AuthVerifyRoute from '@/routes/auth/verify'
 import NotFoundRoute from '@/routes/not-found'
+import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
+import ConfidentialiteRoute from '@/routes/legal/confidentialite'
 
 export const router = createBrowserRouter([
   {
@@ -62,4 +64,6 @@ export const router = createBrowserRouter([
   { path: '/share/:token/dossier', element: <ShareDossierRoute /> },
   { path: '/auth', element: <AuthRoute /> },
   { path: '/auth/verify', element: <AuthVerifyRoute /> },
+  { path: '/mentions-legales', element: <MentionsLegalesRoute /> },
+  { path: '/confidentialite', element: <ConfidentialiteRoute /> },
 ])
