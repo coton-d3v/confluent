@@ -6,6 +6,8 @@ const prisma = new PrismaClient()
 
 interface FieldDef {
   section: string
+  // Technical key read by the classification (see classification.keys.ts) — never rename.
+  key?: string
   label: string
   fieldType: field_type
   options: string[]
@@ -17,6 +19,7 @@ const FIELDS: FieldDef[] = [
   // ── Bloc 0 — Ancrage régional ─────────────────────────────────────────────
   {
     section: 'Ancrage régional',
+    key: 'ancrage_cvl',
     label: 'Votre lien avec la région Centre Val de Loire',
     fieldType: 'select',
     options: [
@@ -39,6 +42,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Identité du projet',
+    key: 'secteur',
     label: 'Secteur principal',
     fieldType: 'select',
     options: [
@@ -100,6 +104,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Identité du projet',
+    key: 'structure_juridique',
     label: 'Avez-vous une structure juridique créée ?',
     fieldType: 'select',
     options: ['Non', 'En cours de création', 'Oui'],
@@ -110,6 +115,7 @@ const FIELDS: FieldDef[] = [
   // ── Bloc 2 — Stade financier ──────────────────────────────────────────────
   {
     section: 'Stade financier',
+    key: 'stade_financement',
     label: 'Stade de financement actuel',
     fieldType: 'select',
     options: [
@@ -125,6 +131,7 @@ const FIELDS: FieldDef[] = [
   // ── Bloc 3 — Origine & technologie ───────────────────────────────────────
   {
     section: 'Origine & technologie',
+    key: 'origine_projet',
     label: 'Origine du projet',
     fieldType: 'select',
     options: [
@@ -139,6 +146,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Origine & technologie',
+    key: 'techno_difficile',
     label: 'Votre projet repose-t-il sur une technologie difficile à reproduire ?',
     fieldType: 'select',
     options: [
@@ -151,6 +159,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Origine & technologie',
+    key: 'brevets',
     label: 'Avez-vous des brevets ?',
     fieldType: 'select',
     options: ['Oui déposés', 'En cours', 'Non'],
@@ -159,6 +168,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Origine & technologie',
+    key: 'verrou_scientifique',
     label: 'Y a-t-il un verrou scientifique non résolu ?',
     fieldType: 'select',
     options: ['Oui', 'Non'],
@@ -167,6 +177,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Origine & technologie',
+    key: 'rd_public',
     label: 'Financement R&D public (ANR, BPI, Horizon) ?',
     fieldType: 'select',
     options: ['Oui', 'En cours', 'Non'],
@@ -177,6 +188,7 @@ const FIELDS: FieldDef[] = [
   // ── Bloc 4 — Stade spécifique ─────────────────────────────────────────────
   {
     section: 'Stade spécifique',
+    key: 'stade_projet',
     label: 'Stade du projet',
     fieldType: 'select',
     options: [
