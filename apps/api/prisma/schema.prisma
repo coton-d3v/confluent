@@ -109,6 +109,8 @@ model QuestionnaireField {
   id         String     @id @default(uuid())
   versionId  String     @map("version_id")
   section    String
+  // Stable technical identifier read by the classification — survives label edits. Null for unclassified fields.
+  key        String?
   label      String
   fieldType  field_type @map("field_type")
   options    String[]   @default([])
@@ -118,6 +120,7 @@ model QuestionnaireField {
   version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   answers DossierAnswer[]
 
+  @@unique([versionId, key])
   @@index([versionId, orderIndex])
   @@map("questionnaire_fields")
 }
