@@ -1,29 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-
-// V1 labels
-const SECTOR_LABEL = "Secteur d'activité"
-const MATURITY_LABEL = 'Stade de maturité'
-
-// V2 labels
-const LABELS = {
-  ancrage: 'Votre lien avec la région Centre Val de Loire',
-  secteur: 'Secteur principal',
-  structure: 'Avez-vous une structure juridique créée ?',
-  financement: 'Stade de financement actuel',
-  origine: 'Origine du projet',
-  techno: 'Votre projet repose-t-il sur une technologie difficile à reproduire ?',
-  brevets: 'Avez-vous des brevets ?',
-  verrou: 'Y a-t-il un verrou scientifique non résolu ?',
-  rdPublic: 'Financement R&D public (ANR, BPI, Horizon) ?',
-  stade: 'Stade du projet',
-} as const
-
-function answerFor(label: string, answers: Array<{ value: string; fieldId: string }>, fieldMap: Map<string, string>): string | null {
-  const fieldId = fieldMap.get(label)
-  if (!fieldId) return null
-  return answers.find((a) => a.fieldId === fieldId)?.value ?? null
-}
+import { CLASSIFICATION_KEYS as K } from './classification.keys'
 
 function computeAncrage(val: string | null): string | null {
   if (!val) return null
@@ -45,9 +22,9 @@ function computeAxe2(val: string | null): number | null {
 function computeAxe3(val: string | null): number | null {
   if (!val) return null
   if (val.startsWith('Projet créé ex nihilo')) return 1
-  if (val.startsWith('Spin-off d\'une entreprise')) return 2
-  if (val.startsWith('Spin-off d\'un laboratoire')) return 3
-  if (val.startsWith('Reprise d\'entreprise')) return 4
+  if (val.startsWith("Spin-off d'une entreprise")) return 2
+  if (val.startsWith("Spin-off d'un laboratoire")) return 3
+  if (val.startsWith("Reprise d'entreprise")) return 4
   if (val.startsWith('Pivot')) return 5
   return null
 }
@@ -94,46 +71,60 @@ export class ClassificationService {
     if (!dossier) {
       this.logger.warn(`classify: dossier ${dossierId} not found`)
       return {
-        sector: null, maturityStage: null, ancrageCvl: null,
-        tagTechnologique: null, axe1Projet: null, axe2Financier: null,
-        axe3Origine: null, deeptechScore: null, preCreation: null,
+        sector: null,
+        maturityStage: null,
+        ancrageCvl: null,
+        tagTechnologique: null,
+        axe1Projet: null,
+        axe2Financier: null,
+        axe3Origine: null,
+        deeptechScore: null,
+        preCreation: null,
       }
     }
 
     const fields = dossier.questionnaireVersion.fields
-    // Build label → fieldId map for quick lookup
-    const fieldMap = new Map<string, string>(fields.map((f) => [f.label, f.id]))
+    // Lookup by technical key, never by label: labels are editable in the builder.
+    const fieldIdByKey = new Map<string, string>()
+    for (const f of fields) if (f.key) fieldIdByKey.set(f.key, f.id)
     const answers = dossier.answers
+    const get = (key: string): string | null => {
+      const fieldId = fieldIdByKey.get(key)
+      if (!fieldId) return null
+      return answers.find((a) => a.fieldId === fieldId)?.value ?? null
+    }
+    // Option values are still matched on their text: surface any answer the rules don't know
+    // (e.g. an option renamed in the questionnaire) instead of silently dropping it.
+    const warnUnmapped = <T>(key: string, value: string | null, mapped: T | null): T | null => {
+      if (value != null && mapped == null) {
+        this.logger.warn(
+          `classify: dossier ${dossierId} — unmapped value for "${key}": ${JSON.stringify(value)}`,
+        )
+      }
+      return mapped
+    }
 
-    // ── V1 fallback ──────────────────────────────────────────────────────────
-    const sectorFieldId = fieldMap.get(SECTOR_LABEL)
-    const maturityFieldId = fieldMap.get(MATURITY_LABEL)
-    const sectorV1 = sectorFieldId ? (answers.find((a) => a.fieldId === sectorFieldId)?.value ?? null) : null
-    const maturityV1 = maturityFieldId ? (answers.find((a) => a.fieldId === maturityFieldId)?.value ?? null) : null
+    const stadeV2 = get(K.stade)
+    const sector = get(K.secteur) ?? get(K.secteurActivite)
+    const maturityStage = stadeV2 ?? get(K.stadeMaturite)
 
-    // ── V2 tags ───────────────────────────────────────────────────────────────
-    const get = (label: string) => answerFor(label, answers, fieldMap)
+    const ancrageVal = get(K.ancrage)
+    const ancrageCvl = warnUnmapped(K.ancrage, ancrageVal, computeAncrage(ancrageVal))
 
-    const secteurV2 = get(LABELS.secteur)
-    const stadeV2 = get(LABELS.stade)
+    const structureVal = get(K.structure)
+    const preCreation =
+      structureVal != null
+        ? structureVal === 'Non' || structureVal === 'En cours de création'
+        : null
 
-    const sector = secteurV2 ?? sectorV1
-    const maturityStage = stadeV2 ?? maturityV1
-
-    const ancrageCvl = computeAncrage(get(LABELS.ancrage))
-
-    const structureVal = get(LABELS.structure)
-    const preCreation = structureVal != null
-      ? structureVal === 'Non' || structureVal === 'En cours de création'
-      : null
-
-    const axe2Financier = computeAxe2(get(LABELS.financement))
-    const origineVal = get(LABELS.origine)
-    const axe3Origine = computeAxe3(origineVal)
-    const axe1Projet = computeAxe1(stadeV2)
+    const financementVal = get(K.financement)
+    const axe2Financier = warnUnmapped(K.financement, financementVal, computeAxe2(financementVal))
+    const origineVal = get(K.origine)
+    const axe3Origine = warnUnmapped(K.origine, origineVal, computeAxe3(origineVal))
+    const axe1Projet = warnUnmapped(K.stade, stadeV2, computeAxe1(stadeV2))
 
     // deeptech score
-    const technoVal = get(LABELS.techno)
+    const technoVal = get(K.techno)
     let tagTechnologique: string | null = null
     let deeptechScore: number | null = null
 
@@ -143,12 +134,12 @@ export class ClassificationService {
         deeptechScore = 0
       } else {
         let score = 0
-        if (origineVal?.startsWith('Spin-off d\'un laboratoire')) score++
-        const brevetsVal = get(LABELS.brevets)
+        if (origineVal?.startsWith("Spin-off d'un laboratoire")) score++
+        const brevetsVal = get(K.brevets)
         if (brevetsVal === 'Oui déposés' || brevetsVal === 'En cours') score++
-        const verrouVal = get(LABELS.verrou)
+        const verrouVal = get(K.verrou)
         if (verrouVal === 'Oui') score++
-        const rdVal = get(LABELS.rdPublic)
+        const rdVal = get(K.rdPublic)
         if (rdVal === 'Oui' || rdVal === 'En cours') score++
         deeptechScore = score
         tagTechnologique = score >= 2 ? 'deeptech' : 'tech'

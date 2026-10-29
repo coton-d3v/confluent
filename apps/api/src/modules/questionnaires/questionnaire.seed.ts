@@ -2,6 +2,7 @@ import type { field_type } from '@prisma/client'
 
 export interface SeedField {
   section: string
+  key?: string
   label: string
   fieldType: field_type
   required: boolean
@@ -19,6 +20,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Présentation',
+    key: 'secteur_activite',
     label: "Secteur d'activité",
     fieldType: 'select',
     required: true,
@@ -26,6 +28,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Présentation',
+    key: 'stade_maturite',
     label: 'Stade de maturité',
     fieldType: 'select',
     required: true,

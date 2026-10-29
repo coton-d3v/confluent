@@ -10,6 +10,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
+import { fieldKeySchema, hasUniqueKeys } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import { AdminGuard } from '../auth/guards/admin.guard'
@@ -28,14 +29,18 @@ const fieldTypeSchema = z.enum([
 
 const fieldInputSchema = z.object({
   section: z.string().min(1).max(200),
+  key: fieldKeySchema.optional(),
   label: z.string().min(1).max(500),
   fieldType: fieldTypeSchema,
+  options: z.array(z.string().min(1).max(500)).max(200).optional(),
   required: z.boolean().default(false),
   orderIndex: z.number().int().min(0),
 })
 
 const createVersionSchema = z.object({
-  fields: z.array(fieldInputSchema).min(1).max(500),
+  fields: z.array(fieldInputSchema).min(1).max(500).refine(hasUniqueKeys, {
+    message: 'Each field key must be unique within a version.',
+  }),
 })
 
 const patchFieldSchema = z
@@ -77,7 +82,9 @@ export class AdminQuestionnaireController {
     description:
       'Crée une nouvelle version avec ses `fields`. Transaction : marque la version précédente `isPublished=false` ' +
       'et la nouvelle `isPublished=true`. **Les dossiers existants gardent leur version snapshot** — ils ne sont ' +
-      'jamais re-bindés (FR14 immuabilité).',
+      'jamais re-bindés (FR14 immuabilité). Chaque champ peut porter une `key` technique (snake_case, unique ' +
+      'dans la version) lue par la classification : reprendre les `key` et `options` de la version précédente ' +
+      'pour que la classification continue de fonctionner.',
   })
   @ApiCreatedResponse({ description: 'Version créée et publiée.' })
   create(@Body() body: CreateVersionDto) {
