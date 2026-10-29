@@ -11,6 +11,19 @@ export const fieldTypeSchema = z.enum([
   'file',
 ])
 
+// Technical key of a field, read by the classification (e.g. `stade_financement`). Immutable:
+// labels can be renamed freely, keys cannot.
+export const fieldKeySchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/, 'Key must be snake_case (a-z, 0-9, _).')
+
+export function hasUniqueKeys(fields: ReadonlyArray<{ key?: string | null }>): boolean {
+  const keys = fields.flatMap((f) => (f.key ? [f.key] : []))
+  return new Set(keys).size === keys.length
+}
+
 export const questionnaireVersionSchema = z.object({
   id: z.string().uuid(),
   version: z.number().int().positive(),
@@ -22,6 +35,7 @@ export const questionnaireFieldSchema = z.object({
   id: z.string().uuid(),
   versionId: z.string().uuid(),
   section: z.string(),
+  key: fieldKeySchema.nullable(),
   label: z.string(),
   fieldType: fieldTypeSchema,
   options: z.array(z.string()).default([]),
@@ -36,14 +50,20 @@ export const activeQuestionnaireSchema = z.object({
 
 export const createQuestionnaireVersionFieldSchema = z.object({
   section: z.string().min(1).max(200),
+  key: fieldKeySchema.optional(),
   label: z.string().min(1).max(500),
   fieldType: fieldTypeSchema,
+  options: z.array(z.string().min(1).max(500)).max(200).optional(),
   required: z.boolean(),
   orderIndex: z.number().int().nonnegative(),
 })
 
 export const createQuestionnaireVersionSchema = z.object({
-  fields: z.array(createQuestionnaireVersionFieldSchema).min(1).max(500),
+  fields: z
+    .array(createQuestionnaireVersionFieldSchema)
+    .min(1)
+    .max(500)
+    .refine(hasUniqueKeys, { message: 'Each field key must be unique within a version.' }),
 })
 
 export const patchQuestionnaireFieldSchema = z

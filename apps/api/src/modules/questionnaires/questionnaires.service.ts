@@ -5,8 +5,10 @@ import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
 
 export interface CreateVersionFieldInput {
   section: string
+  key?: string
   label: string
   fieldType: field_type
+  options?: string[]
   required: boolean
   orderIndex: number
 }
