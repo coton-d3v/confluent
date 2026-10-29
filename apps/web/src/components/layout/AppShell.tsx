@@ -18,6 +18,7 @@ import { setAuth, getAuthState } from '@/features/auth/auth-store'
 import { Breadcrumbs } from './Breadcrumbs'
 import { NavItem } from './NavItem'
 import { VersionBadge } from './VersionBadge'
+import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { ADMIN_NAV_ITEMS, NAV_ITEMS, type NavItemSpec } from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
 
@@ -171,6 +172,7 @@ function DesktopSidebar({
           Se déconnecter
         </Button>
       </div>
+      <LegalLinks className="px-4 pt-2" />
       <VersionBadge />
     </aside>
   )
