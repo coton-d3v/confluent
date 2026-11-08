@@ -11,7 +11,7 @@ const prisma = new PrismaClient()
 
 interface FieldDef {
   section: string
-  // Technical key read by the classification (see classification.keys.ts) — never rename.
+  // Technical key read by the classification rules (table classification_rules) — never rename.
   key?: string
   label: string
   fieldType: field_type

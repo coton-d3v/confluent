@@ -240,6 +240,12 @@ export function createFakePrisma() {
       minAccessLevel: 'complet',
     })),
     dossierAnswer: model('dossierAnswer'),
+    classificationRule: model('classificationRule', () => ({
+      choiceKey: '',
+      value: '',
+      position: 0,
+      updatedAt: new Date(),
+    })),
     document: model('document'),
   }
   self.prisma = prisma
