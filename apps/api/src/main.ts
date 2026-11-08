@@ -9,6 +9,7 @@ import basicAuth from 'express-basic-auth'
 import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
+import { mountOAuthServer } from './modules/oauth/oauth.http'
 import type { AppConfig } from './config/config.schema'
 
 async function bootstrap(): Promise<void> {
@@ -18,6 +19,8 @@ async function bootstrap(): Promise<void> {
   app.set('trust proxy', 1)
   app.use(helmet())
   app.use(cookieParser())
+  // OAuth 2.1 server for MCP clients, at the root (not under /v1) as clients discover it there.
+  mountOAuthServer(app)
   app.setGlobalPrefix('v1', { exclude: ['/'] })
   app.useGlobalPipes(new ZodValidationPipe())
   app.useGlobalFilters(new GlobalExceptionFilter())
