@@ -86,6 +86,29 @@ services:
     ports:
       - '${PORT:-3000}:3000'
 
+  # Nightly database (and document) backups with local retention and off-server copy.
+  # See docs/deploiement.md § Sauvegardes et restauration.
+  backup:
+    build: ./ops/backup
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 3 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}
+      DOCUMENTS_REMOTE: ${DOCUMENTS_REMOTE:-}
+      # rclone remotes, e.g. RCLONE_CONFIG_OFFSITE_TYPE=s3 … (see docs/deploiement.md)
+      RCLONE_CONFIG_OFFSITE_TYPE: ${RCLONE_CONFIG_OFFSITE_TYPE:-}
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${RCLONE_CONFIG_OFFSITE_PROVIDER:-}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${RCLONE_CONFIG_OFFSITE_ENDPOINT:-}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY:-}
+    volumes:
+      - backups_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     image: ${WEB_IMAGE}
     restart: unless-stopped
@@ -94,4 +117,6 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  backups_data:
     driver: local
