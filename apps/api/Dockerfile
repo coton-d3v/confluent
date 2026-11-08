@@ -2,12 +2,14 @@
 # Context expected: repository root (monorepo).
 #
 # Build:   docker build -f apps/api/Dockerfile --target prod \
-#            --build-arg DOPPLER_TOKEN=<token> --build-arg APP_VERSION=<x.y.z> \
-#            -t confluent-api:<tag> .
+#            --build-arg APP_VERSION=<x.y.z> -t confluent-api:<tag> .
+# Run:     secrets are runtime configuration, never baked into the image (ROADMAP E02.09):
+#            - DOPPLER_TOKEN set at run time → `doppler run` injects the secrets;
+#            - otherwise the process reads plain environment variables (compose `environment:`).
 # Layers:  deps    → install monorepo deps (cached)
 #          build   → compile shared + generate prisma client + nest build
 #          runtime → minimal final image (alpine + dist + prisma client)
-#          prod    → runtime + doppler CLI, version bake, doppler-wrapped entrypoint
+#          prod    → runtime + doppler CLI, version bake, entrypoint using doppler when DOPPLER_TOKEN is set
 
 FROM node:24-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -51,11 +53,11 @@ EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]
 
 FROM runtime AS prod
-ARG DOPPLER_TOKEN
 ARG APP_VERSION
-ENV DOPPLER_TOKEN=${DOPPLER_TOKEN}
 ENV APP_VERSION=${APP_VERSION}
 RUN wget -q -t3 'https://packages.doppler.com/public/cli/rsa.8004D9FF50437357.key' -O /etc/apk/keys/cli@doppler-8004D9FF50437357.rsa.pub \
  && echo 'https://packages.doppler.com/public/cli/alpine/any-version/main' | tee -a /etc/apk/repositories \
  && apk add --no-cache doppler
-CMD ["sh", "-c", "doppler run -- node apps/api/dist/main.js"]
+COPY apps/api/docker-entrypoint.sh /usr/local/bin/confluent-entrypoint
+ENTRYPOINT ["/usr/local/bin/confluent-entrypoint"]
+CMD ["node", "apps/api/dist/main.js"]

@@ -65,10 +65,7 @@ jobs:
           target: prod
           push: true
           build-args: |
-            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN_API_PRODUCTION }}
             APP_VERSION=${{ steps.tag_version.outputs.new_version }}
-          secrets: |
-            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN_API_PRODUCTION }}
           tags: |
             ${{ env.REGISTRY }}/${{ steps.repo.outputs.value }}-api:production-${{ steps.tag_version.outputs.new_tag }}
             ${{ env.REGISTRY }}/${{ steps.repo.outputs.value }}-api:production-latest
