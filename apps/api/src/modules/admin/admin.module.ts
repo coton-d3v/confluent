@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common'
 import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { AdminDossiersController } from './admin-dossiers.controller'
 import { AdminDossiersService } from './admin-dossiers.service'
-import { AdminQuestionnaireController } from './admin-questionnaire.controller'
 import { AdminFormsController } from './admin-forms.controller'
 import { AdminUsersController } from './admin-users.controller'
 import { AdminUsersService } from './admin-users.service'
@@ -18,7 +17,6 @@ import { AuthModule } from '../auth/auth.module'
   imports: [AnswersModule, DossiersModule, AuthModule, QuestionnairesModule],
   controllers: [
     AdminDossiersController,
-    AdminQuestionnaireController,
     AdminFormsController,
     AdminUsersController,
     AdminAnalyticsController,
