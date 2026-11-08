@@ -38,6 +38,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         message: 'Token expired or invalid.',
       })
     }
-    return { id: payload.sub, email: payload.email, role: payload.role }
+    // Role and email come from the database, not the token: a role change or deactivation applies to
+    // the next request instead of waiting for the access token to expire.
+    return { id: user.id, email: user.email, role: user.role }
   }
 }

@@ -55,6 +55,8 @@ enum audit_action {
   admin_edited_field
   admin_uploaded_document
   admin_revoked_share_link
+  session_revoked
+  refresh_token_reused
 
   @@map("audit_action")
 }
@@ -73,9 +75,29 @@ model User {
 
   dossiers         Dossier[]
   magicLinkTokens  MagicLinkToken[]
+  refreshSessions  RefreshSession[]
   auditLogsAsActor AuditLog[]       @relation("AuditLogActor")
 
   @@map("users")
+}
+
+// One row per issued refresh token (its JWT `jti`). Rotation revokes the presented row and links it
+// to its successor; all rows of a login share a `familyId`, so presenting an already-rotated token
+// (theft/replay) revokes the whole family.
+model RefreshSession {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  familyId     String    @map("family_id")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  replacedById String?   @map("replaced_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_sessions")
 }
 
 model MagicLinkToken {

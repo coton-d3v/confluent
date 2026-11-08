@@ -14,13 +14,27 @@ const MAGIC_LINK_TTL_MS = 15 * 60 * 1000
 export interface IssuedSession {
   accessToken: string
   refreshToken: string
-  user: { id: string; email: string; role: JwtPayload['role']; firstName: string | null; lastName: string | null }
+  user: {
+    id: string
+    email: string
+    role: JwtPayload['role']
+    firstName: string | null
+    lastName: string | null
+  }
 }
 
 interface RefreshPayload {
   sub: string
-  tokenVersion: number
+  // id of the `refresh_sessions` row backing this token
+  jti: string
 }
+
+// A rotated token presented again within this window is treated as a benign race (two tabs refreshing
+// at once) and simply refused; after it, it is treated as a replay and the whole login is revoked.
+const REFRESH_REUSE_GRACE_MS = 30 * 1000
+
+const invalidToken = () =>
+  new UnauthorizedException({ code: 'INVALID_TOKEN', message: 'Token expired or invalid.' })
 
 @Injectable()
 export class AuthService {
@@ -70,23 +84,21 @@ export class AuthService {
       where: { token },
       include: { user: true },
     })
+    if (!record) throw invalidToken()
 
-    if (!record || record.consumedAt !== null || record.expiresAt.getTime() < Date.now()) {
-      throw new UnauthorizedException({
-        code: 'INVALID_TOKEN',
-        message: 'Token expired or invalid.',
-      })
-    }
-
-    await this.prisma.magicLinkToken.update({
-      where: { id: record.id },
-      data: { consumedAt: new Date() },
+    // Consume atomically: only one of two concurrent requests can flip `consumedAt` from null.
+    const now = new Date()
+    const consumed = await this.prisma.magicLinkToken.updateMany({
+      where: { id: record.id, consumedAt: null, expiresAt: { gt: now } },
+      data: { consumedAt: now },
     })
+    if (consumed.count !== 1) throw invalidToken()
+    if (!record.user.isActive) throw invalidToken()
 
     if (record.user.emailVerifiedAt === null) {
       await this.prisma.user.update({
         where: { id: record.user.id },
-        data: { emailVerifiedAt: new Date() },
+        data: { emailVerifiedAt: now },
       })
     }
 
@@ -96,45 +108,69 @@ export class AuthService {
       metadata: { tokenId: record.id },
     })
 
-    return this.issueSession({
-      id: record.user.id,
-      email: record.user.email,
-      role: record.user.role,
-      firstName: record.user.firstName,
-      lastName: record.user.lastName,
-    })
+    return this.issueSession(record.user, randomUUID())
   }
 
   async refreshSession(refreshToken: string | undefined): Promise<IssuedSession> {
-    if (!refreshToken) {
-      throw new UnauthorizedException({
-        code: 'INVALID_TOKEN',
-        message: 'Token expired or invalid.',
-      })
+    const payload = await this.verifyRefreshToken(refreshToken)
+    if (!payload) throw invalidToken()
+
+    const row = await this.prisma.refreshSession.findUnique({ where: { id: payload.jti } })
+    if (!row || row.userId !== payload.sub || row.expiresAt.getTime() <= Date.now()) {
+      throw invalidToken()
     }
-    let payload: RefreshPayload
-    try {
-      payload = await this.jwt.verifyAsync<RefreshPayload>(refreshToken, {
-        secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }),
-      })
-    } catch {
-      throw new UnauthorizedException({
-        code: 'INVALID_TOKEN',
-        message: 'Token expired or invalid.',
-      })
+    if (row.revokedAt !== null) {
+      await this.handleRevokedTokenUse(row)
+      throw invalidToken()
     }
+
+    // Claim the row atomically so a token can be rotated only once.
+    const claimed = await this.prisma.refreshSession.updateMany({
+      where: { id: row.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    if (claimed.count !== 1) throw invalidToken()
 
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } })
     if (!user || !user.isActive || user.emailVerifiedAt === null) {
-      throw new UnauthorizedException({
-        code: 'INVALID_TOKEN',
-        message: 'Token expired or invalid.',
-      })
+      await this.revokeFamily(row.familyId)
+      throw invalidToken()
     }
-    return this.issueSession({ id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName })
+    const session = await this.issueSession(user, row.familyId)
+    await this.prisma.refreshSession.update({
+      where: { id: row.id },
+      data: { replacedById: session.sessionId },
+    })
+    return session
   }
 
-  async updateProfile(userId: string, firstName: string, lastName: string): Promise<{ firstName: string; lastName: string }> {
+  // Logout: revoke every token of the presented login. Never throws — logging out must always succeed.
+  async revokeSession(refreshToken: string | undefined): Promise<void> {
+    const payload = await this.verifyRefreshToken(refreshToken)
+    if (!payload) return
+    const row = await this.prisma.refreshSession.findUnique({ where: { id: payload.jti } })
+    if (!row || row.userId !== payload.sub) return
+    await this.revokeFamily(row.familyId)
+    await this.audit.record({
+      actionType: 'session_revoked',
+      actorId: row.userId,
+      metadata: { familyId: row.familyId, reason: 'logout' },
+    })
+  }
+
+  // Used when an account is deactivated: no refresh token of this user can be rotated any more.
+  async revokeAllSessions(userId: string): Promise<void> {
+    await this.prisma.refreshSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+  }
+
+  async updateProfile(
+    userId: string,
+    firstName: string,
+    lastName: string,
+  ): Promise<{ firstName: string; lastName: string }> {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { firstName: firstName.trim(), lastName: lastName.trim() },
@@ -142,13 +178,53 @@ export class AuthService {
     return { firstName: user.firstName!, lastName: user.lastName! }
   }
 
-  private async issueSession(user: {
+  private async verifyRefreshToken(token: string | undefined): Promise<RefreshPayload | null> {
+    if (!token) return null
+    try {
+      const payload = await this.jwt.verifyAsync<RefreshPayload>(token, {
+        secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }),
+      })
+      return typeof payload.jti === 'string' && typeof payload.sub === 'string' ? payload : null
+    } catch {
+      return null
+    }
+  }
+
+  private async handleRevokedTokenUse(row: {
     id: string
-    email: string
-    role: JwtPayload['role']
-    firstName: string | null
-    lastName: string | null
-  }): Promise<IssuedSession> {
+    userId: string
+    familyId: string
+    revokedAt: Date | null
+    replacedById: string | null
+  }): Promise<void> {
+    const sinceRevocation = Date.now() - (row.revokedAt?.getTime() ?? 0)
+    if (row.replacedById !== null && sinceRevocation < REFRESH_REUSE_GRACE_MS) return
+    await this.revokeFamily(row.familyId)
+    this.logger.warn(`refresh_token_reused user=${row.userId} family=${row.familyId}`)
+    await this.audit.record({
+      actionType: 'refresh_token_reused',
+      actorId: row.userId,
+      metadata: { familyId: row.familyId, tokenId: row.id },
+    })
+  }
+
+  private async revokeFamily(familyId: string): Promise<void> {
+    await this.prisma.refreshSession.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+  }
+
+  private async issueSession(
+    user: {
+      id: string
+      email: string
+      role: JwtPayload['role']
+      firstName: string | null
+      lastName: string | null
+    },
+    familyId: string,
+  ): Promise<IssuedSession & { sessionId: string }> {
     const accessToken = await this.jwt.signAsync(
       { sub: user.id, email: user.email, role: user.role } satisfies JwtPayload,
       {
@@ -156,13 +232,31 @@ export class AuthService {
         expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       },
     )
+    const row = await this.prisma.refreshSession.create({
+      data: {
+        userId: user.id,
+        familyId,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000),
+      },
+    })
     const refreshToken = await this.jwt.signAsync(
-      { sub: user.id, tokenVersion: 0 } satisfies RefreshPayload,
+      { sub: user.id, jti: row.id } satisfies RefreshPayload,
       {
         secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }),
         expiresIn: REFRESH_TOKEN_TTL_SECONDS,
       },
     )
-    return { accessToken, refreshToken, user: { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName } }
+    return {
+      accessToken,
+      refreshToken,
+      sessionId: row.id,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    }
   }
 }

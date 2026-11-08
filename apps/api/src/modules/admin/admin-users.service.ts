@@ -56,6 +56,7 @@ export class AdminUsersService {
       where: { id: userId },
       data: { isActive: false },
     })
+    await this.auth.revokeAllSessions(userId)
     await this.audit.record({
       actionType: 'user_deactivated',
       actorId,
