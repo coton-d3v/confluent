@@ -78,6 +78,19 @@ function FormEditor({ formId }: { formId: string }) {
     })
   }
 
+  function askAssign() {
+    setConfirm({
+      title: 'Utiliser ce formulaire pour les nouveaux dossiers ?',
+      description: `Les dossiers créés à partir de maintenant utiliseront la version ${detail.published?.version} de « ${detail.name} », à la place du formulaire actuel. Les dossiers existants gardent leur formulaire et leurs réponses.`,
+      confirmLabel: 'Utiliser ce formulaire',
+      onConfirm: () =>
+        void run(
+          () => api.assignFormUsage(formId, 'dossier'),
+          'Ce formulaire est utilisé pour les nouveaux dossiers.',
+        ),
+    })
+  }
+
   function askArchive() {
     setConfirm({
       title: 'Archiver ce formulaire ?',
@@ -128,6 +141,19 @@ function FormEditor({ formId }: { formId: string }) {
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!detail.usage && !archived && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !detail.published}
+              title={
+                detail.published ? undefined : 'Publiez une version avant d’affecter ce formulaire.'
+              }
+              onClick={askAssign}
+            >
+              Utiliser pour les nouveaux dossiers
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={openDuplicate}>
             Dupliquer
           </Button>

@@ -3,6 +3,7 @@ import type {
   CreateDraftSectionInput,
   FormDetail,
   FormSummary,
+  FormUsage,
   FormVersionStructure,
   UpdateDraftFieldInput,
   UpdateDraftSectionInput,
@@ -31,6 +32,9 @@ export const renameForm = (formId: string, name: string) =>
 
 export const duplicateForm = (formId: string, name: string) =>
   apiRequest<FormDetail>(`${form(formId)}/duplicate`, json('POST', { name }))
+
+export const assignFormUsage = (formId: string, usage: FormUsage) =>
+  apiRequest<FormDetail>(`${form(formId)}/usage`, json('PUT', { usage }))
 
 export const archiveForm = (formId: string) =>
   apiRequest<FormDetail>(`${form(formId)}/archive`, json('POST'))
