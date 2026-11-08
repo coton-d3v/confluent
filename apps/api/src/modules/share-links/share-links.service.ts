@@ -59,8 +59,8 @@ export class ShareLinksService {
 
   // E02.08: a share link opens the dossier only to the account it was sent to. A forwarded link
   // used by someone else — even logged in — gets nothing.
-  assertRecipient(shareLink: ShareLink, user: { email: string } | undefined): void {
-    if (user && !sameEmail(user.email, shareLink.recipientEmail)) {
+  assertRecipient(shareLink: ShareLink, user: { email: string }): void {
+    if (!sameEmail(user.email, shareLink.recipientEmail)) {
       throw new ForbiddenException({
         message: 'This share link was sent to another email address.',
         details: { reason: 'recipient_mismatch' },

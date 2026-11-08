@@ -141,7 +141,10 @@ describe('ShareLinksController (e2e)', () => {
 
   it('GET /v1/shares/:token — public: identity only, no documents + audit written', async () => {
     activeLink('public')
-    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
 
     expect(res.body.share).toEqual({
       recipientEmail: 'bob@invest.fr',
@@ -165,7 +168,10 @@ describe('ShareLinksController (e2e)', () => {
 
   it('GET /v1/shares/:token — partiel: no financial answer, no documents', async () => {
     activeLink('partiel')
-    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
 
     expect(res.body.answers.map((a: { fieldId: string }) => a.fieldId)).toEqual([
       'f-name',
@@ -177,7 +183,10 @@ describe('ShareLinksController (e2e)', () => {
 
   it('GET /v1/shares/:token — complet: everything + documents', async () => {
     activeLink('complet')
-    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
 
     expect(res.body.answers).toHaveLength(3)
     expect(res.body.dossier.axe2Financier).toBe(4)
@@ -198,7 +207,10 @@ describe('ShareLinksController (e2e)', () => {
         createdAt: new Date('2026-11-01'),
       },
     ])
-    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
 
     expect(res.body.answers).toHaveLength(3)
     expect(res.body.documents).toHaveLength(1)
@@ -218,6 +230,15 @@ describe('ShareLinksController (e2e)', () => {
         .expect(403)
       expect(other.body.error.details).toEqual({ reason: 'recipient_mismatch' })
       expect(other.body.answers).toBeUndefined()
+    })
+
+    it('without a session: 401, no content and no view counted (E02.08 3/3)', async () => {
+      activeLink('complet')
+      const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(401)
+      expect(res.body.answers).toBeUndefined()
+      expect(auditRecord).not.toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'share_link_viewed' }),
+      )
     })
 
     it('an invalid token is a 401 (the client refreshes), never treated as anonymous', async () => {
@@ -261,7 +282,10 @@ describe('ShareLinksController (e2e)', () => {
 
   it('GET /v1/shares/:token — unknown token: 403 + deny audit', async () => {
     shareFindUnique.mockResolvedValue(null)
-    const res = await request(app.getHttpServer()).get('/v1/shares/unknown').expect(403)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/unknown')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(403)
     expect(res.body.error.code).toBe('FORBIDDEN')
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -279,7 +303,10 @@ describe('ShareLinksController (e2e)', () => {
       dossierId: 'd-1',
       recipientEmail: 'bob@invest.fr',
     })
-    await request(app.getHttpServer()).get('/v1/shares/rev').expect(403)
+    await request(app.getHttpServer())
+      .get('/v1/shares/rev')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(403)
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: 'share_link_access_denied',
