@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { AccessLevel } from '@confluent/shared'
-import type { Dossier, QuestionnaireField } from '@prisma/client'
+import type { Dossier } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService } from '../answers/answers.service'
@@ -242,33 +242,33 @@ export class McpToolsFactory {
     return { row: dossier, accessLevel }
   }
 
-  private async fieldsOf(dossier: Dossier): Promise<QuestionnaireField[]> {
-    const snapshot = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
-    return snapshot?.fields ?? []
-  }
-
   private async describeDossier(dossier: Dossier, accessLevel: AccessLevel, caller: McpCaller) {
-    const fields = (await this.fieldsOf(dossier)).filter((f) => fieldVisibleAt(f, accessLevel))
+    const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
+    const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
     const visible = new Set(fields.map((f) => f.id))
     const answers = new Map(
       (await this.answers.listForDossier(dossier.id))
         .filter((a) => visible.has(a.fieldId))
         .map((a) => [a.fieldId, a.value]),
     )
-    const sections = new Map<string, unknown[]>()
-    for (const f of fields) {
-      const list = sections.get(f.section) ?? []
-      list.push({
-        fieldId: f.id,
-        key: f.key,
-        label: f.label,
-        type: f.fieldType,
-        required: f.required,
-        ...(f.options.length ? { options: f.options } : {}),
-        answer: answers.get(f.id) ?? null,
-      })
-      sections.set(f.section, list)
-    }
+    // Sections in their defined order, each with its visible fields (already ordered).
+    const sections = (structure?.sections ?? [])
+      .map((section) => ({
+        title: section.title,
+        fields: fields
+          .filter((f) => f.sectionId === section.id)
+          .map((f) => ({
+            fieldId: f.id,
+            key: f.key,
+            label: f.label,
+            ...(f.helpText ? { help: f.helpText } : {}),
+            type: f.fieldType,
+            required: f.required,
+            ...(f.options.length ? { options: f.options } : {}),
+            answer: answers.get(f.id) ?? null,
+          })),
+      }))
+      .filter((section) => section.fields.length > 0)
     const projected = projectDossierForLevel(dossier, accessLevel)
     const isOwner = dossier.userId === caller.user.id
     return {
@@ -287,7 +287,7 @@ export class McpToolsFactory {
         },
       },
       canEdit: isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write),
-      sections: [...sections.entries()].map(([title, list]) => ({ title, fields: list })),
+      sections,
       missingRequired: fields
         .filter((f) => f.required && !(answers.get(f.id) ?? '').trim())
         .map((f) => ({ fieldId: f.id, label: f.label })),

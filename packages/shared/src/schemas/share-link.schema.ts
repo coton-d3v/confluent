@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { accessLevelSchema } from './access-level.schema.js'
 import { documentGroupSchema } from './document.schema.js'
 import { dossierSchema } from './dossier.schema.js'
-import { questionnaireFieldSchema } from './questionnaire.schema.js'
+import { questionnaireFieldSchema, questionnaireSectionSchema } from './questionnaire.schema.js'
 
 export const shareLinkStatusSchema = z.enum(['pending', 'active', 'revoked', 'expired'])
 
@@ -54,6 +54,7 @@ export const financeurShareResponseSchema = z.object({
     status: shareLinkStatusSchema,
     accessLevel: accessLevelSchema,
   }),
+  sections: z.array(questionnaireSectionSchema),
   fields: z.array(questionnaireFieldSchema),
   answers: z.array(z.object({ fieldId: z.string().uuid(), value: z.string() })),
   documents: z.array(documentGroupSchema).nullable(),

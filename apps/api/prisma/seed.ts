@@ -1,5 +1,9 @@
 import { PrismaClient, type user_role } from '@prisma/client'
 import { QUESTIONNAIRE_V1_FIELDS } from '../src/modules/questionnaires/questionnaire.seed'
+import { createVersionStructure } from '../src/modules/questionnaires/questionnaire-structure'
+
+// Same identity as DOSSIER_FORM in questionnaires.service.ts (kept local: no Nest import in seeds).
+const DOSSIER_FORM = { slug: 'profil-entreprise', name: "Profil de l'entreprise", usage: 'dossier' }
 import { refuseInProduction } from '../scripts/lib/environment-guard'
 
 refuseInProduction('Seed de démonstration (comptes @localhost.dev, dossier Biosensio)')
@@ -41,26 +45,33 @@ const BIOSENSIO_ANSWERS: Record<string, string> = {
 }
 
 async function main(): Promise<void> {
-  // 1) Questionnaire v1 — upsert idempotent (version is unique).
+  // 1) Dossier form + questionnaire v1 — idempotent.
   await prisma.$transaction(async (tx) => {
-    const version = await tx.questionnaireVersion.upsert({
-      where: { version: 1 },
+    const form = await tx.questionnaire.upsert({
+      where: { slug: DOSSIER_FORM.slug },
       update: {},
-      create: { version: 1, isPublished: true },
+      create: DOSSIER_FORM,
     })
-    const count = await tx.questionnaireField.count({ where: { versionId: version.id } })
-    if (count === 0) {
-      await tx.questionnaireField.createMany({
-        data: QUESTIONNAIRE_V1_FIELDS.map((f) => ({ ...f, versionId: version.id })),
-      })
-      console.log(
-        `[seed] questionnaire v${version.version}: inserted ${QUESTIONNAIRE_V1_FIELDS.length} fields`,
-      )
-    } else {
-      console.log(
-        `[seed] questionnaire v${version.version}: already has ${count} fields — skipping`,
-      )
+    const existing = await tx.questionnaireVersion.findUnique({
+      where: { questionnaireId_version: { questionnaireId: form.id, version: 1 } },
+    })
+    if (existing) {
+      console.log(`[seed] questionnaire v1 already exists — skipping`)
+      return
     }
+    const hasPublished = await tx.questionnaireVersion.count({
+      where: { questionnaireId: form.id, status: 'published' },
+    })
+    const version = await tx.questionnaireVersion.create({
+      data: {
+        questionnaireId: form.id,
+        version: 1,
+        status: hasPublished ? 'archived' : 'published',
+        publishedAt: new Date(),
+      },
+    })
+    await createVersionStructure(tx, version.id, QUESTIONNAIRE_V1_FIELDS)
+    console.log(`[seed] questionnaire v1: inserted ${QUESTIONNAIRE_V1_FIELDS.length} fields`)
   })
 
   // 2) Fixtures users — upsert by email.
@@ -92,7 +103,7 @@ async function main(): Promise<void> {
     where: { email: 'financeur@localhost.dev' },
   })
   const activeVersion = await prisma.questionnaireVersion.findFirstOrThrow({
-    where: { isPublished: true },
+    where: { status: 'published', questionnaire: { usage: DOSSIER_FORM.usage } },
     include: { fields: true },
     orderBy: { version: 'desc' },
   })

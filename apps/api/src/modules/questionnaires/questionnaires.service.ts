@@ -1,8 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import type {
+  Prisma,
+  QuestionnaireField,
+  QuestionnaireSection,
+  QuestionnaireVersion,
+  field_type,
+} from '@prisma/client'
 import type { AccessLevel } from '@confluent/shared'
-import type { field_type, QuestionnaireField, QuestionnaireVersion } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
+import { createVersionStructure } from './questionnaire-structure'
+
+// The form whose published version every new dossier is created with (E03.09 will let several
+// forms coexist per usage; today there is one per usage).
+export const DOSSIER_FORM = {
+  slug: 'profil-entreprise',
+  name: "Profil de l'entreprise",
+  usage: 'dossier',
+}
 
 export interface CreateVersionFieldInput {
   section: string
@@ -21,73 +36,79 @@ export interface UpdateFieldInput {
   required?: boolean
 }
 
-export interface ActiveQuestionnaire {
+// A version with its ordered sections and fields (fields ordered by section, then position).
+export interface VersionStructure {
   version: QuestionnaireVersion
+  sections: QuestionnaireSection[]
   fields: QuestionnaireField[]
 }
+
+const FIELD_ORDER: Prisma.QuestionnaireFieldOrderByWithRelationInput[] = [
+  { section: { orderIndex: 'asc' } },
+  { orderIndex: 'asc' },
+]
 
 @Injectable()
 export class QuestionnairesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getActive(): Promise<ActiveQuestionnaire> {
-    let version = await this.prisma.questionnaireVersion.findFirst({
-      where: { isPublished: true },
-      orderBy: { version: 'desc' },
-    })
-    if (!version) {
-      version = await this.seedVersion1()
-    }
-    const fields = await this.prisma.questionnaireField.findMany({
-      where: { versionId: version.id },
-      orderBy: [{ section: 'asc' }, { orderIndex: 'asc' }],
-    })
-    return { version, fields }
+  // Published version of the dossier form; bootstraps V1 on an empty database.
+  async getActive(): Promise<VersionStructure> {
+    const version = await this.ensureBootstrap()
+    return (await this.getVersion(version.id))!
   }
 
   async ensureBootstrap(): Promise<QuestionnaireVersion> {
-    const existing = await this.prisma.questionnaireVersion.findFirst({
-      where: { isPublished: true },
+    const published = await this.prisma.questionnaireVersion.findFirst({
+      where: { status: 'published', questionnaire: { usage: DOSSIER_FORM.usage } },
       orderBy: { version: 'desc' },
     })
-    return existing ?? (await this.seedVersion1())
+    return published ?? (await this.seedVersion1())
   }
 
-  async getVersion(id: string): Promise<ActiveQuestionnaire | null> {
+  async getVersion(id: string): Promise<VersionStructure | null> {
     const version = await this.prisma.questionnaireVersion.findUnique({ where: { id } })
     if (!version) return null
-    const fields = await this.prisma.questionnaireField.findMany({
-      where: { versionId: version.id },
-      orderBy: [{ section: 'asc' }, { orderIndex: 'asc' }],
-    })
-    return { version, fields }
+    const [sections, fields] = await Promise.all([
+      this.prisma.questionnaireSection.findMany({
+        where: { versionId: id },
+        orderBy: { orderIndex: 'asc' },
+      }),
+      this.prisma.questionnaireField.findMany({ where: { versionId: id }, orderBy: FIELD_ORDER }),
+    ])
+    return { version, sections, fields }
   }
 
   listVersions(): Promise<QuestionnaireVersion[]> {
     return this.prisma.questionnaireVersion.findMany({
+      where: { questionnaire: { usage: DOSSIER_FORM.usage } },
       orderBy: { version: 'desc' },
     })
   }
 
+  // Publishes a complete new version: the previous published one is archived in the same
+  // transaction, so there is always exactly one published version.
   async createVersion(fields: CreateVersionFieldInput[]): Promise<QuestionnaireVersion> {
-    const previous = await this.prisma.questionnaireVersion.findFirst({
-      orderBy: { version: 'desc' },
-    })
-    const nextVersion = (previous?.version ?? 0) + 1
     return this.prisma.$transaction(async (tx) => {
-      if (previous) {
-        await tx.questionnaireVersion.update({
-          where: { id: previous.id },
-          data: { isPublished: false },
-        })
-      }
-      return tx.questionnaireVersion.create({
+      const form = await this.dossierForm(tx)
+      const previous = await tx.questionnaireVersion.findFirst({
+        where: { questionnaireId: form.id },
+        orderBy: { version: 'desc' },
+      })
+      await tx.questionnaireVersion.updateMany({
+        where: { questionnaireId: form.id, status: 'published' },
+        data: { status: 'archived' },
+      })
+      const version = await tx.questionnaireVersion.create({
         data: {
-          version: nextVersion,
-          isPublished: true,
-          fields: { create: fields },
+          questionnaireId: form.id,
+          version: (previous?.version ?? 0) + 1,
+          status: 'published',
+          publishedAt: new Date(),
         },
       })
+      await createVersionStructure(tx, version.id, fields)
+      return version
     })
   }
 
@@ -109,13 +130,26 @@ export class QuestionnairesService {
   }
 
   private async seedVersion1(): Promise<QuestionnaireVersion> {
-    const version = await this.prisma.questionnaireVersion.create({
-      data: {
-        version: 1,
-        isPublished: true,
-        fields: { create: QUESTIONNAIRE_V1_FIELDS },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const form = await this.dossierForm(tx)
+      const version = await tx.questionnaireVersion.create({
+        data: {
+          questionnaireId: form.id,
+          version: 1,
+          status: 'published',
+          publishedAt: new Date(),
+        },
+      })
+      await createVersionStructure(tx, version.id, QUESTIONNAIRE_V1_FIELDS)
+      return version
     })
-    return version
+  }
+
+  private dossierForm(tx: Prisma.TransactionClient) {
+    return tx.questionnaire.upsert({
+      where: { slug: DOSSIER_FORM.slug },
+      create: DOSSIER_FORM,
+      update: {},
+    })
   }
 }

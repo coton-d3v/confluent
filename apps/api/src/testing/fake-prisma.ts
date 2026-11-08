@@ -22,9 +22,15 @@ function matches(row: Row, where: Where = {}): boolean {
 }
 
 const UNIQUE_KEYS: Record<string, string[]> = {
+  questionnaire: ['id', 'slug'],
   user: ['id', 'email'],
   oAuthToken: ['id', 'tokenHash'],
   dossier: ['id', 'slug'],
+}
+
+// Table backing a to-one relation, for relation ordering.
+const RELATIONS: Record<string, Record<string, string>> = {
+  questionnaireField: { section: 'questionnaireSection' },
 }
 
 // Prisma compound unique input, e.g. { dossierId_fieldId: { dossierId, fieldId } } → plain filter.
@@ -49,26 +55,35 @@ export function createFakePrisma() {
     findUnique: jest.fn(
       ({ where, include }: { where: Where; include?: Record<string, unknown> }) => {
         const keys = UNIQUE_KEYS[name] ?? ['id']
-        const key = keys.find((k) => where[k] !== undefined) ?? 'id'
-        const row = [...table(name).values()].find((r) => r[key] === where[key])
+        const key = keys.find((k) => where[k] !== undefined)
+        const row = key
+          ? [...table(name).values()].find((r) => r[key] === where[key])
+          : [...table(name).values()].find((r) => matches(r, flattenWhere(where)))
         return Promise.resolve(withInclude(name, row, include))
       },
     ),
-    findFirst: jest.fn(({ where, include }: { where?: Where; include?: Record<string, unknown> }) =>
-      Promise.resolve(
-        withInclude(
-          name,
-          [...table(name).values()].find((r) => matches(r, where)),
-          include,
+    findFirst: jest.fn(
+      ({
+        where,
+        include,
+        orderBy,
+      }: {
+        where?: Where
+        include?: Record<string, unknown>
+        orderBy?: unknown
+      }) =>
+        Promise.resolve(
+          withInclude(name, sorted(name, filtered(name, where), orderBy)[0], include),
         ),
-      ),
     ),
     findMany: jest.fn(
-      ({ where, include }: { where?: Where; include?: Record<string, unknown> } = {}) =>
+      ({
+        where,
+        include,
+        orderBy,
+      }: { where?: Where; include?: Record<string, unknown>; orderBy?: unknown } = {}) =>
         Promise.resolve(
-          [...table(name).values()]
-            .filter((r) => matches(r, where))
-            .map((r) => withInclude(name, r, include)),
+          sorted(name, filtered(name, where), orderBy).map((r) => withInclude(name, r, include)),
         ),
     ),
     count: jest.fn(({ where }: { where?: Where } = {}) =>
@@ -78,6 +93,23 @@ export function createFakePrisma() {
       const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...data } as Row
       table(name).set(row.id, row)
       return Promise.resolve({ ...row })
+    }),
+    createMany: jest.fn(({ data }: { data: Array<Record<string, unknown>> }) => {
+      for (const d of data) {
+        const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...d } as Row
+        table(name).set(row.id, row)
+      }
+      return Promise.resolve({ count: data.length })
+    }),
+    deleteMany: jest.fn(({ where }: { where?: Where } = {}) => {
+      let count = 0
+      for (const [id, row] of table(name)) {
+        if (matches(row, where)) {
+          table(name).delete(id)
+          count++
+        }
+      }
+      return Promise.resolve({ count })
     }),
     update: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       const row = [...table(name).values()].find((r) => matches(r, where))
@@ -114,6 +146,30 @@ export function createFakePrisma() {
   })
 
   const get = (name: string, id: unknown) => table(name).get(id as string)
+  const filtered = (name: string, where?: Where) =>
+    [...table(name).values()].filter((r) => matches(r, where))
+  // orderBy on columns and on one level of to-one relation, e.g. { section: { orderIndex: 'asc' } }.
+  const sorted = (name: string, rows: Row[], orderBy: unknown): Row[] => {
+    const keys = (Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []) as Array<
+      Record<string, unknown>
+    >
+    const valueOf = (row: Row, field: string, dir: unknown): [unknown, unknown] => {
+      if (dir && typeof dir === 'object') {
+        const [sub, subDir] = Object.entries(dir as Record<string, unknown>)[0]
+        return [get(RELATIONS[name]?.[field] ?? field, row[`${field}Id`])?.[sub], subDir]
+      }
+      return [row[field], dir]
+    }
+    return [...rows].sort((a, b) => {
+      for (const k of keys) {
+        const [field, dir] = Object.entries(k)[0]
+        const [av, d] = valueOf(a, field, dir)
+        const [bv] = valueOf(b, field, dir)
+        if (av !== bv) return ((av as number) < (bv as number) ? -1 : 1) * (d === 'desc' ? -1 : 1)
+      }
+      return 0
+    })
+  }
 
   // Relations used by the OAuth provider / consent controller / MCP tools.
   includes.oAuthAuthorizationRequest = (row) => ({
@@ -151,9 +207,15 @@ export function createFakePrisma() {
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
     dossier: model('dossier', () => ({ submittedAt: null })),
     shareLink: model('shareLink'),
-    questionnaireVersion: model('questionnaireVersion'),
+    questionnaire: model('questionnaire'),
+    questionnaireVersion: model('questionnaireVersion', () => ({
+      status: 'draft',
+      publishedAt: null,
+    })),
+    questionnaireSection: model('questionnaireSection'),
     questionnaireField: model('questionnaireField', () => ({
-      key: null,
+      helpText: null,
+      constraints: {},
       options: [],
       required: false,
       minAccessLevel: 'complet',

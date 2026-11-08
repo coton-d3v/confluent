@@ -2,6 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import type { Dossier } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService, type AnswerInput } from '../answers/answers.service'
+import {
+  QuestionnairesService,
+  type VersionStructure,
+} from '../questionnaires/questionnaires.service'
 import { AuditService } from '../audit/audit.service'
 
 export interface AdminDossierListItem {
@@ -29,6 +33,7 @@ export class AdminDossiersService {
     private readonly prisma: PrismaService,
     private readonly answers: AnswersService,
     private readonly audit: AuditService,
+    private readonly questionnaires: QuestionnairesService,
   ) {}
 
   async list(page: number, pageSize: number): Promise<AdminDossierList> {
@@ -59,7 +64,11 @@ export class AdminDossiersService {
     return { page, pageSize, total, items }
   }
 
-  async detail(id: string): Promise<Dossier & { ownerEmail: string }> {
+  // The dossier with its own questionnaire version (never the currently published one): answers
+  // and edits must target the fields the dossier was created with.
+  async detail(
+    id: string,
+  ): Promise<Dossier & { ownerEmail: string; questionnaireVersion: VersionStructure | null }> {
     const dossier = await this.prisma.dossier.findUnique({
       where: { id },
       include: {
@@ -72,7 +81,10 @@ export class AdminDossiersService {
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    return { ...dossier, ownerEmail: dossier.user.email }
+    const questionnaireVersion = await this.questionnaires.getVersion(
+      dossier.questionnaireVersionId,
+    )
+    return { ...dossier, ownerEmail: dossier.user.email, questionnaireVersion }
   }
 
   async editAnswers(dossierId: string, adminId: string, updates: AnswerInput[]): Promise<void> {

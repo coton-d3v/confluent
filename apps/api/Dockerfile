@@ -47,7 +47,7 @@ COPY --from=build /repo/apps/api/node_modules/ apps/api/node_modules/
 COPY --from=build /repo/apps/api/dist/ apps/api/dist/
 COPY --from=build /repo/apps/api/prisma/ apps/api/prisma/
 COPY --from=build /repo/apps/api/scripts/ apps/api/scripts/
-COPY --from=build /repo/apps/api/src/modules/questionnaires/questionnaire.seed.ts apps/api/src/modules/questionnaires/
+COPY --from=build /repo/apps/api/src/modules/questionnaires/questionnaire.seed.ts /repo/apps/api/src/modules/questionnaires/questionnaire-structure.ts apps/api/src/modules/questionnaires/
 COPY --from=build /repo/apps/api/package.json apps/api/
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]

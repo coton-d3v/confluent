@@ -1,4 +1,11 @@
-import type { AdminDossierList, AnswerInput, AuditLog, Dossier, ShareLink } from '@confluent/shared'
+import type {
+  ActiveQuestionnaire,
+  AdminDossierList,
+  AnswerInput,
+  AuditLog,
+  Dossier,
+  ShareLink,
+} from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
 export function listAdminDossiers(page = 1, pageSize = 20): Promise<AdminDossierList> {
@@ -11,6 +18,7 @@ export function listAdminDossiers(page = 1, pageSize = 20): Promise<AdminDossier
 
 export interface AdminDossierDetail extends Dossier {
   ownerEmail: string
+  questionnaireVersion: ActiveQuestionnaire | null
   answers: Array<{ id: string; dossierId: string; fieldId: string; value: string }>
   shareLinks: ShareLink[]
   documents: Array<{

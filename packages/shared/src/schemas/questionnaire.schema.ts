@@ -25,28 +25,46 @@ export function hasUniqueKeys(fields: ReadonlyArray<{ key?: string | null }>): b
   return new Set(keys).size === keys.length
 }
 
+// draft: editable, unused · published: the one version used for new dossiers, immutable ·
+// archived: kept for the dossiers created with it (ROADMAP E03.02, E03.08).
+export const questionnaireVersionStatusSchema = z.enum(['draft', 'published', 'archived'])
+
 export const questionnaireVersionSchema = z.object({
   id: z.string().uuid(),
+  questionnaireId: z.string().uuid(),
   version: z.number().int().positive(),
-  isPublished: z.boolean(),
+  status: questionnaireVersionStatusSchema,
+  publishedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+})
+
+export const questionnaireSectionSchema = z.object({
+  id: z.string().uuid(),
+  versionId: z.string().uuid(),
+  key: fieldKeySchema,
+  title: z.string(),
+  orderIndex: z.number().int().nonnegative(),
 })
 
 export const questionnaireFieldSchema = z.object({
   id: z.string().uuid(),
   versionId: z.string().uuid(),
-  section: z.string(),
-  key: fieldKeySchema.nullable(),
+  sectionId: z.string().uuid(),
+  key: fieldKeySchema,
   label: z.string(),
+  helpText: z.string().nullable(),
   fieldType: fieldTypeSchema,
   options: z.array(z.string()).default([]),
   required: z.boolean(),
   orderIndex: z.number().int().nonnegative(),
+  constraints: z.record(z.string(), z.unknown()).default({}),
   minAccessLevel: accessLevelSchema,
 })
 
+// A version with its ordered sections and fields (fields ordered by section, then position).
 export const activeQuestionnaireSchema = z.object({
   version: questionnaireVersionSchema,
+  sections: z.array(questionnaireSectionSchema),
   fields: z.array(questionnaireFieldSchema),
 })
 
@@ -80,7 +98,9 @@ export const patchQuestionnaireFieldSchema = z
   })
 
 export type FieldType = z.infer<typeof fieldTypeSchema>
+export type QuestionnaireVersionStatus = z.infer<typeof questionnaireVersionStatusSchema>
 export type QuestionnaireVersion = z.infer<typeof questionnaireVersionSchema>
+export type QuestionnaireSection = z.infer<typeof questionnaireSectionSchema>
 export type QuestionnaireField = z.infer<typeof questionnaireFieldSchema>
 export type ActiveQuestionnaire = z.infer<typeof activeQuestionnaireSchema>
 export type CreateQuestionnaireVersionFieldInput = z.infer<

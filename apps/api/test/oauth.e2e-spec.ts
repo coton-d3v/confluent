@@ -12,7 +12,7 @@ import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
 import { mountOAuthServer } from './../src/modules/oauth/oauth.http'
 import { ConfluentOAuthProvider } from './../src/modules/oauth/oauth.provider'
-import { createFakePrisma } from './support/fake-prisma'
+import { createFakePrisma } from '../src/testing/fake-prisma'
 
 const REDIRECT = 'https://claude.ai/api/mcp/auth_callback'
 const RESOURCE = 'http://localhost:3000/mcp'

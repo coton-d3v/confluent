@@ -29,7 +29,7 @@ Commandes : `pnpm dev:api`, `pnpm dev:web`, `pnpm typecheck`, `pnpm --filter @co
 ## Tests et vérifications (avant toute PR)
 
 1. `pnpm typecheck` (shared, API, web) et eslint sur les fichiers touchés.
-2. API : **tests unitaires ET e2e** (`test:e2e`, Prisma simulé par `test/support/fake-prisma.ts`, aucune base requise). Un contrat HTTP modifié = test e2e adapté.
+2. API : **tests unitaires ET e2e** (`test:e2e`, Prisma simulé avec état par `apps/api/src/testing/fake-prisma.ts`, exclu du build, aucune base requise). Un contrat HTTP modifié = test e2e adapté.
 3. Un correctif de bug s'accompagne d'un test de non-régression **dont on a vérifié qu'il échoue sans le correctif**.
 4. Web : `vite build`, puis **recette dans un vrai navigateur** (Playwright Chromium headless, voir ci-dessous) pour tout écran modifié.
 5. Recette réelle sur la base de dev quand c'est pertinent (API compilée `pnpm --filter @confluent/api start`), données de démonstration remises en état après coup.
