@@ -9,6 +9,8 @@
 #   POSTGRES_USER / _PASSWORD / _DB — used by the postgres service only
 #   WEB_PORT                  — host port for the web container (default: 80)
 #   + all the keys validated by apps/api/src/config/config.schema.ts
+#   DOPPLER_TOKEN             — optional; when set, secrets come from Doppler at run time
+#                               (never baked into the images — see docs/deploiement.md)
 services:
   postgres:
     image: postgres:16-alpine
@@ -28,6 +30,8 @@ services:
     image: ${API_IMAGE}
     command: ['pnpm', '--filter', '@confluent/api', 'db:migrate:deploy']
     environment:
+      # Optional: with a Doppler service token the entrypoint injects secrets at run time.
+      DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL}
     depends_on:
       postgres:
@@ -49,6 +53,7 @@ services:
     image: ${API_IMAGE}
     command: ['node', 'apps/api/dist/main.js']
     environment:
+      DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL}
       PORT: ${PORT:-3000}
       NODE_ENV: production
