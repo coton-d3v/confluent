@@ -31,6 +31,7 @@ Commandes : `pnpm dev:api`, `pnpm dev:web`, `pnpm typecheck`, `pnpm --filter @co
 
 1. `pnpm typecheck` (shared, API, web) et eslint sur les fichiers touchés.
 2. API : **tests unitaires ET e2e** (`test:e2e`, Prisma simulé avec état par `apps/api/src/testing/fake-prisma.ts`, exclu du build, aucune base requise). Un contrat HTTP modifié = test e2e adapté.
+   Transactions, verrous, index et concurrence ne se démontrent pas avec le faux Prisma : `TEST_DATABASE_URL=<base jetable migrée> pnpm --filter @confluent/api test:pg` (`apps/api/test/pg/*.pg-spec.ts`, PostgreSQL réel).
 3. Un correctif de bug s'accompagne d'un test de non-régression **dont on a vérifié qu'il échoue sans le correctif**.
 4. Web : `vite build`, puis **recette dans un vrai navigateur** (Playwright Chromium headless, voir ci-dessous) pour tout écran modifié.
 5. Recette réelle sur la base de dev quand c'est pertinent (API compilée `pnpm --filter @confluent/api start`), données de démonstration remises en état après coup.

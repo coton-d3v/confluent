@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -56,6 +57,11 @@ class UpdateFieldDto extends createZodDto(updateDraftFieldSchema) {}
 class ReorderDto extends createZodDto(reorderSchema) {}
 
 const uuid = new ParseUUIDPipe()
+
+// `If-Match: <draft updatedAt>` (optional): the change is refused with 409 if the draft changed since
+// the client read it — two administrators editing the same draft (code review R30).
+const revisionOf = (header: string | undefined) =>
+  header?.replace(/^(W\/)?"(.*)"$/, '$2') || undefined
 
 // Form builder (ROADMAP E03.02, E03.03, E03.07, E03.08). Structure edits address `…/draft/…`: the
 // published and archived versions, read by dossiers, cannot be reached for writing.
@@ -216,8 +222,9 @@ export class AdminFormsController {
   discardDraft(
     @Param('formId', uuid) formId: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<void> {
-    return this.drafts.discardDraft(formId, user.id)
+    return this.drafts.discardDraft(formId, user.id, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/publish')
@@ -234,8 +241,9 @@ export class AdminFormsController {
   publish(
     @Param('formId', uuid) formId: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.publishDraft(formId, user.id)
+    return this.drafts.publishDraft(formId, user.id, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/sections')
@@ -243,8 +251,9 @@ export class AdminFormsController {
   addSection(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateSectionDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.addSection(formId, body)
+    return this.drafts.addSection(formId, body, revisionOf(ifMatch))
   }
 
   @Put(':formId/draft/sections/order')
@@ -252,8 +261,9 @@ export class AdminFormsController {
   reorderSections(
     @Param('formId', uuid) formId: string,
     @Body() body: ReorderDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.reorderSections(formId, body.ids)
+    return this.drafts.reorderSections(formId, body.ids, revisionOf(ifMatch))
   }
 
   @Patch(':formId/draft/sections/:sectionId')
@@ -262,8 +272,9 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: UpdateSectionDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.updateSection(formId, sectionId, body)
+    return this.drafts.updateSection(formId, sectionId, body, revisionOf(ifMatch))
   }
 
   @Delete(':formId/draft/sections/:sectionId')
@@ -271,8 +282,9 @@ export class AdminFormsController {
   removeSection(
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.removeSection(formId, sectionId)
+    return this.drafts.removeSection(formId, sectionId, revisionOf(ifMatch))
   }
 
   @Put(':formId/draft/sections/:sectionId/fields/order')
@@ -281,8 +293,9 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: ReorderDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.reorderFields(formId, sectionId, body.ids)
+    return this.drafts.reorderFields(formId, sectionId, body.ids, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/fields')
@@ -295,8 +308,9 @@ export class AdminFormsController {
   addField(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateFieldDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.addField(formId, body)
+    return this.drafts.addField(formId, body, revisionOf(ifMatch))
   }
 
   @Patch(':formId/draft/fields/:fieldId')
@@ -310,8 +324,9 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
     @Body() body: UpdateFieldDto,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.updateField(formId, fieldId, body)
+    return this.drafts.updateField(formId, fieldId, body, revisionOf(ifMatch))
   }
 
   @Delete(':formId/draft/fields/:fieldId')
@@ -319,7 +334,8 @@ export class AdminFormsController {
   removeField(
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
+    @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.removeField(formId, fieldId)
+    return this.drafts.removeField(formId, fieldId, revisionOf(ifMatch))
   }
 }

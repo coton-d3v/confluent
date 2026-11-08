@@ -15,9 +15,11 @@ import { apiRequest } from '@/lib/api-client'
 const BASE = '/v1/admin/forms'
 const form = (formId: string) => `${BASE}/${encodeURIComponent(formId)}`
 const draft = (formId: string) => `${form(formId)}/draft`
-const json = (method: string, body?: unknown): RequestInit => ({
+const json = (method: string, body?: unknown, revision?: string): RequestInit => ({
   method,
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  // The draft revision this screen shows: the API refuses the change (409) if the draft changed since.
+  ...(revision ? { headers: { 'If-Match': `"${revision}"` } } : {}),
 })
 
 export const listForms = () => apiRequest<FormSummary[]>(BASE)
@@ -50,46 +52,57 @@ export const getDraft = (formId: string) => apiRequest<FormVersionStructure>(dra
 export const createDraft = (formId: string) =>
   apiRequest<FormVersionStructure>(draft(formId), json('POST'))
 
-export const discardDraft = (formId: string) => apiRequest<void>(draft(formId), json('DELETE'))
+export const discardDraft = (formId: string, revision?: string) =>
+  apiRequest<void>(draft(formId), json('DELETE', undefined, revision))
 
-export const publishDraft = (formId: string) =>
-  apiRequest<FormVersionStructure>(`${draft(formId)}/publish`, json('POST'))
+export const publishDraft = (formId: string, revision?: string) =>
+  apiRequest<FormVersionStructure>(`${draft(formId)}/publish`, json('POST', undefined, revision))
 
-export const addSection = (formId: string, input: CreateDraftSectionInput) =>
-  apiRequest<FormVersionStructure>(`${draft(formId)}/sections`, json('POST', input))
+export const addSection = (formId: string, input: CreateDraftSectionInput, revision?: string) =>
+  apiRequest<FormVersionStructure>(`${draft(formId)}/sections`, json('POST', input, revision))
 
-export const updateSection = (formId: string, sectionId: string, input: UpdateDraftSectionInput) =>
+export const updateSection = (
+  formId: string,
+  sectionId: string,
+  input: UpdateDraftSectionInput,
+  revision?: string,
+) =>
   apiRequest<FormVersionStructure>(
     `${draft(formId)}/sections/${encodeURIComponent(sectionId)}`,
-    json('PATCH', input),
+    json('PATCH', input, revision),
   )
 
-export const removeSection = (formId: string, sectionId: string) =>
+export const removeSection = (formId: string, sectionId: string, revision?: string) =>
   apiRequest<FormVersionStructure>(
     `${draft(formId)}/sections/${encodeURIComponent(sectionId)}`,
-    json('DELETE'),
+    json('DELETE', undefined, revision),
   )
 
-export const reorderSections = (formId: string, ids: string[]) =>
-  apiRequest<FormVersionStructure>(`${draft(formId)}/sections/order`, json('PUT', { ids }))
+export const reorderSections = (formId: string, ids: string[], revision?: string) =>
+  apiRequest<FormVersionStructure>(`${draft(formId)}/sections/order`, json('PUT', { ids }, revision))
 
-export const addField = (formId: string, input: CreateDraftFieldInput) =>
-  apiRequest<FormVersionStructure>(`${draft(formId)}/fields`, json('POST', input))
+export const addField = (formId: string, input: CreateDraftFieldInput, revision?: string) =>
+  apiRequest<FormVersionStructure>(`${draft(formId)}/fields`, json('POST', input, revision))
 
-export const updateField = (formId: string, fieldId: string, input: UpdateDraftFieldInput) =>
+export const updateField = (
+  formId: string,
+  fieldId: string,
+  input: UpdateDraftFieldInput,
+  revision?: string,
+) =>
   apiRequest<FormVersionStructure>(
     `${draft(formId)}/fields/${encodeURIComponent(fieldId)}`,
-    json('PATCH', input),
+    json('PATCH', input, revision),
   )
 
-export const removeField = (formId: string, fieldId: string) =>
+export const removeField = (formId: string, fieldId: string, revision?: string) =>
   apiRequest<FormVersionStructure>(
     `${draft(formId)}/fields/${encodeURIComponent(fieldId)}`,
-    json('DELETE'),
+    json('DELETE', undefined, revision),
   )
 
-export const reorderFields = (formId: string, sectionId: string, ids: string[]) =>
+export const reorderFields = (formId: string, sectionId: string, ids: string[], revision?: string) =>
   apiRequest<FormVersionStructure>(
     `${draft(formId)}/sections/${encodeURIComponent(sectionId)}/fields/order`,
-    json('PUT', { ids }),
+    json('PUT', { ids }, revision),
   )

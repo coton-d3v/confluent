@@ -85,8 +85,11 @@ export class FormsService {
 
   // The slug is the form's stable identifier: renaming keeps it.
   async rename(formId: string, name: string, actorId: string): Promise<FormDetailView> {
-    const form = await this.findEditableForm(formId)
-    await this.prisma.questionnaire.update({ where: { id: formId }, data: { name } })
+    const form = await this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockEditableForm(tx, formId)
+      await tx.questionnaire.update({ where: { id: formId }, data: { name } })
+      return locked
+    })
     await this.audit.record({
       actionType: 'form_updated',
       actorId,
@@ -133,21 +136,23 @@ export class FormsService {
   // created with its published version, existing dossiers keep theirs (E03.09). There is no plain
   // unassignment: a usage always has a form, so it can only move to another published form.
   async assignUsage(formId: string, usage: FormUsage, actorId: string): Promise<FormDetailView> {
-    const form = await this.findEditableForm(formId)
-    if (form.usage === usage) return this.get(formId)
-    const published = await this.prisma.questionnaireVersion.findFirst({
-      where: { questionnaireId: formId, status: 'published' },
-    })
-    if (!published) throw FormErrors.notPublished()
-    const replaced = await this.prisma.$transaction(async (tx) => {
+    const assigned = await this.prisma.$transaction(async (tx) => {
+      const form = await this.lockEditableForm(tx, formId)
+      if (form.usage === usage) return null
+      const published = await tx.questionnaireVersion.findFirst({
+        where: { questionnaireId: formId, status: 'published' },
+      })
+      if (!published) throw FormErrors.notPublished()
       const current = await tx.questionnaire.findUnique({ where: { usage } })
       // Freed first: the unique index on `usage` is checked statement by statement.
       if (current) {
         await tx.questionnaire.update({ where: { id: current.id }, data: { usage: null } })
       }
       await tx.questionnaire.update({ where: { id: formId }, data: { usage } })
-      return current
+      return { published, replaced: current }
     })
+    if (!assigned) return this.get(formId)
+    const { published, replaced } = assigned
     await this.audit.record({
       actionType: 'form_updated',
       actorId,
@@ -165,13 +170,14 @@ export class FormsService {
   // An archived form is kept with all its versions (dossiers still read theirs) but can no longer be
   // edited. A form assigned to a usage serves new dossiers and cannot be archived.
   async archive(formId: string, actorId: string): Promise<FormDetailView> {
-    const form = await this.findForm(formId)
-    if (form.usage) throw FormErrors.formInUse()
-    if (!form.archivedAt) {
-      await this.prisma.questionnaire.update({
-        where: { id: formId },
-        data: { archivedAt: new Date() },
-      })
+    const archived = await this.prisma.$transaction(async (tx) => {
+      const form = await this.lockForm(tx, formId)
+      if (form.usage) throw FormErrors.formInUse()
+      if (form.archivedAt) return false
+      await tx.questionnaire.update({ where: { id: formId }, data: { archivedAt: new Date() } })
+      return true
+    })
+    if (archived) {
       await this.audit.record({
         actionType: 'form_updated',
         actorId,
@@ -182,9 +188,13 @@ export class FormsService {
   }
 
   async restore(formId: string, actorId: string): Promise<FormDetailView> {
-    const form = await this.findForm(formId)
-    if (form.archivedAt) {
-      await this.prisma.questionnaire.update({ where: { id: formId }, data: { archivedAt: null } })
+    const restored = await this.prisma.$transaction(async (tx) => {
+      const form = await this.lockForm(tx, formId)
+      if (!form.archivedAt) return false
+      await tx.questionnaire.update({ where: { id: formId }, data: { archivedAt: null } })
+      return true
+    })
+    if (restored) {
       await this.audit.record({
         actionType: 'form_updated',
         actorId,
@@ -202,6 +212,22 @@ export class FormsService {
 
   async findEditableForm(formId: string): Promise<Questionnaire> {
     const form = await this.findForm(formId)
+    if (form.archivedAt) throw FormErrors.formArchived()
+    return form
+  }
+
+  // Every write to a form, its draft or its status starts with this lock, inside its transaction,
+  // and reads the state only afterwards (code review R30): an edit can no longer interleave with a
+  // publication, a discard or an archiving and reach a version that is not a draft any more.
+  async lockForm(tx: Prisma.TransactionClient, formId: string): Promise<Questionnaire> {
+    await tx.$queryRaw`SELECT 1 FROM "questionnaires" WHERE "id" = ${formId} FOR UPDATE`
+    const form = await tx.questionnaire.findUnique({ where: { id: formId } })
+    if (!form) throw FormErrors.formNotFound()
+    return form
+  }
+
+  async lockEditableForm(tx: Prisma.TransactionClient, formId: string): Promise<Questionnaire> {
+    const form = await this.lockForm(tx, formId)
     if (form.archivedAt) throw FormErrors.formArchived()
     return form
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { FormVersionStructure, QuestionnaireField } from '@confluent/shared'
@@ -39,6 +39,14 @@ function FormEditor({ formId }: { formId: string }) {
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const [nameRequest, setNameRequest] = useState<NameRequest | null>(null)
   const [fieldRequest, setFieldRequest] = useState<FieldEditorRequest | null>(null)
+  // The draft revision shown on screen, read when a change is sent rather than when a sheet or a
+  // dialog was opened: a retry after « modifié entre-temps » uses the refreshed revision (R30).
+  const revisionRef = useRef<string | undefined>(undefined)
+  const shownRevision = data?.structure?.form.draft?.updatedAt
+  useEffect(() => {
+    revisionRef.current = shownRevision
+  }, [shownRevision])
+  const currentRevision = () => revisionRef.current
 
   if (!data) {
     if (error) {
@@ -197,6 +205,7 @@ function FormEditor({ formId }: { formId: string }) {
           onConfirm={setConfirm}
           onAskName={setNameRequest}
           onEditField={setFieldRequest}
+          currentRevision={currentRevision}
         />
       ) : (
         <PublishedView
@@ -222,8 +231,8 @@ function FormEditor({ formId }: { formId: string }) {
         onClose={() => setFieldRequest(null)}
         onSubmit={(values: FieldFormValues, field: QuestionnaireField | null) =>
           field
-            ? run(() => api.updateField(formId, field.id, toUpdateInput(values)), 'Champ enregistré.')
-            : run(() => api.addField(formId, toCreateInput(values)), 'Champ ajouté.')
+            ? run(() => api.updateField(formId, field.id, toUpdateInput(values), currentRevision()), 'Champ enregistré.')
+            : run(() => api.addField(formId, toCreateInput(values), currentRevision()), 'Champ ajouté.')
         }
       />
     </>
@@ -279,6 +288,7 @@ function DraftEditor({
   onConfirm,
   onAskName,
   onEditField,
+  currentRevision,
 }: {
   formId: string
   draft: FormVersionStructure
@@ -289,6 +299,7 @@ function DraftEditor({
   onConfirm: (request: ConfirmRequest) => void
   onAskName: (request: NameRequest) => void
   onEditField: (request: FieldEditorRequest) => void
+  currentRevision: () => string | undefined
 }) {
   const { version, sections, fields, problems } = draft
   const sectionIds = sections.map((s) => s.id)
@@ -302,7 +313,7 @@ function DraftEditor({
           : `Elle remplacera la version ${publishedVersion} pour les nouveaux dossiers. Les dossiers existants gardent leur version et leurs réponses.`,
       confirmLabel: 'Publier',
       onConfirm: () =>
-        void run(() => api.publishDraft(formId), `Version ${version.version} publiée.`),
+        void run(() => api.publishDraft(formId, currentRevision()), `Version ${version.version} publiée.`),
     })
   }
 
@@ -311,7 +322,7 @@ function DraftEditor({
       title: 'Abandonner le brouillon ?',
       description: 'Toutes les modifications du brouillon seront perdues. La version publiée ne change pas.',
       confirmLabel: 'Abandonner',
-      onConfirm: () => void run(() => api.discardDraft(formId), 'Brouillon abandonné.'),
+      onConfirm: () => void run(() => api.discardDraft(formId, currentRevision()), 'Brouillon abandonné.'),
     })
   }
 
@@ -322,17 +333,17 @@ function DraftEditor({
       submitLabel: 'Ajouter la section',
       fieldLabel: 'Titre de la section',
       initialName: '',
-      onSubmit: (title) => run(() => api.addSection(formId, { title }), 'Section ajoutée.'),
+      onSubmit: (title) => run(() => api.addSection(formId, { title }, currentRevision()), 'Section ajoutée.'),
     })
   }
 
   const actionsFor = (sectionId: string, title: string): SectionActions => {
     const sectionFields = fields.filter((f) => f.sectionId === sectionId)
     return {
-      rename: (next) => run(() => api.updateSection(formId, sectionId, { title: next }), 'Section renommée.'),
+      rename: (next) => run(() => api.updateSection(formId, sectionId, { title: next }, currentRevision()), 'Section renommée.'),
       move: (step) => {
         const ids = moveId(sectionIds, sectionId, step)
-        if (ids) void run(() => api.reorderSections(formId, ids))
+        if (ids) void run(() => api.reorderSections(formId, ids, currentRevision()))
       },
       remove: () =>
         onConfirm({
@@ -342,7 +353,7 @@ function DraftEditor({
               ? 'La section est vide.'
               : `Ses ${sectionFields.length} champ(s) seront retirés du brouillon.`,
           confirmLabel: 'Retirer',
-          onConfirm: () => void run(() => api.removeSection(formId, sectionId), 'Section retirée.'),
+          onConfirm: () => void run(() => api.removeSection(formId, sectionId, currentRevision()), 'Section retirée.'),
         }),
       addField: () => onEditField({ field: null, sectionId }),
       editField: (field) => onEditField({ field, sectionId }),
@@ -352,14 +363,14 @@ function DraftEditor({
           field.id,
           step,
         )
-        if (ids) void run(() => api.reorderFields(formId, sectionId, ids))
+        if (ids) void run(() => api.reorderFields(formId, sectionId, ids, currentRevision()))
       },
       removeField: (field) =>
         onConfirm({
           title: `Retirer le champ « ${field.label} » ?`,
           description: 'Il est retiré du brouillon ; la version publiée ne change pas.',
           confirmLabel: 'Retirer',
-          onConfirm: () => void run(() => api.removeField(formId, field.id), 'Champ retiré.'),
+          onConfirm: () => void run(() => api.removeField(formId, field.id, currentRevision()), 'Champ retiré.'),
         }),
     }
   }

@@ -69,10 +69,10 @@ export class FormDraftsService {
 
   // Starts from a copy of the published version (same keys), or empty for a never-published form.
   async createDraft(formId: string, actorId: string): Promise<FormVersionView> {
-    await this.forms.findEditableForm(formId)
     let created: { draft: QuestionnaireVersion; from: QuestionnaireVersion | null }
     try {
       created = await this.prisma.$transaction(async (tx) => {
+        await this.forms.lockEditableForm(tx, formId)
         const existing = await tx.questionnaireVersion.findFirst({
           where: { questionnaireId: formId, status: 'draft' },
         })
@@ -110,10 +110,11 @@ export class FormDraftsService {
     return this.getVersion(formId, created.draft.id)
   }
 
-  async discardDraft(formId: string, actorId: string): Promise<void> {
-    await this.forms.findEditableForm(formId)
+  async discardDraft(formId: string, actorId: string, revision?: string): Promise<void> {
     const draft = await this.prisma.$transaction(async (tx) => {
+      await this.forms.lockEditableForm(tx, formId)
       const found = await this.findDraft(tx, formId)
+      assertRevision(found, revision)
       await tx.questionnaireField.deleteMany({ where: { versionId: found.id } })
       await tx.questionnaireSection.deleteMany({ where: { versionId: found.id } })
       await tx.questionnaireVersion.deleteMany({ where: { id: found.id } })
@@ -128,10 +129,11 @@ export class FormDraftsService {
 
   // The draft becomes the published version and the previous one is archived, in one transaction.
   // Dossiers keep the version they were created with (E03.08).
-  async publishDraft(formId: string, actorId: string): Promise<FormVersionView> {
-    await this.forms.findEditableForm(formId)
+  async publishDraft(formId: string, actorId: string, revision?: string): Promise<FormVersionView> {
     const { draft, previous, fieldCount } = await this.prisma.$transaction(async (tx) => {
+      await this.forms.lockEditableForm(tx, formId)
       const ctx = await this.loadDraft(tx, formId)
+      assertRevision(ctx.draft, revision)
       const problems = validateDraft(ctx.sections, ctx.fields)
       if (problems.length > 0) throw FormErrors.draftInvalid(problems)
       const current = await tx.questionnaireVersion.findFirst({
@@ -163,8 +165,12 @@ export class FormDraftsService {
     return this.getVersion(formId, draft.id)
   }
 
-  addSection(formId: string, input: CreateDraftSectionInput): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { draft, sections }) => {
+  addSection(
+    formId: string,
+    input: CreateDraftSectionInput,
+    revision?: string,
+  ): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { draft, sections }) => {
       const key = this.newKey(input.key, input.title, sections)
       await tx.questionnaireSection.create({
         data: { versionId: draft.id, key, title: input.title, orderIndex: nextIndex(sections) },
@@ -176,8 +182,9 @@ export class FormDraftsService {
     formId: string,
     sectionId: string,
     input: UpdateDraftSectionInput,
+    revision?: string,
   ): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { sections }) => {
+    return this.editDraft(formId, revision, async (tx, { sections }) => {
       const section = sections.find((s) => s.id === sectionId)
       if (!section) throw FormErrors.sectionNotFound()
       if (input.key && input.key !== section.key && sections.some((s) => s.key === input.key)) {
@@ -191,8 +198,8 @@ export class FormDraftsService {
   }
 
   // Removes the section and its fields.
-  removeSection(formId: string, sectionId: string): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { sections }) => {
+  removeSection(formId: string, sectionId: string, revision?: string): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { sections }) => {
       if (!sections.some((s) => s.id === sectionId)) throw FormErrors.sectionNotFound()
       await tx.questionnaireField.deleteMany({ where: { sectionId } })
       await tx.questionnaireSection.deleteMany({ where: { id: sectionId } })
@@ -203,15 +210,19 @@ export class FormDraftsService {
     })
   }
 
-  reorderSections(formId: string, ids: string[]): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { sections }) => {
+  reorderSections(formId: string, ids: string[], revision?: string): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { sections }) => {
       await renumber(tx.questionnaireSection, inGivenOrder(sections, ids))
     })
   }
 
   // A new field without explicit level is readable at the most restrictive share level (E03.07).
-  addField(formId: string, input: CreateDraftFieldInput): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { draft, sections, fields }) => {
+  addField(
+    formId: string,
+    input: CreateDraftFieldInput,
+    revision?: string,
+  ): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { draft, sections, fields }) => {
       if (!sections.some((s) => s.id === input.sectionId)) throw FormErrors.sectionNotFound()
       if (input.choices && input.fieldType !== 'select') throw FormErrors.choicesNotAllowed()
       const constraints = checkedConstraints(input.fieldType, input.constraints ?? {})
@@ -237,8 +248,9 @@ export class FormDraftsService {
     formId: string,
     fieldId: string,
     input: UpdateDraftFieldInput,
+    revision?: string,
   ): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { sections, fields }) => {
+    return this.editDraft(formId, revision, async (tx, { sections, fields }) => {
       const field = fields.find((f) => f.id === fieldId)
       if (!field) throw FormErrors.fieldNotFound()
       const fieldType = input.fieldType ?? field.fieldType
@@ -277,8 +289,8 @@ export class FormDraftsService {
     })
   }
 
-  removeField(formId: string, fieldId: string): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { fields }) => {
+  removeField(formId: string, fieldId: string, revision?: string): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { fields }) => {
       const field = fields.find((f) => f.id === fieldId)
       if (!field) throw FormErrors.fieldNotFound()
       await tx.questionnaireField.deleteMany({ where: { id: fieldId } })
@@ -289,21 +301,29 @@ export class FormDraftsService {
     })
   }
 
-  reorderFields(formId: string, sectionId: string, ids: string[]): Promise<FormVersionView> {
-    return this.editDraft(formId, async (tx, { sections, fields }) => {
+  reorderFields(
+    formId: string,
+    sectionId: string,
+    ids: string[],
+    revision?: string,
+  ): Promise<FormVersionView> {
+    return this.editDraft(formId, revision, async (tx, { sections, fields }) => {
       if (!sections.some((s) => s.id === sectionId)) throw FormErrors.sectionNotFound()
       await renumber(tx.questionnaireField, inGivenOrder(sectionFields(fields, sectionId), ids))
     })
   }
 
-  // Runs one structure edit on the form's draft, in a transaction, then returns the new draft.
+  // Runs one structure edit on the form's draft, in a transaction that holds the form lock, then
+  // returns the new draft. With `revision`, the edit is refused if the draft changed meanwhile.
   private async editDraft(
     formId: string,
+    revision: string | undefined,
     edit: (tx: Prisma.TransactionClient, ctx: DraftContext) => Promise<void>,
   ): Promise<FormVersionView> {
-    await this.forms.findEditableForm(formId)
     const draftId = await this.prisma.$transaction(async (tx) => {
+      await this.forms.lockEditableForm(tx, formId)
       const ctx = await this.loadDraft(tx, formId)
+      assertRevision(ctx.draft, revision)
       await edit(tx, ctx)
       await tx.questionnaireVersion.update({
         where: { id: ctx.draft.id },
@@ -385,6 +405,13 @@ async function renumber(
     if (row.orderIndex !== index) {
       await delegate.update({ where: { id: row.id }, data: { orderIndex: index } })
     }
+  }
+}
+
+// Optimistic check for several administrators: `revision` is the draft's `updatedAt` the client saw.
+function assertRevision(draft: QuestionnaireVersion, revision: string | undefined): void {
+  if (revision !== undefined && draft.updatedAt.toISOString() !== revision) {
+    throw FormErrors.draftStale()
   }
 }
 

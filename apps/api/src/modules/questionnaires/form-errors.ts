@@ -27,6 +27,11 @@ export const FormErrors = {
       code: 'FIELD_NOT_FOUND',
       message: 'Champ introuvable dans le brouillon.',
     }),
+  draftStale: () =>
+    new ConflictException({
+      code: 'DRAFT_STALE',
+      message: 'Le brouillon a été modifié entre-temps : rechargez-le avant de continuer.',
+    }),
   draftExists: () =>
     new ConflictException({
       code: 'DRAFT_EXISTS',

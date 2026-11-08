@@ -211,6 +211,8 @@ export function createFakePrisma() {
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),
+    // Row locks (`SELECT … FOR UPDATE`) have no effect in memory: concurrency is tested on PostgreSQL.
+    $queryRaw: jest.fn(() => Promise.resolve([])),
     onModuleDestroy: () => Promise.resolve(),
     $transaction: jest.fn((arg: unknown) =>
       Array.isArray(arg)
