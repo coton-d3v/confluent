@@ -59,8 +59,9 @@ export class AnswersController {
     summary: 'Upsert batch de réponses (auto-save)',
     description:
       'Upsert transactionnel par `(dossierId, fieldId)` — clé unique. Idempotent : rejouable sans ' +
-      'duplication. Typiquement appelé depuis le frontend avec un debounce de 500ms à chaque ' +
-      'modification d’un champ (auto-save silencieux).',
+      'duplication. Chaque champ doit appartenir à la version de questionnaire du dossier et chaque ' +
+      'valeur respecter son type ; sinon `400` et rien n’est écrit (`error.details` : une entrée par ' +
+      'champ fautif).',
   })
   @ApiOkResponse({ description: 'Réponses upserted, retournées en l’état final.' })
   async upsert(
@@ -68,7 +69,7 @@ export class AnswersController {
     @Param('dossierId') dossierId: string,
     @Body() body: UpsertAnswersDto,
   ): Promise<DossierAnswer[]> {
-    await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
-    return this.answers.upsertMany(dossierId, body.answers)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
+    return this.answers.saveForDossier(dossier, body.answers)
   }
 }

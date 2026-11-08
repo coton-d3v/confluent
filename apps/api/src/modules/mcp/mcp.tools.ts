@@ -6,7 +6,7 @@ import type { Dossier, QuestionnaireField } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService } from '../answers/answers.service'
-import { validateAnswers } from '../answers/answer-validation'
+import { InvalidAnswersException } from '../answers/invalid-answers.exception'
 import { AuditService } from '../audit/audit.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -163,15 +163,15 @@ export class McpToolsFactory {
           if (row.userId !== caller.user.id) {
             throw new ToolError('Seul le propriétaire du dossier peut modifier ses réponses.')
           }
-          const fields = await this.fieldsOf(row)
-          const errors = validateAnswers(fields, answers)
-          if (errors.length) {
+          try {
+            await this.answers.saveForDossier(row, answers)
+          } catch (err) {
+            if (!(err instanceof InvalidAnswersException)) throw err
             throw new ToolError(
               'Aucune réponse enregistrée. Corrigez :\n' +
-                errors.map((e) => `- ${e.label ?? e.fieldId} : ${e.message}`).join('\n'),
+                err.errors.map((e) => `- ${e.label ?? e.fieldId} : ${e.message}`).join('\n'),
             )
           }
-          await this.answers.upsertMany(row.id, answers)
           const after = await this.describeDossier(row, 'complet', caller)
           return {
             dossier: { id: row.id, slug: row.slug },
