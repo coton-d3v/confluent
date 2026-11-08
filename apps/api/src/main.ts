@@ -10,6 +10,7 @@ import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { mountOAuthServer } from './modules/oauth/oauth.http'
+import { mountMcpEndpoint } from './modules/mcp/mcp.http'
 import type { AppConfig } from './config/config.schema'
 
 async function bootstrap(): Promise<void> {
@@ -21,6 +22,8 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser())
   // OAuth 2.1 server for MCP clients, at the root (not under /v1) as clients discover it there.
   mountOAuthServer(app)
+  // Remote MCP endpoint (Claude, ChatGPT…), protected by the OAuth tokens above.
+  mountMcpEndpoint(app)
   app.setGlobalPrefix('v1', { exclude: ['/'] })
   app.useGlobalPipes(new ZodValidationPipe())
   app.useGlobalFilters(new GlobalExceptionFilter())
