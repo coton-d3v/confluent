@@ -116,6 +116,9 @@ model QuestionnaireField {
   options    String[]   @default([])
   required   Boolean    @default(false)
   orderIndex Int        @map("order_index")
+  // Lowest share access level (public < partiel < complet) that may read this field's answers.
+  // Defaults to the most restrictive level: a field nobody classified stays hidden from financeurs.
+  minAccessLevel String  @default("complet") @map("min_access_level")
 
   version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   answers DossierAnswer[]

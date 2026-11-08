@@ -1,5 +1,6 @@
 export * from './schemas/user.schema.js'
 export * from './schemas/dossier.schema.js'
+export * from './schemas/access-level.schema.js'
 export * from './schemas/share-link.schema.js'
 export * from './schemas/audit-log.schema.js'
 export * from './schemas/auth.schema.js'

@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Controller,
   Get,
   Param,
@@ -24,7 +25,9 @@ import {
 } from '@nestjs/swagger'
 import type { Request } from 'express'
 import { DocumentsService, type DocumentGroup } from './documents.service'
+import { grantsAccess } from '@confluent/shared'
 import { DossiersService } from '../dossiers/dossiers.service'
+import { DOCUMENTS_MIN_LEVEL } from '../dossiers/financeur-access'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
 interface MulterFile {
@@ -103,11 +106,18 @@ export class DocumentsController {
     summary: 'Lister les documents (groupés par filename)',
     description:
       'Retourne un tableau de `{ filename, current, versions[] }`. Chaque entrée inclut une URL signée ' +
-      '(TTL 15 min) pour download direct. Les versions sont triées desc par `version`.',
+      '(TTL 15 min) pour download direct. Les versions sont triées desc par `version`. Financeur : ' +
+      'uniquement avec un partage de niveau `complet` (sinon `403 ACCESS_LEVEL_INSUFFICIENT`).',
   })
   @ApiOkResponse({ description: 'Documents groupés par filename.' })
   async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<DocumentGroup[]> {
-    await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
+    const { accessLevel } = await this.dossiers.resolveReadAccess(dossierId, currentUser(req))
+    if (!grantsAccess(accessLevel, DOCUMENTS_MIN_LEVEL)) {
+      throw new ForbiddenException({
+        code: 'ACCESS_LEVEL_INSUFFICIENT',
+        message: 'Documents require a complete share.',
+      })
+    }
     return this.documents.listForDossier(dossierId)
   }
 }

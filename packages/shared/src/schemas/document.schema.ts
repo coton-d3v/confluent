@@ -2,7 +2,8 @@ import { z } from 'zod'
 
 export const documentVersionSchema = z.object({
   version: z.number().int().positive(),
-  url: z.string().min(1),
+  // null when the stored file cannot be reached (download unavailable, document still listed)
+  url: z.string().min(1).nullable(),
   createdAt: z.string().datetime(),
   mimetype: z.string(),
   size: z.number().int().nonnegative(),

@@ -17,6 +17,8 @@ interface PrismaMock {
     findFirst: jest.Mock
     create: jest.Mock
   }
+  shareLink: { findMany: jest.Mock }
+  questionnaireField: { findMany: jest.Mock }
 }
 
 function buildPrisma(): PrismaMock {
@@ -32,6 +34,8 @@ function buildPrisma(): PrismaMock {
       findFirst: jest.fn().mockResolvedValue({ id: 'qv-1', version: 1 }),
       create: jest.fn().mockResolvedValue({ id: 'qv-1', version: 1 }),
     },
+    shareLink: { findMany: jest.fn().mockResolvedValue([]) },
+    questionnaireField: { findMany: jest.fn().mockResolvedValue([]) },
   }
 }
 
@@ -111,15 +115,85 @@ describe('DossiersService', () => {
     })
   })
 
-  it('scopes list to shared dossiers for a financeur', async () => {
+  it('scopes list to shared dossiers for a financeur and projects by access level', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findMany.mockResolvedValue([{ id: 'd-2' }])
+    prisma.dossier.findMany.mockResolvedValue([
+      {
+        id: 'd-2',
+        sector: 'biotech',
+        axe1Projet: 3,
+        axe2Financier: 4,
+        user: { email: 'owner@example.com', firstName: 'Sophie', lastName: null },
+        shareLinks: [{ accessLevel: 'public' }, { accessLevel: 'partiel' }],
+      },
+    ])
     const svc = await instantiate(prisma)
 
-    await svc.listForUser({ id: 'u-2', email: 'fin@example.com', role: 'financeur' })
-    expect(prisma.dossier.findMany).toHaveBeenCalledWith({
-      where: { shareLinks: { some: { recipientEmail: 'fin@example.com', status: 'active' } } },
-      orderBy: { createdAt: 'desc' },
+    const [row] = await svc.listForUser({ id: 'u-2', email: 'fin@example.com', role: 'financeur' })
+    expect(prisma.dossier.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { shareLinks: { some: { recipientEmail: 'fin@example.com', status: 'active' } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    )
+    // Highest active level wins (partiel): financial axis hidden, the rest kept.
+    expect(row).toMatchObject({ id: 'd-2', sector: 'biotech', axe1Projet: 3, axe2Financier: null })
+    expect(row).toMatchObject({ ownerEmail: 'owner@example.com', ownerName: 'Sophie' })
+    expect(row).not.toHaveProperty('shareLinks')
+  })
+
+  describe('resolveReadAccess', () => {
+    const financeur = { id: 'u-2', email: 'fin@example.com', role: 'financeur' }
+
+    it('grants complet to the owner', async () => {
+      const prisma = buildPrisma()
+      prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+      const svc = await instantiate(prisma)
+      const res = await svc.resolveReadAccess('d-1', {
+        id: 'u-1',
+        email: 'o@x.fr',
+        role: 'entrepreneur',
+      })
+      expect(res.accessLevel).toBe('complet')
+    })
+
+    it('grants a financeur the highest level among their active links', async () => {
+      const prisma = buildPrisma()
+      prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+      prisma.shareLink.findMany.mockResolvedValue([
+        { accessLevel: 'public' },
+        { accessLevel: 'complet' },
+      ])
+      const svc = await instantiate(prisma)
+      const res = await svc.resolveReadAccess('d-1', financeur)
+      expect(res.accessLevel).toBe('complet')
+      expect(prisma.shareLink.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { dossierId: 'd-1', recipientEmail: 'fin@example.com', status: 'active' },
+        }),
+      )
+    })
+
+    it('returns 404 to a financeur without an active link', async () => {
+      const prisma = buildPrisma()
+      prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+      const svc = await instantiate(prisma)
+      await expect(svc.resolveReadAccess('d-1', financeur)).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+    })
+
+    it('lists only the field ids the level may read', async () => {
+      const prisma = buildPrisma()
+      prisma.questionnaireField.findMany.mockResolvedValue([
+        { id: 'f-pub', minAccessLevel: 'public' },
+        { id: 'f-part', minAccessLevel: 'partiel' },
+        { id: 'f-fin', minAccessLevel: 'complet' },
+        { id: 'f-bad', minAccessLevel: 'unknown' },
+      ])
+      const svc = await instantiate(prisma)
+      const ids = await svc.visibleFieldIds({ questionnaireVersionId: 'qv-1' } as never, 'partiel')
+      expect([...ids]).toEqual(['f-pub', 'f-part'])
     })
   })
 

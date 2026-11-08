@@ -171,4 +171,45 @@ describe('DocumentsService', () => {
     expect(pitch.current.version).toBe(3)
     expect(pitch.versions.map((v) => v.version)).toEqual([3, 1])
   })
+
+  it('keeps listing when a stored object is gone (url null instead of failing)', async () => {
+    const rows = [
+      {
+        id: 'doc-ok',
+        filename: 'deck.pdf',
+        version: 1,
+        storageKey: 'dossiers/d-1/deck.pdf-v1',
+        mimetype: 'application/pdf',
+        size: 15,
+        createdAt: new Date('2026-01-02'),
+      },
+      {
+        id: 'doc-lost',
+        filename: 'pitch.pdf',
+        version: 1,
+        storageKey: 'dossiers/d-1/pitch.pdf-v1',
+        mimetype: 'application/pdf',
+        size: 10,
+        createdAt: new Date('2026-01-01'),
+      },
+    ]
+    const prisma = { document: { findMany: jest.fn().mockResolvedValue(rows) } }
+    const storage: StorageAdapter = {
+      upload: jest.fn(),
+      // In-memory storage after an API restart: metadata survives in DB, the object does not.
+      getSignedUrl: jest.fn((key: string) =>
+        key.includes('pitch')
+          ? Promise.reject(new Error(`Object not found: ${key}`))
+          : Promise.resolve(`memory://${key}`),
+      ),
+      delete: jest.fn(),
+    }
+    const svc = (await build(storage, prisma)).get(DocumentsService)
+
+    const groups = await svc.listForDossier('d-1')
+    expect(groups.find((g) => g.filename === 'deck.pdf')!.current.url).toBe(
+      'memory://dossiers/d-1/deck.pdf-v1',
+    )
+    expect(groups.find((g) => g.filename === 'pitch.pdf')!.current.url).toBeNull()
+  })
 })

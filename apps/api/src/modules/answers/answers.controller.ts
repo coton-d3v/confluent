@@ -38,13 +38,20 @@ export class AnswersController {
   @ApiOperation({
     summary: 'Lister les réponses d’un dossier',
     description:
-      'Retourne toutes les `dossier_answers` rattachées au dossier, triées par date de création. ' +
-      'Ownership vérifié en amont.',
+      'Retourne les `dossier_answers` du dossier, triées par date de création. Propriétaire : toutes. ' +
+      'Financeur : seulement les champs autorisés par le niveau d’accès de son partage ' +
+      '(`questionnaire_fields.min_access_level`).',
   })
   @ApiOkResponse({ description: 'Liste des réponses.' })
   async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<DossierAnswer[]> {
-    await this.dossiers.assertReadAccess(dossierId, currentUser(req))
-    return this.answers.listForDossier(dossierId)
+    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(
+      dossierId,
+      currentUser(req),
+    )
+    const answers = await this.answers.listForDossier(dossierId)
+    if (accessLevel === 'complet') return answers
+    const visible = await this.dossiers.visibleFieldIds(dossier, accessLevel)
+    return answers.filter((a) => visible.has(a.fieldId))
   }
 
   @Put()
