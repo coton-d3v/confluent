@@ -1,0 +1,306 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common'
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
+} from '@nestjs/swagger'
+import {
+  createDraftFieldSchema,
+  createDraftSectionSchema,
+  createFormSchema,
+  duplicateFormSchema,
+  renameFormSchema,
+  reorderSchema,
+  updateDraftFieldSchema,
+  updateDraftSectionSchema,
+} from '@confluent/shared'
+import { createZodDto } from 'nestjs-zod'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { AdminGuard } from '../auth/guards/admin.guard'
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import { FormDraftsService, type FormVersionView } from '../questionnaires/form-drafts.service'
+import {
+  FormsService,
+  type FormDetailView,
+  type FormSummaryView,
+} from '../questionnaires/forms.service'
+
+class CreateFormDto extends createZodDto(createFormSchema) {}
+class RenameFormDto extends createZodDto(renameFormSchema) {}
+class DuplicateFormDto extends createZodDto(duplicateFormSchema) {}
+class CreateSectionDto extends createZodDto(createDraftSectionSchema) {}
+class UpdateSectionDto extends createZodDto(updateDraftSectionSchema) {}
+class CreateFieldDto extends createZodDto(createDraftFieldSchema) {}
+class UpdateFieldDto extends createZodDto(updateDraftFieldSchema) {}
+class ReorderDto extends createZodDto(reorderSchema) {}
+
+const uuid = new ParseUUIDPipe()
+
+// Form builder (ROADMAP E03.02, E03.03, E03.07, E03.08). Structure edits address `…/draft/…`: the
+// published and archived versions, read by dossiers, cannot be reached for writing.
+@ApiTags('Admin · Formulaires')
+@ApiBearerAuth('jwt')
+@ApiUnauthorizedResponse({ description: 'JWT manquant.' })
+@ApiForbiddenResponse({ description: 'JWT sans rôle `admin`.' })
+@UseGuards(AdminGuard)
+@Controller('admin/forms')
+export class AdminFormsController {
+  constructor(
+    private readonly forms: FormsService,
+    private readonly drafts: FormDraftsService,
+  ) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Lister les formulaires',
+    description:
+      'Tous les formulaires, archivés compris (`archivedAt`), avec leur version publiée et leur brouillon.',
+  })
+  @ApiOkResponse({ description: 'Formulaires.' })
+  list(): Promise<FormSummaryView[]> {
+    return this.forms.list()
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Créer un formulaire',
+    description:
+      'Crée un formulaire non affecté (`usage: null`) avec un brouillon vide (version 1). Le `slug` est ' +
+      'dérivé du nom et ne change plus.',
+  })
+  create(
+    @Body() body: CreateFormDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.create(body.name, user.id)
+  }
+
+  @Get(':formId')
+  @ApiOperation({ summary: 'Détail d’un formulaire et de toutes ses versions' })
+  @ApiNotFoundResponse({ description: 'Formulaire inexistant.' })
+  get(@Param('formId', uuid) formId: string): Promise<FormDetailView> {
+    return this.forms.get(formId)
+  }
+
+  @Patch(':formId')
+  @ApiOperation({ summary: 'Renommer un formulaire (le slug est conservé)' })
+  @ApiConflictResponse({ description: 'Formulaire archivé.' })
+  rename(
+    @Param('formId', uuid) formId: string,
+    @Body() body: RenameFormDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.rename(formId, body.name, user.id)
+  }
+
+  @Post(':formId/duplicate')
+  @ApiOperation({
+    summary: 'Dupliquer un formulaire',
+    description:
+      'Nouveau formulaire non affecté dont le brouillon copie la version publiée de l’original (ou sa ' +
+      'dernière version) avec les mêmes clés de champs et de choix.',
+  })
+  duplicate(
+    @Param('formId', uuid) formId: string,
+    @Body() body: DuplicateFormDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.duplicate(formId, body.name, user.id)
+  }
+
+  @Post(':formId/archive')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Archiver un formulaire',
+    description:
+      'Le formulaire et ses versions restent lisibles (les dossiers gardent la leur) mais ne sont plus ' +
+      'modifiables. Refusé pour un formulaire affecté à un usage.',
+  })
+  @ApiConflictResponse({ description: 'Formulaire affecté à un usage.' })
+  archive(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.archive(formId, user.id)
+  }
+
+  @Post(':formId/restore')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Restaurer un formulaire archivé' })
+  restore(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.restore(formId, user.id)
+  }
+
+  @Get(':formId/versions/:versionId')
+  @ApiOperation({
+    summary: 'Structure d’une version',
+    description:
+      'Sections et champs ordonnés d’une version du formulaire ; pour un brouillon, `problems` liste ce ' +
+      'qui empêche encore sa publication.',
+  })
+  @ApiNotFoundResponse({ description: 'Version inexistante dans ce formulaire.' })
+  version(
+    @Param('formId', uuid) formId: string,
+    @Param('versionId', uuid) versionId: string,
+  ): Promise<FormVersionView> {
+    return this.drafts.getVersion(formId, versionId)
+  }
+
+  @Get(':formId/draft')
+  @ApiOperation({ summary: 'Brouillon en cours' })
+  @ApiNotFoundResponse({ description: 'Aucun brouillon.' })
+  draft(@Param('formId', uuid) formId: string): Promise<FormVersionView> {
+    return this.drafts.getDraft(formId)
+  }
+
+  @Post(':formId/draft')
+  @ApiOperation({
+    summary: 'Ouvrir un brouillon',
+    description:
+      'Copie la version publiée (mêmes clés : les réponses et la classification se lisent pareil) ou ' +
+      'part d’un formulaire vide s’il n’a jamais été publié.',
+  })
+  @ApiConflictResponse({ description: 'Un brouillon existe déjà, ou formulaire archivé.' })
+  createDraft(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormVersionView> {
+    return this.drafts.createDraft(formId, user.id)
+  }
+
+  @Delete(':formId/draft')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Abandonner le brouillon' })
+  @ApiNoContentResponse({ description: 'Brouillon supprimé.' })
+  discardDraft(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.drafts.discardDraft(formId, user.id)
+  }
+
+  @Post(':formId/draft/publish')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Publier le brouillon',
+    description:
+      'Le brouillon devient la version publiée ; la précédente est archivée dans la même transaction. ' +
+      'Les dossiers existants gardent leur version.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'Brouillon incomplet : `error.details` liste les problèmes.',
+  })
+  publish(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormVersionView> {
+    return this.drafts.publishDraft(formId, user.id)
+  }
+
+  @Post(':formId/draft/sections')
+  @ApiOperation({ summary: 'Ajouter une section (en dernière position)' })
+  addSection(
+    @Param('formId', uuid) formId: string,
+    @Body() body: CreateSectionDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.addSection(formId, body)
+  }
+
+  @Put(':formId/draft/sections/order')
+  @ApiOperation({ summary: 'Réordonner les sections (`ids` : toutes les sections, dans l’ordre)' })
+  reorderSections(
+    @Param('formId', uuid) formId: string,
+    @Body() body: ReorderDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.reorderSections(formId, body.ids)
+  }
+
+  @Patch(':formId/draft/sections/:sectionId')
+  @ApiOperation({ summary: 'Modifier une section' })
+  updateSection(
+    @Param('formId', uuid) formId: string,
+    @Param('sectionId', uuid) sectionId: string,
+    @Body() body: UpdateSectionDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.updateSection(formId, sectionId, body)
+  }
+
+  @Delete(':formId/draft/sections/:sectionId')
+  @ApiOperation({ summary: 'Retirer une section et ses champs' })
+  removeSection(
+    @Param('formId', uuid) formId: string,
+    @Param('sectionId', uuid) sectionId: string,
+  ): Promise<FormVersionView> {
+    return this.drafts.removeSection(formId, sectionId)
+  }
+
+  @Put(':formId/draft/sections/:sectionId/fields/order')
+  @ApiOperation({ summary: 'Réordonner les champs d’une section (`ids` : tous ses champs)' })
+  reorderFields(
+    @Param('formId', uuid) formId: string,
+    @Param('sectionId', uuid) sectionId: string,
+    @Body() body: ReorderDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.reorderFields(formId, sectionId, body.ids)
+  }
+
+  @Post(':formId/draft/fields')
+  @ApiOperation({
+    summary: 'Ajouter un champ (en dernière position de sa section)',
+    description:
+      'Sans `key`, elle est dérivée du libellé. Sans `minAccessLevel`, le champ n’est lisible qu’avec ' +
+      'un partage complet. `choices` (`{ key?, label }`) n’est accepté que pour une liste.',
+  })
+  addField(
+    @Param('formId', uuid) formId: string,
+    @Body() body: CreateFieldDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.addField(formId, body)
+  }
+
+  @Patch(':formId/draft/fields/:fieldId')
+  @ApiOperation({
+    summary: 'Modifier un champ',
+    description:
+      '`choices` remplace la liste complète : reprendre la `key` des choix conservés. Un `sectionId` ' +
+      'différent déplace le champ en fin de cette section.',
+  })
+  updateField(
+    @Param('formId', uuid) formId: string,
+    @Param('fieldId', uuid) fieldId: string,
+    @Body() body: UpdateFieldDto,
+  ): Promise<FormVersionView> {
+    return this.drafts.updateField(formId, fieldId, body)
+  }
+
+  @Delete(':formId/draft/fields/:fieldId')
+  @ApiOperation({ summary: 'Retirer un champ' })
+  removeField(
+    @Param('formId', uuid) formId: string,
+    @Param('fieldId', uuid) fieldId: string,
+  ): Promise<FormVersionView> {
+    return this.drafts.removeField(formId, fieldId)
+  }
+}

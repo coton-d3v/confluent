@@ -3,6 +3,7 @@ import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { AdminDossiersController } from './admin-dossiers.controller'
 import { AdminDossiersService } from './admin-dossiers.service'
 import { AdminQuestionnaireController } from './admin-questionnaire.controller'
+import { AdminFormsController } from './admin-forms.controller'
 import { AdminUsersController } from './admin-users.controller'
 import { AdminUsersService } from './admin-users.service'
 import { AdminAnalyticsController } from './admin-analytics.controller'
@@ -18,6 +19,7 @@ import { AuthModule } from '../auth/auth.module'
   controllers: [
     AdminDossiersController,
     AdminQuestionnaireController,
+    AdminFormsController,
     AdminUsersController,
     AdminAnalyticsController,
     AdminSharesController,

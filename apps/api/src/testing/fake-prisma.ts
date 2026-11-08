@@ -22,7 +22,7 @@ function matches(row: Row, where: Where = {}): boolean {
 }
 
 const UNIQUE_KEYS: Record<string, string[]> = {
-  questionnaire: ['id', 'slug'],
+  questionnaire: ['id', 'slug', 'usage'],
   user: ['id', 'email'],
   oAuthToken: ['id', 'tokenHash'],
   dossier: ['id', 'slug'],
@@ -42,6 +42,10 @@ function flattenWhere(where: Where = {}): Where {
   }
   return out
 }
+
+// Like Prisma, an `undefined` value in `data` leaves the column unchanged.
+const defined = (data: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined))
 
 export function createFakePrisma() {
   const tables: Record<string, Map<string, Row>> = {}
@@ -114,13 +118,13 @@ export function createFakePrisma() {
     update: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       const row = [...table(name).values()].find((r) => matches(r, where))
       if (!row) return Promise.reject(new Error(`${name} not found`))
-      return Promise.resolve({ ...Object.assign(row, data) })
+      return Promise.resolve({ ...Object.assign(row, defined(data)) })
     }),
     updateMany: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       let count = 0
       for (const row of table(name).values()) {
         if (matches(row, where)) {
-          Object.assign(row, data)
+          Object.assign(row, defined(data))
           count++
         }
       }
@@ -137,7 +141,7 @@ export function createFakePrisma() {
         update: Record<string, unknown>
       }) => {
         const row = [...table(name).values()].find((r) => matches(r, flattenWhere(where)))
-        if (row) return Promise.resolve({ ...Object.assign(row, update) })
+        if (row) return Promise.resolve({ ...Object.assign(row, defined(update)) })
         const created = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...create } as Row
         table(name).set(created.id, created)
         return Promise.resolve({ ...created })
@@ -207,10 +211,11 @@ export function createFakePrisma() {
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
     dossier: model('dossier', () => ({ submittedAt: null })),
     shareLink: model('shareLink'),
-    questionnaire: model('questionnaire'),
+    questionnaire: model('questionnaire', () => ({ archivedAt: null, updatedAt: new Date() })),
     questionnaireVersion: model('questionnaireVersion', () => ({
       status: 'draft',
       publishedAt: null,
+      updatedAt: new Date(),
     })),
     questionnaireSection: model('questionnaireSection'),
     questionnaireField: model('questionnaireField', () => ({

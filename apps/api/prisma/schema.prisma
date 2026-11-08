@@ -62,6 +62,10 @@ enum audit_action {
   oauth_grant_revoked
   oauth_refresh_token_reused
   mcp_tool_called
+  form_created
+  form_updated
+  form_draft_created
+  form_draft_discarded
 
   @@map("audit_action")
 }
@@ -124,11 +128,14 @@ model MagicLinkToken {
 // A form definition (ROADMAP E03.01). `usage` says what its answers describe; today only `dossier`
 // (the company profile filled in each dossier). Workspace-specific forms arrive with E05.
 model Questionnaire {
-  id        String   @id @default(uuid())
-  slug      String   @unique
-  name      String
-  usage     String
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  slug       String    @unique
+  name       String
+  // Business usage the form is assigned to (E03.09), null when unassigned; one form per usage.
+  usage      String?   @unique
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   versions QuestionnaireVersion[]
 
@@ -141,9 +148,12 @@ model QuestionnaireVersion {
   id              String    @id @default(uuid())
   questionnaireId String    @map("questionnaire_id")
   version         Int
+  // At most one draft and one published version per form (partial unique indexes, migration
+  // 20261109030000_form_builder): only the draft is editable.
   status          String    @default("draft")
   publishedAt     DateTime? @map("published_at")
   createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   questionnaire Questionnaire          @relation(fields: [questionnaireId], references: [id])
   sections      QuestionnaireSection[]

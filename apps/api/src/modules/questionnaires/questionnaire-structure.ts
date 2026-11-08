@@ -101,7 +101,44 @@ export async function createVersionStructure(
   })
 }
 
-function uniqueKey(base: string, taken: Set<string>): string {
+// Copies the sections and fields of a version into another one, keys and choices included, so that
+// a draft started from the published version reads answers exactly the same way (E03.06, E03.08).
+export async function copyVersionStructure(
+  tx: Prisma.TransactionClient,
+  fromVersionId: string,
+  toVersionId: string,
+): Promise<void> {
+  const [sections, fields] = await Promise.all([
+    tx.questionnaireSection.findMany({ where: { versionId: fromVersionId } }),
+    tx.questionnaireField.findMany({ where: { versionId: fromVersionId } }),
+  ])
+  const sectionIds = new Map<string, string>()
+  for (const { id, key, title, orderIndex } of sections) {
+    const copy = await tx.questionnaireSection.create({
+      data: { versionId: toVersionId, key, title, orderIndex },
+    })
+    sectionIds.set(id, copy.id)
+  }
+  // Every column of a field definition: a new column must be added here to survive drafts.
+  await tx.questionnaireField.createMany({
+    data: fields.map((f) => ({
+      versionId: toVersionId,
+      sectionId: sectionIds.get(f.sectionId)!,
+      key: f.key,
+      label: f.label,
+      helpText: f.helpText,
+      fieldType: f.fieldType,
+      choices: f.choices as Prisma.InputJsonValue,
+      required: f.required,
+      orderIndex: f.orderIndex,
+      constraints: f.constraints as Prisma.InputJsonValue,
+      minAccessLevel: f.minAccessLevel,
+    })),
+  })
+}
+
+// `base`, or `base_2`, `base_3`… when already taken; the returned key is added to `taken`.
+export function uniqueKey(base: string, taken: Set<string>): string {
   let key = base
   for (let n = 2; taken.has(key); n++) key = `${base.slice(0, 56)}_${n}`
   taken.add(key)
