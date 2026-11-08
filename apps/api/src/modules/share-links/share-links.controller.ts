@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -24,14 +25,16 @@ import {
 } from '@nestjs/swagger'
 import type { Request } from 'express'
 import type { ShareLink } from '@prisma/client'
-import { createShareLinkSchema } from '@confluent/shared'
+import { createShareLinkSchema, shareAccessRequestSchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { Public } from '../../common/decorators/public.decorator'
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard'
 import { ShareLinkGuard, type AugmentedRequest } from '../auth/guards/share-link.guard'
 import { ShareLinksService, type FinanceurShareResponse } from './share-links.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
 class CreateShareLinkDto extends createZodDto(createShareLinkSchema) {}
+class ShareAccessRequestDto extends createZodDto(shareAccessRequestSchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
@@ -44,13 +47,14 @@ export class ShareLinksController {
 
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @UseGuards(ShareLinkGuard)
+  @UseGuards(OptionalJwtAuthGuard, ShareLinkGuard)
   @Get('shares/:token')
   @ApiOperation({
     summary: '[Financeur] Consulter un dossier via un lien de partage',
     description:
-      'Route **publique** protégée uniquement par le token UUIDv4 dans l’URL (CSPRNG, 128 bits d’entropie). ' +
-      'Pas de JWT. Le `ShareLinkGuard` vérifie que le token existe et que `status === "active"` ; ' +
+      'Route **publique** protégée par le token UUIDv4 dans l’URL (CSPRNG, 128 bits d’entropie). ' +
+      'Avec un JWT, le compte doit être celui du destinataire du partage, sinon `403` ' +
+      '(`details.reason = "recipient_mismatch"`). Le `ShareLinkGuard` vérifie que le token existe et que `status === "active"` ; ' +
       'sinon `403` générique (pas de leak) + entrée `audit_log: share_link_access_denied` avec token hashé SHA-256. ' +
       'Les accès valides génèrent un `audit_log: share_link_viewed` pour les analytics entrepreneur (FR23).\n\n' +
       'Rate-limit 10 req/min/IP.',
@@ -66,10 +70,35 @@ export class ShareLinksController {
   })
   @ApiTooManyRequestsResponse({ description: 'Rate limit atteint (10/min).' })
   async getShare(@Req() req: Request): Promise<FinanceurShareResponse> {
-    const aug = req as AugmentedRequest
+    const aug = req as AugmentedRequest & { user?: AuthenticatedUser }
     const shareLink = aug.shareLink!
+    this.service.assertRecipient(shareLink, aug.user)
     await this.service.recordView(shareLink, req)
     return this.service.resolveForFinanceur(shareLink)
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseGuards(ShareLinkGuard)
+  @Post('shares/:token/access-request')
+  @HttpCode(202)
+  @ApiOperation({
+    summary: '[Financeur] Demander un lien de connexion pour ouvrir un partage',
+    description:
+      'Le visiteur d’un lien de partage indique son adresse. Si c’est celle du destinataire du ' +
+      'partage, le magic-link habituel lui est envoyé ; sinon rien n’est envoyé. La réponse est ' +
+      'toujours la même (`202`) pour ne pas révéler l’adresse du destinataire. Tracé ' +
+      '`share_link_access_requested`. Rate-limit 5 req/min/IP.',
+  })
+  @ApiParam({ name: 'token', description: 'UUIDv4 du share link' })
+  @ApiAcceptedResponse({
+    description: 'Demande prise en compte (réponse identique dans tous les cas).',
+  })
+  @ApiForbiddenResponse({ description: 'Lien inconnu, révoqué ou expiré.' })
+  async requestAccess(@Req() req: Request, @Body() body: ShareAccessRequestDto) {
+    const shareLink = (req as AugmentedRequest).shareLink!
+    await this.service.requestAccess(shareLink, body.email, req)
+    return { message: 'If this address is the recipient, a sign-in link has been sent.' }
   }
 
   @Post('dossiers/:id/shares')

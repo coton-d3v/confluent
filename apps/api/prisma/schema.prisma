@@ -52,6 +52,7 @@ enum audit_action {
   user_reactivated
   rate_limit_exceeded
   share_link_access_denied
+  share_link_access_requested
   admin_edited_field
   admin_uploaded_document
   admin_revoked_share_link

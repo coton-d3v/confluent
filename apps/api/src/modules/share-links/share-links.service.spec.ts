@@ -1,11 +1,12 @@
 import { Test } from '@nestjs/testing'
-import { NotFoundException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ShareLinksService } from './share-links.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService } from '../documents/documents.service'
+import { AuthService } from '../auth/auth.service'
 import { EMAIL_TRANSPORT } from '../auth/email/email-transport'
 
 function buildModule(overrides: {
@@ -55,6 +56,7 @@ function buildModule(overrides: {
         overrides.getByIdForUser ??
         jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
     },
+    auth: { requestMagicLink: jest.fn().mockResolvedValue(undefined) },
     documents: {
       listForDossier: overrides.listDocuments ?? jest.fn().mockResolvedValue([]),
     },
@@ -74,6 +76,7 @@ async function instantiate(mocks: ReturnType<typeof buildModule>): Promise<Share
       { provide: ConfigService, useValue: mocks.config },
       { provide: DossiersService, useValue: mocks.dossiers },
       { provide: DocumentsService, useValue: mocks.documents },
+      { provide: AuthService, useValue: mocks.auth },
       { provide: EMAIL_TRANSPORT, useValue: mocks.email },
     ],
   }).compile()
@@ -277,6 +280,41 @@ describe('ShareLinksService', () => {
       const { res } = await resolve('everything')
       expect(res.share.accessLevel).toBe('public')
       expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name'])
+    })
+  })
+
+  describe('recipient identity (E02.08)', () => {
+    const link = {
+      id: 'sl-1',
+      dossierId: 'd-1',
+      recipientEmail: 'marc@fund.fr',
+      status: 'active',
+      accessLevel: 'complet',
+    } as never
+    const req = { ip: '1.2.3.4' } as never
+
+    it('lets the recipient (any case) and anonymous callers through, refuses another account', async () => {
+      const svc = await instantiate(buildModule({}))
+      expect(() => svc.assertRecipient(link, undefined)).not.toThrow()
+      expect(() => svc.assertRecipient(link, { email: 'Marc@Fund.fr' })).not.toThrow()
+      expect(() => svc.assertRecipient(link, { email: 'someone@else.fr' })).toThrow(
+        ForbiddenException,
+      )
+    })
+
+    it('sends the sign-in link only to the recipient, and always answers the same way', async () => {
+      const mocks = buildModule({})
+      const svc = await instantiate(mocks)
+      await svc.requestAccess(link, 'intrus@else.fr', req)
+      expect(mocks.auth.requestMagicLink).not.toHaveBeenCalled()
+      await svc.requestAccess(link, 'MARC@fund.fr', req)
+      expect(mocks.auth.requestMagicLink).toHaveBeenCalledWith('marc@fund.fr')
+      expect(mocks.audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'share_link_access_requested',
+          metadata: expect.objectContaining({ matched: false }),
+        }),
+      )
     })
   })
 })
