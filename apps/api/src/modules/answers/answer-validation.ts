@@ -1,4 +1,5 @@
 import type { QuestionnaireField } from '@prisma/client'
+import { validateAnswerValue as validateSharedRules } from '@confluent/shared'
 import { readChoices } from '../questionnaires/questionnaire-structure'
 
 export interface AnswerValidationError {
@@ -7,35 +8,16 @@ export interface AnswerValidationError {
   message: string
 }
 
-const MAX_LENGTH = 10_000
-
-// Checks one value against its field definition. Returns a human-readable reason, or null when valid.
-// An empty string clears an answer and is always accepted (required-ness is checked at submission).
+// Rules shared with the site (`@confluent/shared`), applied to a stored field definition.
 export function validateAnswerValue(field: QuestionnaireField, value: string): string | null {
-  if (value.length > MAX_LENGTH) return `${MAX_LENGTH} caractères maximum.`
-  if (value === '') return null
-  switch (field.fieldType) {
-    case 'email':
-      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? null : 'Adresse email invalide.'
-    case 'number':
-      return /^-?\d+([.,]\d+)?$/.test(value.trim()) ? null : 'Nombre attendu (ex. 1200 ou 3,5).'
-    case 'date':
-      return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
-        ? null
-        : 'Date attendue au format AAAA-MM-JJ.'
-    case 'checkbox':
-      return value === 'true' || value === 'false' ? null : 'Valeur attendue : "true" ou "false".'
-    case 'select': {
-      const choices = readChoices(field.choices)
-      return choices.length === 0 || choices.some((c) => c.key === value)
-        ? null
-        : `Choix attendu parmi : ${choices.map((c) => `"${c.key}" (${c.label})`).join(', ')}.`
-    }
-    case 'file':
-      return 'Ce champ attend un document : utilisez le dépôt de documents.'
-    default:
-      return null
-  }
+  return validateSharedRules(
+    {
+      fieldType: field.fieldType,
+      choices: readChoices(field.choices),
+      constraints: field.constraints,
+    },
+    value,
+  )
 }
 
 // Select answers store the choice key; a value equal to a choice's exact label is accepted and

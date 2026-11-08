@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { accessLevelSchema } from './access-level.schema.js'
+import { fieldConstraintsSchema } from './field-constraints.schema.js'
 import {
   choiceInputSchema,
   fieldKeySchema,
@@ -95,6 +96,8 @@ export const createDraftFieldSchema = z.object({
   fieldType: fieldTypeSchema,
   required: z.boolean().default(false),
   choices: choicesSchema.optional(),
+  // Input limits that fit the field type (E03.05).
+  constraints: fieldConstraintsSchema.optional(),
   // Omitted: the most restrictive level (E03.07).
   minAccessLevel: accessLevelSchema.optional(),
 })
@@ -109,6 +112,7 @@ export const updateDraftFieldSchema = z
     fieldType: fieldTypeSchema,
     required: z.boolean(),
     choices: choicesSchema,
+    constraints: fieldConstraintsSchema,
     minAccessLevel: accessLevelSchema,
   })
   .partial()

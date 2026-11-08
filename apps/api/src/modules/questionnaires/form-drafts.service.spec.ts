@@ -169,6 +169,38 @@ describe('FormDraftsService', () => {
     expect(byKey(updated, 'stade_de_financement')).toMatchObject({ fieldType: 'text', choices: [] })
   })
 
+  it('accepts limits that fit the field type, refuses the others, and clears them on a type change', async () => {
+    const s = setup()
+    const { form, sectionId, draft } = await formWithStage(s)
+    const amount = byKey(draft, 'montant_recherche')
+    let updated = await s.drafts.updateField(form.id, amount.id, {
+      constraints: { min: 0, max: 5_000_000, integer: true },
+    })
+    expect(byKey(updated, 'montant_recherche').constraints).toEqual({
+      min: 0,
+      max: 5_000_000,
+      integer: true,
+    })
+    await expect(
+      s.drafts.updateField(form.id, amount.id, { constraints: { maxLength: 10 } }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(
+      s.drafts.updateField(form.id, amount.id, { constraints: { min: 10, max: 1 } }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(
+      s.drafts.addField(form.id, {
+        sectionId,
+        label: 'Date de création',
+        fieldType: 'date',
+        required: false,
+        constraints: { min: 3 },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    updated = await s.drafts.updateField(form.id, amount.id, { fieldType: 'text' })
+    expect(byKey(updated, 'montant_recherche').constraints).toEqual({})
+  })
+
   it('reorders, moves and removes, keeping positions contiguous', async () => {
     const s = setup()
     const { form, sectionId } = await formWithStage(s)

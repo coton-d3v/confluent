@@ -84,6 +84,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       key: 'nom_du_projet',
       label: 'Nom du projet',
       fieldType: 'text',
+      constraints: { maxLength: 80 },
       required: true,
       orderIndex: 0,
     })
@@ -213,9 +214,18 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const after = json(
       await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
     )
-    type Described = { fieldId: string; answer: string; answerLabel?: string; choices?: unknown[] }
+    type Described = {
+      fieldId: string
+      answer: string
+      answerLabel?: string
+      choices?: unknown[]
+      limits?: string
+    }
     const fields = (after.sections as Array<{ fields: Described[] }>).flatMap((s) => s.fields)
-    expect(fields.find((f) => f.fieldId === 'f-name')?.answer).toBe('Biosensio')
+    expect(fields.find((f) => f.fieldId === 'f-name')).toMatchObject({
+      answer: 'Biosensio',
+      limits: '80 caractères maximum.',
+    })
     // Sent by its label, the list answer is stored as the choice key and described with both.
     expect(fields.find((f) => f.fieldId === 'f-stage')).toMatchObject({
       answer: 'seed_investisseurs_professionnels',
