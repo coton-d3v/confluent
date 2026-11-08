@@ -320,6 +320,44 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     await c.close()
   })
 
+  // Code review R16: deactivating an account revokes its AI connections for good; reactivating it
+  // does not bring the former tokens back — a new consent is needed.
+  it('a deactivated then reactivated account cannot use its former OAuth tokens', async () => {
+    const token = await connect('u-1', ['dossiers:read'])
+    await fake.prisma.user.create({
+      data: {
+        id: 'admin-1',
+        email: 'admin@confluent.dev',
+        role: 'admin',
+        emailVerifiedAt: new Date(),
+      },
+    })
+    const adminJwt = await new JwtService().signAsync(
+      { sub: 'admin-1', email: 'admin@confluent.dev', role: 'admin' },
+      { secret: process.env.JWT_SECRET },
+    )
+    const admin = (action: string) =>
+      fetch(`${base}/v1/admin/users/u-1/${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${adminJwt}` },
+      })
+    expect((await admin('deactivate')).status).toBe(200)
+    expect((await admin('reactivate')).status).toBe(200)
+
+    const call = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    })
+    expect(call.status).toBe(401)
+    const grants = [...fake.table('oAuthGrant').values()].filter((g) => g.userId === 'u-1')
+    expect(grants.every((g) => g.revokedAt instanceof Date)).toBe(true)
+  })
+
   it('connected applications: list, revoke (MCP then gets 401), never another user’s grant', async () => {
     const token = await connect('u-1', ['dossiers:write'])
     const otherToken = await connect('u-2', ['dossiers:read'])

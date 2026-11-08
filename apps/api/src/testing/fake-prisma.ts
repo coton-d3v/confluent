@@ -221,6 +221,7 @@ export function createFakePrisma() {
     ),
     user: model('user', () => ({ isActive: true, locale: 'fr', firstName: null, lastName: null })),
     auditLog: model('auditLog'),
+    refreshSession: model('refreshSession', () => ({ revokedAt: null })),
     oAuthClient: model('oAuthClient', () => ({ fetchedAt: null, clientSecret: null })),
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
     oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),

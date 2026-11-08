@@ -289,6 +289,20 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     return target.toString()
   }
 
+  // Every AI connection of a user, for good (code review R16): used when the account is deactivated,
+  // so that a later reactivation does not bring the former tokens back.
+  async revokeAllForUser(userId: string, reason: string): Promise<number> {
+    const grants = await this.prisma.oAuthGrant.findMany({
+      where: { userId, revokedAt: null },
+      select: { id: true },
+    })
+    let revoked = 0
+    for (const { id } of grants) {
+      if (await this.revokeGrant(id, userId, reason)) revoked++
+    }
+    return revoked
+  }
+
   async revokeGrant(grantId: string, userId: string, reason: string): Promise<boolean> {
     const now = new Date()
     const revoked = await this.prisma.oAuthGrant.updateMany({
