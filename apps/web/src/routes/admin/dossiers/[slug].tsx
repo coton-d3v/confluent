@@ -16,6 +16,7 @@ import type { Question } from '@/data/questionnaire'
 import { useAsync } from '@/lib/useAsync'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NativeSelect } from '@/components/ui/native-select'
 import type { ApiError } from '@/lib/api-client'
 
 const SEARCH_PAGE_SIZE = 100
@@ -350,7 +351,7 @@ function AdminEditableField({
   )
 }
 
-// Native select: the stored value is the choice key. A value matching no choice (answer given
+// The stored value is the choice key. A value matching no choice (answer given
 // before choices had keys) stays selectable so that opening the editor never changes it silently.
 function ChoiceSelect({
   label,
@@ -367,13 +368,12 @@ function ChoiceSelect({
 }) {
   const unknown = value !== '' && !choices.some((c) => c.key === value)
   return (
-    <select
+    <NativeSelect
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
       autoFocus
-      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
     >
       <option value="">—</option>
       {unknown && <option value={value}>{value}</option>}
@@ -382,6 +382,6 @@ function ChoiceSelect({
           {c.label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   )
 }
