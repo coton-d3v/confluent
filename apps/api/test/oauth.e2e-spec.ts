@@ -126,6 +126,47 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       resource: RESOURCE,
     })
 
+  // Code review R17/R13: write implies read on the server, so the consent screen shows both; an
+  // explicitly empty or unknown choice is refused without consuming the request.
+  it('consent: write-only request shows read too; empty or unknown choices are refused, request kept', async () => {
+    const clientId = await registerClient()
+    const { challenge } = pkce()
+    const start = await http()
+      .get('/authorize')
+      .query({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: REDIRECT,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        scope: 'dossiers:write',
+        resource: RESOURCE,
+      })
+      .expect(302)
+    const requestId = new URL(start.headers.location).searchParams.get('request')!
+    const shown = await http()
+      .get(`/v1/oauth/requests/${requestId}`)
+      .set('Authorization', `Bearer ${userJwt}`)
+      .expect(200)
+    expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
+      'dossiers:read',
+      'dossiers:write',
+    ])
+
+    const decide = (scopes: string[]) =>
+      http()
+        .post(`/v1/oauth/requests/${requestId}/decision`)
+        .set('Authorization', `Bearer ${userJwt}`)
+        .send({ approve: true, scopes })
+    await decide([]).expect(400)
+    await decide(['admin:all']).expect(400)
+    expect([...fake.table('oAuthGrant').values()]).toHaveLength(0)
+
+    // Still pending: the user can correct the choice — here, read only.
+    await decide(['dossiers:read']).expect(200)
+    const grants = [...fake.table('oAuthGrant').values()]
+    expect(grants.map((g) => g.scopes)).toEqual([['dossiers:read']])
+  })
   it('keeps Nest global body parsers active (mounting OAuth must not shadow them)', async () => {
     // Nest skips its global parsers if a layer *named* urlencodedParser/jsonParser already exists:
     // a Nest route must still read a form body after the OAuth routes are mounted.

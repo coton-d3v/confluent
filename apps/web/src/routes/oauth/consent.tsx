@@ -49,8 +49,29 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
   return <ConsentDecision request={data} email={email} />
 }
 
+const WRITE = 'dossiers:write'
+
+interface AccessChoice {
+  title: string
+  scopes: string[]
+}
+
+// Writing implies reading on the server (R17): the screen offers whole levels — read and write, or
+// read only — instead of permissions that look independent but are not.
+function accessChoices(request: OAuthConsentRequest): AccessChoice[] {
+  const requested = request.scopes.map((s) => s.scope)
+  if (!requested.includes(WRITE)) return [{ title: 'Lecture seule', scopes: requested }]
+  return [
+    { title: 'Lire et modifier', scopes: requested },
+    { title: 'Lecture seule', scopes: requested.filter((s) => s !== WRITE) },
+  ]
+}
+
 function ConsentDecision({ request, email }: { request: OAuthConsentRequest; email: string }) {
-  const [selected, setSelected] = useState(() => new Set(request.scopes.map((s) => s.scope)))
+  const choices = accessChoices(request)
+  const [choiceIndex, setChoiceIndex] = useState(0)
+  const selected = choices[choiceIndex].scopes
+  const labelOf = (scope: string) => request.scopes.find((s) => s.scope === scope)?.label ?? scope
   const [pending, setPending] = useState<'approve' | 'deny' | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -58,22 +79,13 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
     setPending(approve ? 'approve' : 'deny')
     setFailure(null)
     try {
-      const { redirectUrl } = await decideConsentRequest(request.id, approve, [...selected])
+      const { redirectUrl } = await decideConsentRequest(request.id, approve, selected)
       // Leave Confluent: the client finishes the flow on its own redirect URI.
       window.location.assign(redirectUrl)
     } catch {
       setPending(null)
       setFailure('La demande n’a pas pu être traitée. Relancez la connexion depuis l’application.')
     }
-  }
-
-  function toggle(scope: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(scope)) next.delete(scope)
-      else next.add(scope)
-      return next
-    })
   }
 
   return (
@@ -89,17 +101,27 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
         </header>
 
         <fieldset className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-          <legend className="px-1 text-sm font-medium text-foreground">Autorisations demandées</legend>
-          {request.scopes.map(({ scope, label }) => (
-            <label key={scope} className="flex items-start gap-3 text-sm text-foreground">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 accent-primary"
-                checked={selected.has(scope)}
-                onChange={() => toggle(scope)}
-                disabled={pending !== null}
-              />
-              <span>{label}</span>
+          <legend className="px-1 text-sm font-medium text-foreground">Accès demandé</legend>
+          {choices.map((choice, index) => (
+            <label key={choice.title} className="flex items-start gap-3 text-sm text-foreground">
+              {choices.length > 1 && (
+                <input
+                  type="radio"
+                  name="access-level"
+                  className="mt-0.5 size-4 accent-primary"
+                  checked={choiceIndex === index}
+                  onChange={() => setChoiceIndex(index)}
+                  disabled={pending !== null}
+                />
+              )}
+              <span className="flex flex-col gap-1">
+                <span className="font-medium">{choice.title}</span>
+                <ul className="list-disc pl-5 text-muted-foreground">
+                  {choice.scopes.map((scope) => (
+                    <li key={scope}>{labelOf(scope)}</li>
+                  ))}
+                </ul>
+              </span>
             </label>
           ))}
         </fieldset>
@@ -127,7 +149,7 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
           <Button
             size="lg"
             className="h-11 w-full sm:flex-1"
-            disabled={pending !== null || selected.size === 0}
+            disabled={pending !== null || selected.length === 0}
             onClick={() => void decide(true)}
           >
             {pending === 'approve' ? 'Autorisation…' : 'Autoriser'}

@@ -33,6 +33,7 @@ import {
   hashToken,
   mcpResourceUrl,
   newOpaqueToken,
+  expandScopes,
 } from './oauth.constants'
 
 // Extra fields carried by AuthInfo for the MCP endpoint.
@@ -235,6 +236,13 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     if (!request || request.expiresAt.getTime() <= Date.now()) {
       throw new InvalidRequestError('Authorization request expired, start again from the app')
     }
+    // Checked BEFORE the request is consumed, so that the user can correct the choice (R13):
+    // `undefined` keeps what was requested; an explicitly empty or unknown list is refused.
+    const allowed = expandScopes(request.scopes)
+    const scopes = approvedScopes === undefined ? request.scopes : approvedScopes
+    if (approved && (scopes.length === 0 || scopes.some((s) => !allowed.has(s)))) {
+      throw new InvalidScopeError('Choose at least one of the requested permissions')
+    }
     const decided = await this.prisma.oAuthAuthorizationRequest.updateMany({
       where: { id: requestId, decidedAt: null },
       data: { decidedAt: new Date() },
@@ -249,11 +257,6 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
       target.searchParams.set('error', 'access_denied')
       return target.toString()
     }
-    const scopes = (approvedScopes?.length ? approvedScopes : request.scopes).filter((s) =>
-      request.scopes.includes(s),
-    )
-    if (!scopes.length) throw new InvalidScopeError('At least one permission must be granted')
-
     const grant = await this.prisma.oAuthGrant.create({
       data: {
         userId,
