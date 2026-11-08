@@ -73,4 +73,40 @@ describe('FormsService', () => {
     // The copy has its own rows: the source version is untouched.
     expect(draft.fields.map((f) => f.id)).not.toContain(active.fields[0].id)
   })
+
+  it('moves the dossier usage to a published form: new dossiers then use its version', async () => {
+    const { fake, forms, drafts, questionnaires } = setup()
+    const before = await questionnaires.getActive()
+    const [profile] = await forms.list()
+
+    const next = await forms.create('Profil entreprise 2027', 'admin-1')
+    await expect(forms.assignUsage(next.id, 'dossier', 'admin-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    )
+    const draft = await drafts.addSection(next.id, { title: 'Identité' })
+    await drafts.addField(next.id, {
+      sectionId: draft.sections[0].id,
+      label: 'Nom',
+      fieldType: 'text',
+      required: true,
+    })
+    const published = await drafts.publishDraft(next.id, 'admin-1')
+
+    const assigned = await forms.assignUsage(next.id, 'dossier', 'admin-1')
+    expect(assigned.usage).toBe('dossier')
+    expect((await forms.get(profile.id)).usage).toBeNull()
+    const active = await questionnaires.getActive()
+    expect(active.version.id).toBe(published.version.id)
+    expect(active.version.id).not.toBe(before.version.id)
+    expect([...fake.table('auditLog').values()].at(-1)).toMatchObject({
+      actionType: 'form_updated',
+      metadata: { change: 'assigned', usage: 'dossier', replacedFormId: profile.id },
+    })
+
+    // The former form, now unassigned, can be archived; an archived form cannot be assigned.
+    await forms.archive(profile.id, 'admin-1')
+    await expect(forms.assignUsage(profile.id, 'dossier', 'admin-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    )
+  })
 })

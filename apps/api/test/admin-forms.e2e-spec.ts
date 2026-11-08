@@ -133,6 +133,33 @@ describe('/v1/admin/forms (e2e)', () => {
       .expect(400)
   })
 
+  it('assigns a published form to new dossiers; existing dossiers keep their version', async () => {
+    const created = await call('post', '').send({ name: 'Profil 2027' }).expect(201)
+    const formId = created.body.id as string
+    const draft = await call('post', `/${formId}/draft/sections`).send({ title: 'Identité' })
+    await call('post', `/${formId}/draft/fields`)
+      .send({ sectionId: draft.body.sections[0].id, label: 'Nom', fieldType: 'text' })
+      .expect(201)
+    await call('put', `/${formId}/usage`).send({ usage: 'dossier' }).expect(409)
+
+    const dossier = (name: string) =>
+      request(app.getHttpServer())
+        .post('/v1/dossiers')
+        .set('Authorization', `Bearer ${entrepreneur}`)
+        .send({ name })
+        .expect(201)
+    const before = await dossier('Avant')
+    const published = await call('post', `/${formId}/draft/publish`).expect(200)
+    const assigned = await call('put', `/${formId}/usage`).send({ usage: 'dossier' }).expect(200)
+    expect(assigned.body.usage).toBe('dossier')
+    await call('put', `/${formId}/usage`).send({ usage: 'autre' }).expect(400)
+
+    const after = await dossier('Après')
+    const versionOf = (id: string) => fake.table('dossier').get(id)?.questionnaireVersionId
+    expect(versionOf(after.body.id as string)).toBe(published.body.version.id)
+    expect(versionOf(before.body.id as string)).not.toBe(published.body.version.id)
+  })
+
   it('refuses to publish an incomplete draft, with the problems in error.details', async () => {
     const created = await call('post', '').send({ name: 'Vide' }).expect(201)
     const res = await call('post', `/${created.body.id}/draft/publish`).expect(422)

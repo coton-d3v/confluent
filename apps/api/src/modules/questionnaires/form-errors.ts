@@ -43,6 +43,11 @@ export const FormErrors = {
       message:
         'Ce formulaire est affecté à un usage : retirez cette affectation avant de l’archiver.',
     }),
+  notPublished: () =>
+    new ConflictException({
+      code: 'FORM_NOT_PUBLISHED',
+      message: 'Publiez une version de ce formulaire avant de l’affecter.',
+    }),
   keyTaken: (key: string) =>
     new ConflictException({
       code: 'KEY_TAKEN',
