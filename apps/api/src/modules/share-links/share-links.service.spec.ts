@@ -54,6 +54,11 @@ function buildModule(overrides: {
         })[k],
     },
     dossiers: {
+      // Derived data: projected by DossiersService (policy tested in financeur-access.spec.ts); here
+      // a stand-in that hides the financial axis below `complet`, to check delegation.
+      projectForLevel: jest.fn((d: Record<string, unknown>, level: string) =>
+        Promise.resolve(level === 'complet' ? d : { ...d, axe2Financier: null }),
+      ),
       getByIdForUser:
         overrides.getByIdForUser ??
         jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
@@ -266,12 +271,12 @@ describe('ShareLinksService', () => {
       // Sections without any visible field are not sent either.
       expect(res.sections.map((sec) => sec.id)).toEqual(['s-identite'])
       expect(res.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
-      expect(res.dossier).toMatchObject({ sector: 'biotech', tagTechnologique: 'deeptech' })
-      expect(res.dossier).toMatchObject({
-        axe1Projet: null,
-        deeptechScore: null,
-        axe2Financier: null,
-      })
+      // Derived data comes from DossiersService.projectForLevel, at the level of this link.
+      expect(mocks.dossiers.projectForLevel).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'd-1' }),
+        'public',
+      )
+      expect(res.dossier).toMatchObject({ sector: 'biotech', axe2Financier: null })
       expect(res.documents).toBeNull()
       expect(mocks.documents.listForDossier).not.toHaveBeenCalled()
     })
@@ -279,7 +284,7 @@ describe('ShareLinksService', () => {
     it('partiel: everything but financial data, no documents', async () => {
       const { res } = await resolve('partiel')
       expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name', 'f-origine'])
-      expect(res.dossier).toMatchObject({ axe1Projet: 3, deeptechScore: 3, axe2Financier: null })
+      expect(res.dossier).toMatchObject({ axe1Projet: 3, axe2Financier: null })
       expect(res.documents).toBeNull()
     })
 
