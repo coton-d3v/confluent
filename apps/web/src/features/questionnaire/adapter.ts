@@ -8,7 +8,7 @@ export interface DynamicQuestionnaire {
   fieldsById: Record<string, QuestionnaireField>
 }
 
-export function buildDynamicQuestionnaire(qz: ActiveQuestionnaire): DynamicQuestionnaire {
+export function buildDynamicQuestionnaire(qz: Pick<ActiveQuestionnaire, 'fields'>): DynamicQuestionnaire {
   const sectionOrder: string[] = []
   const grouped = new Map<string, QuestionnaireField[]>()
   for (const f of qz.fields) {
