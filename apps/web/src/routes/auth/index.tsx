@@ -5,6 +5,7 @@ import { magicLinkRequestSchema, type MagicLinkRequest } from '@confluent/shared
 import { LoaderCircleIcon } from 'lucide-react'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
+import { hasPendingReturnTo } from '@/features/auth/return-to'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -52,6 +53,12 @@ export default function AuthRoute() {
           {!sent && (
             <p className="text-sm text-muted-foreground">
               Entrez votre adresse email pour recevoir un lien de connexion.
+            </p>
+          )}
+          {!sent && hasPendingReturnTo() && (
+            <p className="text-sm text-foreground">
+              Une application demande l’accès à votre compte : connectez-vous pour l’autoriser.
+              Le lien reçu par email vous ramènera à la demande.
             </p>
           )}
         </div>

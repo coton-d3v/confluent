@@ -4,6 +4,7 @@ import { LoaderCircleIcon } from 'lucide-react'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { Button } from '@/components/ui/button'
 import { verifyMagicLink } from '@/features/auth/api'
+import { consumeReturnTo } from '@/features/auth/return-to'
 
 type Status = 'pending' | 'error'
 
@@ -26,7 +27,8 @@ export default function AuthVerifyRoute() {
     void (async () => {
       try {
         const user = await verifyMagicLink(token)
-        const target = user.role === 'admin' ? '/admin' : '/dashboard'
+        // e.g. back to the OAuth consent screen that sent the user to log in
+        const target = consumeReturnTo() ?? (user.role === 'admin' ? '/admin' : '/dashboard')
         navigate(target, { replace: true })
       } catch {
         setStatus('error')
