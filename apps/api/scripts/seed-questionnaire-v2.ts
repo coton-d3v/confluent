@@ -2,7 +2,10 @@ import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 import type { field_type } from '@prisma/client'
 import { refuseInProduction } from './lib/environment-guard'
-import { createVersionStructure } from '../src/modules/questionnaires/questionnaire-structure'
+import {
+  createVersionStructure,
+  labelsToChoices,
+} from '../src/modules/questionnaires/questionnaire-structure'
 
 const prisma = new PrismaClient()
 
@@ -25,8 +28,9 @@ const SECTION_ACCESS_LEVEL: Record<string, 'public' | 'partiel' | 'complet'> = {
   'Stade spécifique': 'partiel',
   'Stade financier': 'complet',
 }
-const withAccessLevel = (f: FieldDef) => ({
+const withAccessLevel = ({ options, ...f }: FieldDef) => ({
   ...f,
+  choices: labelsToChoices(options),
   minAccessLevel: SECTION_ACCESS_LEVEL[f.section] ?? 'complet',
 })
 

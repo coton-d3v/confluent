@@ -28,7 +28,8 @@ export function QuestionnaireStep({
   canGoBack,
   returnToSummary,
 }: QuestionnaireStepProps) {
-  const hasOptions = question.options && question.options.length > 0
+  const choices = question.choices ?? []
+  const hasChoices = choices.length > 0
   const cleaned = stripNonPrintable(value).trim()
   const canAdvance = cleaned.length > 0
   const headingId = 'questionnaire-current-question'
@@ -57,9 +58,9 @@ export function QuestionnaireStep({
     onAdvance(cleaned)
   }
 
-  function handleOptionClick(option: string) {
-    onChange(option)
-    onAdvance(option)
+  function handleChoiceClick(key: string) {
+    onChange(key)
+    onAdvance(key)
   }
 
   return (
@@ -81,23 +82,24 @@ export function QuestionnaireStep({
         <p className="text-sm text-muted-foreground">{question.hint}</p>
       )}
 
-      {hasOptions ? (
+      {hasChoices ? (
         <div className="flex flex-col gap-2">
-          {question.options!.map((option) => (
+          {choices.map((choice) => (
             <button
-              key={option}
+              key={choice.key}
               type="button"
-              onClick={() => handleOptionClick(option)}
+              aria-pressed={value === choice.key}
+              onClick={() => handleChoiceClick(choice.key)}
               className={cn(
                 'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
                 'hover:border-foreground/40 hover:bg-muted/50',
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]',
-                value === option
+                value === choice.key
                   ? 'border-foreground bg-foreground text-background'
                   : 'border-border bg-card text-foreground',
               )}
             >
-              {option}
+              {choice.label}
             </button>
           ))}
         </div>
@@ -123,7 +125,7 @@ export function QuestionnaireStep({
         </button>
       )}
 
-      {!hasOptions && (
+      {!hasChoices && (
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="submit"

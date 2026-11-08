@@ -1,8 +1,14 @@
 import type { QuestionnaireField } from '@prisma/client'
-import { validateAnswerValue, validateAnswers } from './answer-validation'
+import { normalizeAnswers, validateAnswerValue, validateAnswers } from './answer-validation'
 
-const field = (fieldType: string, options: string[] = []) =>
-  ({ id: 'f', label: 'Champ', fieldType, options }) as unknown as QuestionnaireField
+type Choice = { key: string; label: string }
+const field = (fieldType: string, choices: Choice[] = [], id = 'f') =>
+  ({ id, label: 'Champ', fieldType, choices }) as unknown as QuestionnaireField
+
+const AB: Choice[] = [
+  { key: 'a', label: 'Choix A' },
+  { key: 'b', label: 'Choix B' },
+]
 
 describe('validateAnswerValue', () => {
   it.each([
@@ -20,10 +26,13 @@ describe('validateAnswerValue', () => {
     expect(validateAnswerValue(field(type), value)).toBe(expected)
   })
 
-  it('accepts only listed options for a select, and any value when no option is defined', () => {
-    expect(validateAnswerValue(field('select', ['A', 'B']), 'A')).toBeNull()
-    expect(validateAnswerValue(field('select', ['A', 'B']), 'C')).toContain('"A", "B"')
-    expect(validateAnswerValue(field('select'), 'C')).toBeNull()
+  it('accepts only a choice key for a select, and any value when no choice is defined', () => {
+    expect(validateAnswerValue(field('select', AB), 'a')).toBeNull()
+    expect(validateAnswerValue(field('select', AB), 'Choix A')).toContain(
+      '"a" (Choix A), "b" (Choix B)',
+    )
+    expect(validateAnswerValue(field('select', AB), 'c')).not.toBeNull()
+    expect(validateAnswerValue(field('select'), 'c')).toBeNull()
   })
 
   it('always accepts an empty string (clearing an answer) and refuses file fields', () => {
@@ -50,6 +59,33 @@ describe('validateAnswers', () => {
         fieldId: 'other-version-field',
         message: expect.stringContaining('n’appartient pas'),
       }),
+    ])
+  })
+})
+
+describe('normalizeAnswers', () => {
+  it('stores the key of a choice given by its exact label, and leaves other values untouched', () => {
+    const fields = [field('select', AB, 'sel'), field('text', [], 'txt')]
+    expect(
+      normalizeAnswers(fields, [
+        { fieldId: 'sel', value: 'Choix B' },
+        { fieldId: 'txt', value: 'Choix B' },
+        { fieldId: 'unknown', value: 'Choix B' },
+      ]),
+    ).toEqual([
+      { fieldId: 'sel', value: 'b' },
+      { fieldId: 'txt', value: 'Choix B' },
+      { fieldId: 'unknown', value: 'Choix B' },
+    ])
+  })
+
+  it('never reinterprets a value that already is a key, even if it equals another choice label', () => {
+    const tricky = field('select', [
+      { key: 'oui', label: 'non' },
+      { key: 'non', label: 'oui' },
+    ])
+    expect(normalizeAnswers([tricky], [{ fieldId: 'f', value: 'oui' }])).toEqual([
+      { fieldId: 'f', value: 'oui' },
     ])
   })
 })

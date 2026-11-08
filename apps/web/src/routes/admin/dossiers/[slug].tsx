@@ -11,6 +11,8 @@ import {
   patchAdminAnswers,
 } from '@/features/admin/dossiers.api'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
+import { answerLabel } from '@/features/questionnaire/answer-label'
+import type { Question } from '@/data/questionnaire'
 import { useAsync } from '@/lib/useAsync'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -176,7 +178,7 @@ function AdminDossierDetailView({
                     {sectionMetas.map((q) => (
                       <AdminEditableField
                         key={q.id}
-                        label={q.label}
+                        question={q}
                         value={answersByFieldId[q.id] ?? ''}
                         onSave={(value) => handleSaveAnswer(q.id, value)}
                       />
@@ -256,11 +258,11 @@ function AdminDossierDetailView({
 }
 
 function AdminEditableField({
-  label,
+  question,
   value,
   onSave,
 }: {
-  label: string
+  question: Question
   value: string
   onSave: (next: string) => Promise<void>
 }) {
@@ -291,16 +293,28 @@ function AdminEditableField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+        {question.label}
+      </dt>
       <dd>
         {editing ? (
           <div className="flex flex-col gap-2">
-            <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              disabled={saving}
-              autoFocus
-            />
+            {question.choices ? (
+              <ChoiceSelect
+                label={question.label}
+                choices={question.choices}
+                value={draft}
+                onChange={setDraft}
+                disabled={saving}
+              />
+            ) : (
+              <Input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                disabled={saving}
+                autoFocus
+              />
+            )}
             <div className="flex gap-2">
               <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                 {saving ? 'Sauvegarde…' : 'Enregistrer'}
@@ -319,7 +333,7 @@ function AdminEditableField({
         ) : (
           <div className="flex items-start justify-between gap-3">
             <p className="whitespace-pre-wrap break-words text-sm text-foreground">
-              {value || <span className="text-muted-foreground">—</span>}
+              {value ? answerLabel(question, value) : <span className="text-muted-foreground">—</span>}
             </p>
             <Button
               type="button"
@@ -333,5 +347,41 @@ function AdminEditableField({
         )}
       </dd>
     </div>
+  )
+}
+
+// Native select: the stored value is the choice key. A value matching no choice (answer given
+// before choices had keys) stays selectable so that opening the editor never changes it silently.
+function ChoiceSelect({
+  label,
+  choices,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string
+  choices: NonNullable<Question['choices']>
+  value: string
+  onChange: (next: string) => void
+  disabled: boolean
+}) {
+  const unknown = value !== '' && !choices.some((c) => c.key === value)
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      autoFocus
+      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+    >
+      <option value="">—</option>
+      {unknown && <option value={value}>{value}</option>}
+      {choices.map((c) => (
+        <option key={c.key} value={c.key}>
+          {c.label}
+        </option>
+      ))}
+    </select>
   )
 }

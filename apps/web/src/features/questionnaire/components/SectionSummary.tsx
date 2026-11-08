@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import type { QuestionMeta, Section } from '@/data/questionnaire'
+import { answerLabel } from '@/features/questionnaire/answer-label'
 
 export interface SectionSummaryProps {
   section: Section
@@ -50,7 +51,7 @@ export function SectionSummary({
                 </dt>
                 <dd className="mt-1 text-[13px] font-medium text-foreground">
                   {answer.length > 0 ? (
-                    answer
+                    answerLabel(q, answer)
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

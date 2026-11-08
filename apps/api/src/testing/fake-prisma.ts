@@ -216,7 +216,7 @@ export function createFakePrisma() {
     questionnaireField: model('questionnaireField', () => ({
       helpText: null,
       constraints: {},
-      options: [],
+      choices: [],
       required: false,
       minAccessLevel: 'complet',
     })),

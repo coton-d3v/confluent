@@ -78,6 +78,31 @@ Les connexions des navigateurs et des clients MCP passent par Traefik en HTTPS (
 | `docker-compose.prod.yml` | Référence versionnée de la production : `postgres` (sans port publié), `api-migrate` (migrations avant démarrage), `api`, `web`. |
 | Compose du serveur (Traefik + Doppler) | Variante réellement exécutée ; elle doit reprendre de la référence : `api-migrate` avant `api`, `DOPPLER_TOKEN` fourni à l'exécution, aucun port publié pour PostgreSQL. |
 
+### Avant de déployer des migrations
+
+Les migrations s'appliquent en production **toutes ensemble**, dans une même session, alors qu'en développement elles arrivent souvent une à une. Contrôler la chaîne complète sur une base vide et jetable :
+
+```sh
+MIGRATION_CHECK_DATABASE_URL=postgresql://…/base_jetable sh apps/api/scripts/check-migration-chain.sh
+```
+
+Le script :
+1. applique les migrations antérieures aux formulaires ;
+2. insère des données historiques qui entrent en collision une fois transformées en clés (`prisma/checks/forms-history.fixture.sql`) ;
+3. déploie tout le reste en une commande ;
+4. vérifie clés et réponses (`forms-history.assertions.sql`).
+
+Compléter par un déploiement sur une copie restaurée de la production (voir « Restaurer »).
+
+### Migration en échec
+
+Chaque migration s'exécute dans une transaction : si elle échoue, **elle ne laisse rien en base**, ce qui a été vérifié sur PostgreSQL 16. Prisma l'enregistre toutefois comme échouée dans `_prisma_migrations` et refuse les déploiements suivants (P3009).
+
+1. Lire l'erreur dans `docker compose logs api-migrate`. Vérifier que le schéma n'a pas changé (`prisma migrate status`, tables de la migration absentes).
+2. Corriger la migration dans une nouvelle version de l'image, testée avec le contrôle ci-dessus.
+3. Marquer l'échec comme annulé : `pnpm --filter @confluent/api exec prisma migrate resolve --rolled-back <nom_de_la_migration>`.
+4. Relancer `api-migrate`. En cas de doute sur l'état de la base, restaurer d'abord la sauvegarde prise juste avant le déploiement.
+
 ### Ce qui est autorisé en production
 
 | Commande | Production | Rôle |

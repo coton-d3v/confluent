@@ -25,7 +25,7 @@ export function buildDynamicQuestionnaire(
           id: f.id,
           label: f.label,
           hint: f.helpText ?? undefined,
-          options: f.options && f.options.length > 0 ? f.options : undefined,
+          choices: f.fieldType === 'select' && f.choices.length > 0 ? f.choices : undefined,
         })),
     }))
     .filter((section) => section.questions.length > 0)

@@ -6,6 +6,7 @@ import { DossierField } from '@/components/confluent/DossierField'
 import { Badge } from '@/components/ui/badge'
 import { useSharedDossier } from '@/features/share-access/useSharedDossier'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
+import { answerLabel } from '@/features/questionnaire/answer-label'
 import { AccessDeniedPage } from '@/routes/share/AccessDeniedPage'
 import { RecipientMismatchPage } from '@/routes/share/RecipientMismatchPage'
 
@@ -121,7 +122,11 @@ function SharedAnswers({ data }: { data: FinanceurShareResponse }) {
           </h2>
           <dl className="mt-4 flex flex-col gap-6">
             {section.questions.map((q) => (
-              <DossierField key={q.id} label={q.label} value={answersByFieldId[q.id] ?? ''} />
+              <DossierField
+                key={q.id}
+                label={q.label}
+                value={answerLabel(q, answersByFieldId[q.id] ?? '')}
+              />
             ))}
           </dl>
         </section>

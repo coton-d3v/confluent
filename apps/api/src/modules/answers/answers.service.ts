@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { Dossier, DossierAnswer } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { validateAnswers } from './answer-validation'
+import { normalizeAnswers, validateAnswers } from './answer-validation'
 import { InvalidAnswersException } from './invalid-answers.exception'
 
 export interface AnswerInput {
@@ -29,9 +29,10 @@ export class AnswersService {
     const fields = await this.prisma.questionnaireField.findMany({
       where: { versionId: dossier.questionnaireVersionId },
     })
-    const errors = validateAnswers(fields, answers)
+    const normalized = normalizeAnswers(fields, answers)
+    const errors = validateAnswers(fields, normalized)
     if (errors.length) throw new InvalidAnswersException(errors)
-    return this.upsertMany(dossier.id, answers)
+    return this.upsertMany(dossier.id, normalized)
   }
 
   private async upsertMany(dossierId: string, answers: AnswerInput[]): Promise<DossierAnswer[]> {

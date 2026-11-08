@@ -1,8 +1,11 @@
+import type { Choice } from '@confluent/shared'
+
 export interface Question {
   readonly id: string
   readonly label: string
   readonly hint?: string
-  readonly options?: readonly string[]
+  // List fields only: the answer stores a choice key, the label is displayed.
+  readonly choices?: readonly Choice[]
 }
 
 export interface Section {

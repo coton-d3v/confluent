@@ -1,4 +1,5 @@
 import type { QuestionnaireField } from '@prisma/client'
+import { readChoices } from '../questionnaires/questionnaire-structure'
 
 export interface AnswerValidationError {
   fieldId: string
@@ -24,15 +25,35 @@ export function validateAnswerValue(field: QuestionnaireField, value: string): s
         : 'Date attendue au format AAAA-MM-JJ.'
     case 'checkbox':
       return value === 'true' || value === 'false' ? null : 'Valeur attendue : "true" ou "false".'
-    case 'select':
-      return field.options.length === 0 || field.options.includes(value)
+    case 'select': {
+      const choices = readChoices(field.choices)
+      return choices.length === 0 || choices.some((c) => c.key === value)
         ? null
-        : `Choix attendu parmi : ${field.options.map((o) => `"${o}"`).join(', ')}.`
+        : `Choix attendu parmi : ${choices.map((c) => `"${c.key}" (${c.label})`).join(', ')}.`
+    }
     case 'file':
       return 'Ce champ attend un document : utilisez le dépôt de documents.'
     default:
       return null
   }
+}
+
+// Select answers store the choice key; a value equal to a choice's exact label is accepted and
+// stored as its key (convenient for AI clients and imports). Other values are left untouched for
+// validation to report.
+export function normalizeAnswers<T extends { fieldId: string; value: string }>(
+  fields: QuestionnaireField[],
+  answers: readonly T[],
+): T[] {
+  const byId = new Map(fields.map((f) => [f.id, f]))
+  return answers.map((answer) => {
+    const field = byId.get(answer.fieldId)
+    if (field?.fieldType !== 'select') return answer
+    const choices = readChoices(field.choices)
+    if (choices.some((c) => c.key === answer.value)) return answer
+    const byLabel = choices.find((c) => c.label === answer.value)
+    return byLabel ? { ...answer, value: byLabel.key } : answer
+  })
 }
 
 // Validates a batch of answers for a dossier: every field must belong to the dossier's own

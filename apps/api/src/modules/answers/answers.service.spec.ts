@@ -4,8 +4,17 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { InvalidAnswersException } from './invalid-answers.exception'
 
 const FIELDS = [
-  { id: 'f-1', versionId: 'v-1', label: 'Nom', fieldType: 'text', options: [] },
-  { id: 'f-2', versionId: 'v-1', label: 'Stade', fieldType: 'select', options: ['MVP', 'Seed'] },
+  { id: 'f-1', versionId: 'v-1', label: 'Nom', fieldType: 'text', choices: [] },
+  {
+    id: 'f-2',
+    versionId: 'v-1',
+    label: 'Stade',
+    fieldType: 'select',
+    choices: [
+      { key: 'mvp', label: 'MVP' },
+      { key: 'seed', label: 'Seed' },
+    ],
+  },
 ]
 
 describe('AnswersService', () => {
@@ -62,6 +71,8 @@ describe('AnswersService', () => {
       create: { dossierId: 'd-1', fieldId: 'f-1', value: 'hello' },
       update: { value: 'hello' },
     })
+    // A list answer given by its exact label is stored as the choice key.
+    expect(upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ update: { value: 'mvp' } }))
     expect(transaction).toHaveBeenCalledTimes(1)
     expect(result).toHaveLength(2)
   })
