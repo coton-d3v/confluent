@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCurrentUser } from '@/features/current-user/context'
 import * as api from '@/features/admin/forms.api'
-import { ConfirmDialog, type ConfirmRequest } from '@/features/form-builder/components/ConfirmDialog'
+import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
 import { DraftProblems } from '@/features/form-builder/components/DraftProblems'
 import {
   FieldEditorSheet,

@@ -11,6 +11,7 @@ import AdminRoute from '@/routes/admin'
 import AdminDossiersRoute from '@/routes/admin/dossiers'
 import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
 import AdminFormsRoute from '@/routes/admin/formulaires'
+import AdminClassificationRoute from '@/routes/admin/classification'
 import AdminFormEditorRoute from '@/routes/admin/formulaires/[formId]'
 import AdminUtilisateursRoute from '@/routes/admin/utilisateurs'
 import ShareRoute from '@/routes/share'
@@ -60,6 +61,7 @@ export const router = createBrowserRouter([
         handle: { hideBreadcrumb: true },
       },
       { path: 'admin/formulaires', element: <AdminFormsRoute /> },
+      { path: 'admin/classification', element: <AdminClassificationRoute /> },
       {
         path: 'admin/formulaires/:formId',
         element: <AdminFormEditorRoute />,

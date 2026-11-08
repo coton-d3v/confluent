@@ -1,6 +1,12 @@
 import { useMemo } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import type { AccessLevel, DocumentGroup, FinanceurShareResponse } from '@confluent/shared'
+import {
+  CLASSIFICATION_DIMENSIONS,
+  TECH_TAG_LABELS,
+  type AccessLevel,
+  type DocumentGroup,
+  type FinanceurShareResponse,
+} from '@confluent/shared'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { DossierField } from '@/components/confluent/DossierField'
 import { Badge } from '@/components/ui/badge'
@@ -18,17 +24,8 @@ const ACCESS_LEVEL_NOTICE: Record<AccessLevel, string> = {
   complet: 'Accès complet : l’entrepreneur partage l’intégralité de son dossier.',
 }
 
-const ANCRAGE_LABEL: Record<string, string> = {
-  ancré: 'Basé en Centre-Val de Loire',
-  en_cours: 'S’installe en Centre-Val de Loire',
-  découverte: 'Découvre l’écosystème Centre-Val de Loire',
-}
-
-const TAG_TECHNO_LABEL: Record<string, string> = {
-  deeptech: 'Deeptech',
-  tech: 'Tech',
-  non_tech: 'Non tech',
-}
+const ancrageLabel = (value: string) =>
+  CLASSIFICATION_DIMENSIONS.ancrage_cvl.values.find((v) => v.value === value)?.label ?? value
 
 export default function ShareDossierRoute() {
   const { token } = useParams<{ token: string }>()
@@ -81,8 +78,8 @@ function ClassificationBadges({ dossier }: { dossier: FinanceurShareResponse['do
   const labels = [
     dossier.sector,
     dossier.maturityStage,
-    dossier.ancrageCvl && (ANCRAGE_LABEL[dossier.ancrageCvl] ?? dossier.ancrageCvl),
-    dossier.tagTechnologique && (TAG_TECHNO_LABEL[dossier.tagTechnologique] ?? dossier.tagTechnologique),
+    dossier.ancrageCvl && ancrageLabel(dossier.ancrageCvl),
+    dossier.tagTechnologique && (TECH_TAG_LABELS[dossier.tagTechnologique] ?? dossier.tagTechnologique),
   ].filter((l): l is string => Boolean(l))
   if (labels.length === 0) return null
   return (
