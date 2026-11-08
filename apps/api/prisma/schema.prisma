@@ -198,8 +198,8 @@ model Document {
 
   dossier Dossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
 
+  @@unique([dossierId, filename, version])
   @@index([dossierId])
-  @@index([dossierId, filename, version])
   @@map("documents")
 }
 

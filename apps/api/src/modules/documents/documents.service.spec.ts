@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing'
 import { PayloadTooLargeException } from '@nestjs/common'
-import { DocumentsService } from './documents.service'
+import { Prisma } from '@prisma/client'
+import { DocumentsService, sanitizeFilename } from './documents.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { STORAGE_TOKEN, type StorageAdapter } from './storage/storage.adapter'
 
@@ -57,7 +58,7 @@ describe('DocumentsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           version: 1,
-          storageKey: 'dossiers/d-1/pitch.pdf-v1',
+          storageKey: expect.stringMatching(/^dossiers\/d-1\/[0-9a-f-]{36}$/),
         }),
       }),
     )
@@ -211,5 +212,100 @@ describe('DocumentsService', () => {
       'memory://dossiers/d-1/deck.pdf-v1',
     )
     expect(groups.find((g) => g.filename === 'pitch.pdf')!.current.url).toBeNull()
+  })
+
+  it('stores under an opaque key, never derived from the client filename', async () => {
+    const prisma = {
+      document: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(({ data }: { data: object }) => Promise.resolve({ id: 'doc-1', ...data })),
+      },
+    }
+    const storage: StorageAdapter = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      getSignedUrl: jest.fn(),
+      delete: jest.fn(),
+    }
+    const svc = (await build(storage, prisma)).get(DocumentsService)
+    const doc = await svc.upload({
+      dossierId: 'd-1',
+      filename: '../../etc/passwd',
+      mimetype: 'text/plain',
+      buffer: Buffer.from('x'),
+    })
+    const key = (storage.upload as jest.Mock).mock.calls[0][0] as string
+    expect(key).toMatch(/^dossiers\/d-1\/[0-9a-f-]{36}$/)
+    expect(doc).toMatchObject({ filename: 'passwd', version: 1, storageKey: key })
+  })
+
+  it('retries with the next version when a concurrent upload took the same one', async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+    })
+    const prisma = {
+      document: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({ version: 1 })
+          .mockResolvedValueOnce({ version: 2 }),
+        create: jest
+          .fn()
+          .mockRejectedValueOnce(conflict)
+          .mockImplementation(({ data }: { data: object }) =>
+            Promise.resolve({ id: 'doc-3', ...data }),
+          ),
+      },
+    }
+    const storage: StorageAdapter = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      getSignedUrl: jest.fn(),
+      delete: jest.fn(),
+    }
+    const svc = (await build(storage, prisma)).get(DocumentsService)
+    const doc = await svc.upload({
+      dossierId: 'd-1',
+      filename: 'bp.pdf',
+      mimetype: 'application/pdf',
+      buffer: Buffer.from('x'),
+    })
+    expect(doc.version).toBe(3)
+    expect(storage.delete).not.toHaveBeenCalled()
+  })
+
+  it('deletes the stored object when the database write ultimately fails', async () => {
+    const prisma = {
+      document: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(new Error('db down')),
+      },
+    }
+    const storage: StorageAdapter = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      getSignedUrl: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    }
+    const svc = (await build(storage, prisma)).get(DocumentsService)
+    await expect(
+      svc.upload({
+        dossierId: 'd-1',
+        filename: 'bp.pdf',
+        mimetype: 'application/pdf',
+        buffer: Buffer.from('x'),
+      }),
+    ).rejects.toThrow('db down')
+    expect(storage.delete).toHaveBeenCalledWith((storage.upload as jest.Mock).mock.calls[0][0])
+  })
+})
+
+describe('sanitizeFilename', () => {
+  it.each([
+    ['rapport.pdf', 'rapport.pdf'],
+    ['C:\\Users\\x\\bilan 2025.xlsx', 'bilan 2025.xlsx'],
+    ['../secret', 'secret'],
+    ['..', 'document'],
+    ['a\u0000b\nc', 'abc'],
+  ])('%p → %p', (raw, expected) => {
+    expect(sanitizeFilename(raw)).toBe(expected)
   })
 })

@@ -24,7 +24,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import type { Request } from 'express'
-import { DocumentsService, type DocumentGroup } from './documents.service'
+import { DocumentsService, MAX_UPLOAD_BYTES, type DocumentGroup } from './documents.service'
 import { grantsAccess } from '@confluent/shared'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DOCUMENTS_MIN_LEVEL } from '../dossiers/financeur-access'
@@ -54,7 +54,11 @@ export class DocumentsController {
   ) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  // The multipart limit aborts the upload while streaming (413) instead of buffering an oversized
+  // file in memory first.
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 10 } }),
+  )
   @ApiOperation({
     summary: 'Upload d’un document',
     description:
