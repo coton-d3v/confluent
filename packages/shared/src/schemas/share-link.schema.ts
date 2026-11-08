@@ -21,6 +21,12 @@ export const shareLinkWithUrlSchema = shareLinkSchema.extend({
   shareUrl: z.string().min(1),
 })
 
+// E02.08: the visitor of a share link states who they are; a sign-in link is sent only if this is
+// the recipient's address (no oracle: the answer is the same either way).
+export const shareAccessRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+})
+
 export const createShareLinkSchema = z.object({
   recipientEmail: z.string().trim().toLowerCase().email(),
   accessLevel: accessLevelSchema.optional(),
@@ -57,4 +63,5 @@ export type ShareLinkStatus = z.infer<typeof shareLinkStatusSchema>
 export type ShareLink = z.infer<typeof shareLinkSchema>
 export type ShareLinkWithUrl = z.infer<typeof shareLinkWithUrlSchema>
 export type CreateShareLinkInput = z.infer<typeof createShareLinkSchema>
+export type ShareAccessRequest = z.infer<typeof shareAccessRequestSchema>
 export type FinanceurShareResponse = z.infer<typeof financeurShareResponseSchema>

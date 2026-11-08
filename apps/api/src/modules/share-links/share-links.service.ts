@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Request } from 'express'
 import type { ShareLink } from '@prisma/client'
@@ -10,6 +10,7 @@ import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transp
 import { Inject } from '@nestjs/common'
 import { grantsAccess, type AccessLevel } from '@confluent/shared'
 import type { QuestionnaireField } from '@prisma/client'
+import { AuthService } from '../auth/auth.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
 import {
@@ -18,6 +19,8 @@ import {
   grantedLevel,
   projectDossierForLevel,
 } from '../dossiers/financeur-access'
+
+const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
 export interface FinanceurShareResponse {
   dossier: {
@@ -50,8 +53,33 @@ export class ShareLinksService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly dossiers: DossiersService,
     private readonly documents: DocumentsService,
+    private readonly auth: AuthService,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
   ) {}
+
+  // E02.08: a share link opens the dossier only to the account it was sent to. A forwarded link
+  // used by someone else — even logged in — gets nothing.
+  assertRecipient(shareLink: ShareLink, user: { email: string } | undefined): void {
+    if (user && !sameEmail(user.email, shareLink.recipientEmail)) {
+      throw new ForbiddenException({
+        message: 'This share link was sent to another email address.',
+        details: { reason: 'recipient_mismatch' },
+      })
+    }
+  }
+
+  // Sends the usual magic link to the recipient — only if `email` is the recipient's address. The
+  // caller always gets the same answer, so the endpoint does not reveal who the recipient is.
+  async requestAccess(shareLink: ShareLink, email: string, req: Request): Promise<void> {
+    const matched = sameEmail(email, shareLink.recipientEmail)
+    if (matched) await this.auth.requestMagicLink(shareLink.recipientEmail)
+    await this.audit.record({
+      actionType: 'share_link_access_requested',
+      shareLinkId: shareLink.id,
+      dossierId: shareLink.dossierId,
+      metadata: { matched, ip: req.ip ?? null },
+    })
+  }
 
   async resolveForFinanceur(shareLink: ShareLink): Promise<FinanceurShareResponse> {
     const dossier = await this.prisma.dossier.findUnique({

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { INestApplication } from '@nestjs/common'
+import { JwtService } from '@nestjs/jwt'
 import request from 'supertest'
 import type { App } from 'supertest/types'
 import cookieParser from 'cookie-parser'
@@ -16,6 +17,33 @@ describe('ShareLinksController (e2e)', () => {
   let dossierFindUnique: jest.Mock
   let documentFindMany: jest.Mock
   let auditRecord: jest.Mock
+  let sendMagicLink: jest.Mock
+  const users = [
+    {
+      id: 'u-marc',
+      email: 'bob@invest.fr',
+      role: 'financeur',
+      isActive: true,
+      emailVerifiedAt: new Date(),
+      locale: 'fr',
+    },
+    {
+      id: 'u-eve',
+      email: 'eve@other.fr',
+      role: 'financeur',
+      isActive: true,
+      emailVerifiedAt: new Date(),
+      locale: 'fr',
+    },
+  ]
+  const userFindUnique = jest.fn(({ where }: { where: { id?: string; email?: string } }) =>
+    Promise.resolve(users.find((u) => u.id === where.id || u.email === where.email) ?? null),
+  )
+  const jwtFor = (u: (typeof users)[number]) =>
+    new JwtService().signAsync(
+      { sub: u.id, email: u.email, role: u.role },
+      { secret: process.env.JWT_SECRET },
+    )
 
   beforeEach(async () => {
     shareFindUnique = jest.fn()
@@ -29,15 +57,22 @@ describe('ShareLinksController (e2e)', () => {
       .useValue({
         onModuleInit: async () => {},
         onModuleDestroy: async () => {},
-        user: { findUnique: jest.fn() },
-        magicLinkToken: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+        user: { findUnique: userFindUnique },
+        magicLinkToken: {
+          create: jest.fn().mockResolvedValue({}),
+          findUnique: jest.fn(),
+          update: jest.fn(),
+        },
         shareLink: { findUnique: shareFindUnique },
         dossier: { findUnique: dossierFindUnique },
         document: { findMany: documentFindMany },
         auditLog: { create: jest.fn() },
       })
       .overrideProvider(EMAIL_TRANSPORT)
-      .useValue({ sendMagicLink: jest.fn(), sendShareInvite: jest.fn() })
+      .useValue({
+        sendMagicLink: (sendMagicLink = jest.fn().mockResolvedValue(undefined)),
+        sendShareInvite: jest.fn(),
+      })
       .overrideProvider(AuditService)
       .useValue({ record: auditRecord })
       .compile()
@@ -168,6 +203,60 @@ describe('ShareLinksController (e2e)', () => {
     expect(res.body.answers).toHaveLength(3)
     expect(res.body.documents).toHaveLength(1)
     expect(res.body.documents[0]).toMatchObject({ filename: 'bp.pdf', current: { url: null } })
+  })
+
+  describe('recipient identity (E02.08)', () => {
+    it('the recipient’s session gets the content; another account gets 403 recipient_mismatch', async () => {
+      activeLink('complet')
+      await request(app.getHttpServer())
+        .get('/v1/shares/abc')
+        .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+        .expect(200)
+      const other = await request(app.getHttpServer())
+        .get('/v1/shares/abc')
+        .set('Authorization', `Bearer ${await jwtFor(users[1])}`)
+        .expect(403)
+      expect(other.body.error.details).toEqual({ reason: 'recipient_mismatch' })
+      expect(other.body.answers).toBeUndefined()
+    })
+
+    it('an invalid token is a 401 (the client refreshes), never treated as anonymous', async () => {
+      activeLink('complet')
+      await request(app.getHttpServer())
+        .get('/v1/shares/abc')
+        .set('Authorization', 'Bearer not-a-jwt')
+        .expect(401)
+    })
+
+    it('access-request sends a sign-in link only for the recipient’s address, same answer either way', async () => {
+      activeLink('complet')
+      const wrong = await request(app.getHttpServer())
+        .post('/v1/shares/abc/access-request')
+        .send({ email: 'eve@other.fr' })
+        .expect(202)
+      expect(sendMagicLink).not.toHaveBeenCalled()
+      const right = await request(app.getHttpServer())
+        .post('/v1/shares/abc/access-request')
+        .send({ email: 'Bob@Invest.fr' })
+        .expect(202)
+      expect(right.body).toEqual(wrong.body)
+      expect(sendMagicLink).toHaveBeenCalledWith(expect.objectContaining({ to: 'bob@invest.fr' }))
+    })
+
+    it('access-request on a revoked link is refused', async () => {
+      shareFindUnique.mockResolvedValue({
+        id: 'sl-9',
+        token: 'rev',
+        status: 'revoked',
+        dossierId: 'd-1',
+        recipientEmail: 'bob@invest.fr',
+      })
+      await request(app.getHttpServer())
+        .post('/v1/shares/rev/access-request')
+        .send({ email: 'bob@invest.fr' })
+        .expect(403)
+      expect(sendMagicLink).not.toHaveBeenCalled()
+    })
   })
 
   it('GET /v1/shares/:token — unknown token: 403 + deny audit', async () => {
