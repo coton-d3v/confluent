@@ -8,22 +8,36 @@ import { listAnswers, upsertAnswers } from '@/features/dossiers/answers.api'
 import { getDossier } from '@/features/dossiers/api'
 import { Button } from '@/components/ui/button'
 import { useAsync } from '@/lib/useAsync'
-import type { AnswerInput } from '@confluent/shared'
+import { isAnswered, type AnswerInput } from '@confluent/shared'
 
 const AUTOSAVE_DEBOUNCE_MS = 800
+
+const recapPath = (dossierId: string) =>
+  `/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`
 
 export default function QuestionnaireRoute() {
   const [searchParams] = useSearchParams()
   const dossierId = searchParams.get('dossierId')
+  // `question`: open this field directly, then go back to the final recap (edit from the recap).
+  const questionId = searchParams.get('question')
 
   if (!dossierId) {
     return <Navigate to="/dashboard/dossiers/nouveau" replace />
   }
 
-  return <QuestionnaireLoader dossierId={dossierId} />
+  return <QuestionnaireLoader key={questionId ?? ''} dossierId={dossierId} questionId={questionId} />
 }
 
-function QuestionnaireLoader({ dossierId }: { dossierId: string }) {
+// Where to resume (E03.10): just after the furthest answered question; past the end → recap.
+function resumePosition(questionnaire: DynamicQuestionnaire, answers: Record<string, string>): number {
+  let furthest = 0
+  questionnaire.flat.forEach((q, i) => {
+    if (isAnswered(answers[q.id])) furthest = i + 1
+  })
+  return furthest + 1
+}
+
+function QuestionnaireLoader({ dossierId, questionId }: { dossierId: string; questionId: string | null }) {
   // The dossier's own questionnaire version (snapshot taken at creation), never the currently
   // active one: after a new version is published, resuming an older dossier must show — and save
   // into — the fields it was created with.
@@ -53,11 +67,16 @@ function QuestionnaireLoader({ dossierId }: { dossierId: string }) {
       </p>
     )
   }
+  const target = questionId ? dynamic.flat.findIndex((q) => q.id === questionId) + 1 : 0
+  const initialPosition = target > 0 ? target : resumePosition(dynamic, initialAnswers)
+  if (initialPosition > dynamic.totalQuestions) return <Navigate to={recapPath(dossierId)} replace />
   return (
     <QuestionnaireWizard
       dossierId={dossierId}
       questionnaire={dynamic}
       initialAnswers={initialAnswers}
+      initialPosition={initialPosition}
+      backToRecap={target > 0}
     />
   )
 }
@@ -72,10 +91,15 @@ function QuestionnaireWizard({
   dossierId,
   questionnaire,
   initialAnswers,
+  initialPosition,
+  backToRecap,
 }: {
   dossierId: string
   questionnaire: DynamicQuestionnaire
   initialAnswers: Record<string, string>
+  initialPosition: number
+  // Opened from the final recap for one question: return there once it is answered.
+  backToRecap: boolean
 }) {
   const navigate = useNavigate()
   const { sections, flat, totalQuestions } = questionnaire
@@ -83,7 +107,7 @@ function QuestionnaireWizard({
 
   const [state, setState] = useState<WizardState>({
     answers: initialAnswers,
-    position: 1,
+    position: initialPosition,
     view: 'question',
   })
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
@@ -212,6 +236,11 @@ function QuestionnaireWizard({
     // Never move on — let alone reach the completion screen — with an answer that was not saved.
     if (!saved) return
 
+    if (backToRecap) {
+      navigate(recapPath(dossierId))
+      return
+    }
+
     if (editingFromSummary) {
       setEditingFromSummary(false)
       setDirection('forward')
@@ -225,9 +254,7 @@ function QuestionnaireWizard({
 
     if (position >= totalQuestions) {
       setState({ answers: nextAnswers, position, view: 'question' })
-      navigate(
-        `/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`,
-      )
+      navigate(recapPath(dossierId))
       return
     }
 
@@ -337,7 +364,9 @@ function QuestionnaireWizard({
             returnToSummary={
               editingFromSummary
                 ? { onReturn: handleReturnToSummary }
-                : undefined
+                : backToRecap
+                  ? { onReturn: () => navigate(recapPath(dossierId)) }
+                  : undefined
             }
           />
         )}

@@ -263,23 +263,36 @@ function DossierView({
             </Button>
           </div>
         ) : isOwner ? (
-          <Sheet open={shareOpen} onOpenChange={setShareOpen}>
-            <SheetTrigger
-              render={
-                <Button
-                  type="button"
-                  size="lg"
-                  className="h-11 self-start px-4 sm:self-auto"
-                >
-                  Partager
-                </Button>
+          <div className="flex gap-2 self-start sm:self-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-11 px-4"
+              onClick={() =>
+                navigate(`/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`)
               }
-            />
-            <SharePanel
-              existingEntries={accessEntries}
-              onSubmitInvitation={handleInvitationSubmit}
-            />
-          </Sheet>
+            >
+              Modifier les réponses
+            </Button>
+            <Sheet open={shareOpen} onOpenChange={setShareOpen}>
+              <SheetTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="h-11 self-start px-4 sm:self-auto"
+                  >
+                    Partager
+                  </Button>
+                }
+              />
+              <SharePanel
+                existingEntries={accessEntries}
+                onSubmitInvitation={handleInvitationSubmit}
+              />
+            </Sheet>
+          </div>
         ) : null}
       </div>
 
