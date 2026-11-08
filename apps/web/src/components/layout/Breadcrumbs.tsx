@@ -10,6 +10,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   nouveau: 'Nouveau',
   admin: 'Admin',
   formulaires: 'Formulaires',
+  classification: 'Classification',
   utilisateurs: 'Utilisateurs',
 }
 
