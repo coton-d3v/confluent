@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { ClassificationService } from './classification.service'
 import { PrismaService } from '../../prisma/prisma.service'
+import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
 
 function buildPrisma(dossier: unknown) {
   const update = jest
@@ -15,6 +16,9 @@ function buildPrisma(dossier: unknown) {
         findUnique: jest.fn().mockResolvedValue(dossier),
         update,
       },
+      // The rules seeded by the migration: the expectations below are those of the former
+      // hard-coded rules, so the migration changes no classification.
+      classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
     },
     update,
   }

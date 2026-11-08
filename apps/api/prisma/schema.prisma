@@ -66,6 +66,7 @@ enum audit_action {
   form_updated
   form_draft_created
   form_draft_discarded
+  classification_rules_updated
 
   @@map("audit_action")
 }
@@ -390,4 +391,21 @@ model OAuthToken {
 
   @@index([grantId])
   @@map("oauth_tokens")
+}
+
+// Classification rules (ROADMAP E03.12): which answer (field key, choice key) gives which value of
+// a classification dimension. Dimensions and their values are defined in @confluent/shared.
+model ClassificationRule {
+  id        String   @id @default(uuid())
+  dimension String
+  fieldKey  String   @map("field_key")
+  // '' when the rule reads the whole field (`label` dimensions).
+  choiceKey String   @default("") @map("choice_key")
+  value     String   @default("")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([dimension, fieldKey, choiceKey])
+  @@map("classification_rules")
 }
