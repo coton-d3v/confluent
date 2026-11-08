@@ -14,11 +14,13 @@ describe('ShareLinksController (e2e)', () => {
   let app: INestApplication<App>
   let shareFindUnique: jest.Mock
   let dossierFindUnique: jest.Mock
+  let documentFindMany: jest.Mock
   let auditRecord: jest.Mock
 
   beforeEach(async () => {
     shareFindUnique = jest.fn()
     dossierFindUnique = jest.fn()
+    documentFindMany = jest.fn().mockResolvedValue([])
     auditRecord = jest.fn().mockResolvedValue(undefined)
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -31,6 +33,7 @@ describe('ShareLinksController (e2e)', () => {
         magicLinkToken: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
         shareLink: { findUnique: shareFindUnique },
         dossier: { findUnique: dossierFindUnique },
+        document: { findMany: documentFindMany },
         auditLog: { create: jest.fn() },
       })
       .overrideProvider(EMAIL_TRANSPORT)
@@ -51,22 +54,71 @@ describe('ShareLinksController (e2e)', () => {
     await app.close()
   })
 
-  it('GET /v1/shares/:token — active: 200, scoped payload + audit written', async () => {
+  // A V2-like dossier with one field per access level (story 12.1).
+  const dossierRow = {
+    id: 'd-1',
+    name: 'Biosensio',
+    slug: 'biosensio',
+    sector: 'biotech',
+    maturityStage: 'MVP',
+    ancrageCvl: 'ancré',
+    tagTechnologique: 'deeptech',
+    axe1Projet: 3,
+    axe2Financier: 4,
+    axe3Origine: 3,
+    deeptechScore: 3,
+    preCreation: false,
+    questionnaireVersion: {
+      fields: [
+        { id: 'f-name', section: 'Identité du projet', label: 'Nom', minAccessLevel: 'public' },
+        {
+          id: 'f-origine',
+          section: 'Origine & technologie',
+          label: 'Origine',
+          minAccessLevel: 'partiel',
+        },
+        {
+          id: 'f-fin',
+          section: 'Stade financier',
+          label: 'Financement',
+          minAccessLevel: 'complet',
+        },
+      ],
+    },
+    answers: [
+      { fieldId: 'f-name', value: 'Biosensio' },
+      { fieldId: 'f-origine', value: 'Spin-off' },
+      { fieldId: 'f-fin', value: 'Seed' },
+    ],
+  }
+
+  function activeLink(accessLevel: string) {
     shareFindUnique.mockResolvedValue({
       id: 'sl-1',
       token: 'abc',
       status: 'active',
       dossierId: 'd-1',
       recipientEmail: 'bob@invest.fr',
+      accessLevel,
     })
-    dossierFindUnique.mockResolvedValue({ id: 'd-1', name: 'Biosensio', slug: 'biosensio' })
+    dossierFindUnique.mockResolvedValue(dossierRow)
+  }
 
+  it('GET /v1/shares/:token — public: identity only, no documents + audit written', async () => {
+    activeLink('public')
     const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
 
-    expect(res.body).toEqual({
-      dossier: { id: 'd-1', name: 'Biosensio', slug: 'biosensio' },
-      share: { recipientEmail: 'bob@invest.fr', status: 'active' },
+    expect(res.body.share).toEqual({
+      recipientEmail: 'bob@invest.fr',
+      status: 'active',
+      accessLevel: 'public',
     })
+    expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name'])
+    expect(res.body.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
+    expect(res.body.dossier).toMatchObject({ id: 'd-1', name: 'Biosensio', sector: 'biotech' })
+    expect(res.body.dossier).toMatchObject({ axe1Projet: null, axe2Financier: null })
+    expect(res.body.documents).toBeNull()
+    expect(documentFindMany).not.toHaveBeenCalled()
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: 'share_link_viewed',
@@ -74,6 +126,48 @@ describe('ShareLinksController (e2e)', () => {
         dossierId: 'd-1',
       }),
     )
+  })
+
+  it('GET /v1/shares/:token — partiel: no financial answer, no documents', async () => {
+    activeLink('partiel')
+    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+
+    expect(res.body.answers.map((a: { fieldId: string }) => a.fieldId)).toEqual([
+      'f-name',
+      'f-origine',
+    ])
+    expect(res.body.dossier).toMatchObject({ axe1Projet: 3, axe2Financier: null })
+    expect(res.body.documents).toBeNull()
+  })
+
+  it('GET /v1/shares/:token — complet: everything + documents', async () => {
+    activeLink('complet')
+    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+
+    expect(res.body.answers).toHaveLength(3)
+    expect(res.body.dossier.axe2Financier).toBe(4)
+    expect(res.body.documents).toEqual([])
+  })
+
+  it('GET /v1/shares/:token — complet with a lost stored file still answers 200 (url null)', async () => {
+    activeLink('complet')
+    // Metadata survives in DB, the in-memory object is gone (API restarted).
+    documentFindMany.mockResolvedValue([
+      {
+        id: 'doc-1',
+        filename: 'bp.pdf',
+        version: 1,
+        storageKey: 'dossiers/d-1/bp.pdf-v1',
+        mimetype: 'application/pdf',
+        size: 42,
+        createdAt: new Date('2026-11-01'),
+      },
+    ])
+    const res = await request(app.getHttpServer()).get('/v1/shares/abc').expect(200)
+
+    expect(res.body.answers).toHaveLength(3)
+    expect(res.body.documents).toHaveLength(1)
+    expect(res.body.documents[0]).toMatchObject({ filename: 'bp.pdf', current: { url: null } })
   })
 
   it('GET /v1/shares/:token — unknown token: 403 + deny audit', async () => {

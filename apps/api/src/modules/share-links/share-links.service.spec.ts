@@ -5,6 +5,7 @@ import { ShareLinksService } from './share-links.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
+import { DocumentsService } from '../documents/documents.service'
 import { EMAIL_TRANSPORT } from '../auth/email/email-transport'
 
 function buildModule(overrides: {
@@ -18,6 +19,8 @@ function buildModule(overrides: {
   sendShareInvite?: jest.Mock
   sendMagicLink?: jest.Mock
   auditRecord?: jest.Mock
+  dossierFindUnique?: jest.Mock
+  listDocuments?: jest.Mock
 }) {
   return {
     prisma: {
@@ -27,7 +30,7 @@ function buildModule(overrides: {
         update: overrides.shareUpdate ?? jest.fn(),
         findMany: overrides.shareFindMany ?? jest.fn().mockResolvedValue([]),
       },
-      dossier: { findUnique: jest.fn() },
+      dossier: { findUnique: overrides.dossierFindUnique ?? jest.fn() },
       user: {
         findUnique: overrides.userFindUnique ?? jest.fn().mockResolvedValue(null),
         create:
@@ -52,6 +55,9 @@ function buildModule(overrides: {
         overrides.getByIdForUser ??
         jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
     },
+    documents: {
+      listForDossier: overrides.listDocuments ?? jest.fn().mockResolvedValue([]),
+    },
     email: {
       sendMagicLink: overrides.sendMagicLink ?? jest.fn().mockResolvedValue(undefined),
       sendShareInvite: overrides.sendShareInvite ?? jest.fn().mockResolvedValue(undefined),
@@ -67,6 +73,7 @@ async function instantiate(mocks: ReturnType<typeof buildModule>): Promise<Share
       { provide: AuditService, useValue: mocks.audit },
       { provide: ConfigService, useValue: mocks.config },
       { provide: DossiersService, useValue: mocks.dossiers },
+      { provide: DocumentsService, useValue: mocks.documents },
       { provide: EMAIL_TRANSPORT, useValue: mocks.email },
     ],
   }).compile()
@@ -190,5 +197,86 @@ describe('ShareLinksService', () => {
     })
     const svc = await instantiate(mocks)
     await expect(svc.revoke('d-1', 'sl-2', 'u-1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  describe('resolveForFinanceur — access levels applied server-side', () => {
+    const dossierRow = {
+      id: 'd-1',
+      name: 'Biosensio',
+      slug: 'biosensio',
+      sector: 'biotech',
+      maturityStage: 'MVP',
+      ancrageCvl: 'ancré',
+      tagTechnologique: 'deeptech',
+      axe1Projet: 3,
+      axe2Financier: 4,
+      axe3Origine: 3,
+      deeptechScore: 3,
+      preCreation: false,
+      questionnaireVersion: {
+        fields: [
+          { id: 'f-name', section: 'Identité du projet', minAccessLevel: 'public' },
+          { id: 'f-origine', section: 'Origine & technologie', minAccessLevel: 'partiel' },
+          { id: 'f-financement', section: 'Stade financier', minAccessLevel: 'complet' },
+        ],
+      },
+      answers: [
+        { fieldId: 'f-name', value: 'Biosensio' },
+        { fieldId: 'f-origine', value: 'Spin-off d’un laboratoire' },
+        { fieldId: 'f-financement', value: 'Seed – investisseurs professionnels' },
+      ],
+    }
+    const docs = [{ filename: 'bp.pdf', current: {}, versions: [] }]
+
+    async function resolve(accessLevel: string) {
+      const mocks = buildModule({
+        dossierFindUnique: jest.fn().mockResolvedValue(dossierRow),
+        listDocuments: jest.fn().mockResolvedValue(docs),
+      })
+      const svc = await instantiate(mocks)
+      const res = await svc.resolveForFinanceur({
+        id: 'sl-1',
+        dossierId: 'd-1',
+        recipientEmail: 'marc@fund.fr',
+        status: 'active',
+        accessLevel,
+      } as never)
+      return { res, mocks }
+    }
+
+    it('public: identity answers + public classification only, no documents', async () => {
+      const { res, mocks } = await resolve('public')
+      expect(res.share.accessLevel).toBe('public')
+      expect(res.fields.map((f) => f.id)).toEqual(['f-name'])
+      expect(res.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
+      expect(res.dossier).toMatchObject({ sector: 'biotech', tagTechnologique: 'deeptech' })
+      expect(res.dossier).toMatchObject({
+        axe1Projet: null,
+        deeptechScore: null,
+        axe2Financier: null,
+      })
+      expect(res.documents).toBeNull()
+      expect(mocks.documents.listForDossier).not.toHaveBeenCalled()
+    })
+
+    it('partiel: everything but financial data, no documents', async () => {
+      const { res } = await resolve('partiel')
+      expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name', 'f-origine'])
+      expect(res.dossier).toMatchObject({ axe1Projet: 3, deeptechScore: 3, axe2Financier: null })
+      expect(res.documents).toBeNull()
+    })
+
+    it('complet: all answers, all classification, documents', async () => {
+      const { res } = await resolve('complet')
+      expect(res.answers).toHaveLength(3)
+      expect(res.dossier.axe2Financier).toBe(4)
+      expect(res.documents).toEqual(docs)
+    })
+
+    it('an unknown stored level falls back to public (fail closed)', async () => {
+      const { res } = await resolve('everything')
+      expect(res.share.accessLevel).toBe('public')
+      expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name'])
+    })
   })
 })

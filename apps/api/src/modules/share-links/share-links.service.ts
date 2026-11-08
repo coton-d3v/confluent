@@ -8,11 +8,38 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { Inject } from '@nestjs/common'
+import { grantsAccess, type AccessLevel } from '@confluent/shared'
+import type { QuestionnaireField } from '@prisma/client'
 import { DossiersService } from '../dossiers/dossiers.service'
+import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
+import {
+  DOCUMENTS_MIN_LEVEL,
+  fieldVisibleAt,
+  grantedLevel,
+  projectDossierForLevel,
+} from '../dossiers/financeur-access'
 
 export interface FinanceurShareResponse {
-  dossier: { id: string; name: string; slug: string }
-  share: { recipientEmail: string; status: string }
+  dossier: {
+    id: string
+    name: string
+    slug: string
+    sector: string | null
+    maturityStage: string | null
+    ancrageCvl: string | null
+    tagTechnologique: string | null
+    axe1Projet: number | null
+    axe2Financier: number | null
+    axe3Origine: number | null
+    deeptechScore: number | null
+    preCreation: boolean | null
+  }
+  share: { recipientEmail: string; status: string; accessLevel: AccessLevel }
+  // Already filtered by `share.accessLevel`: hidden fields and their answers never leave the server.
+  fields: QuestionnaireField[]
+  answers: Array<{ fieldId: string; value: string }>
+  // null when the level does not grant documents (below `complet`).
+  documents: DocumentGroup[] | null
 }
 
 @Injectable()
@@ -22,20 +49,50 @@ export class ShareLinksService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly dossiers: DossiersService,
+    private readonly documents: DocumentsService,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
   ) {}
 
   async resolveForFinanceur(shareLink: ShareLink): Promise<FinanceurShareResponse> {
     const dossier = await this.prisma.dossier.findUnique({
       where: { id: shareLink.dossierId },
-      select: { id: true, name: true, slug: true },
+      include: {
+        questionnaireVersion: {
+          include: { fields: { orderBy: [{ section: 'asc' }, { orderIndex: 'asc' }] } },
+        },
+        answers: { select: { fieldId: true, value: true } },
+      },
     })
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
+    // The level of this very link — not the highest across the recipient's links: the token is what
+    // was shared, and it may have been forwarded.
+    const accessLevel = grantedLevel(shareLink.accessLevel)
+    const { questionnaireVersion, answers, ...row } = projectDossierForLevel(dossier, accessLevel)
+    const fields = questionnaireVersion.fields.filter((f) => fieldVisibleAt(f, accessLevel))
+    const visibleIds = new Set(fields.map((f) => f.id))
     return {
-      dossier,
-      share: { recipientEmail: shareLink.recipientEmail, status: shareLink.status },
+      dossier: {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        sector: row.sector,
+        maturityStage: row.maturityStage,
+        ancrageCvl: row.ancrageCvl,
+        tagTechnologique: row.tagTechnologique,
+        axe1Projet: row.axe1Projet,
+        axe2Financier: row.axe2Financier,
+        axe3Origine: row.axe3Origine,
+        deeptechScore: row.deeptechScore,
+        preCreation: row.preCreation,
+      },
+      share: { recipientEmail: shareLink.recipientEmail, status: shareLink.status, accessLevel },
+      fields,
+      answers: answers.filter((a) => visibleIds.has(a.fieldId)),
+      documents: grantsAccess(accessLevel, DOCUMENTS_MIN_LEVEL)
+        ? await this.documents.listForDossier(dossier.id)
+        : null,
     }
   }
 

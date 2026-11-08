@@ -7,12 +7,14 @@ export interface SeedField {
   fieldType: field_type
   required: boolean
   orderIndex: number
+  minAccessLevel: 'public' | 'partiel' | 'complet'
 }
 
 export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   // Section 1 — Présentation (4 fields)
   {
     section: 'Présentation',
+    minAccessLevel: 'public',
     label: "Nom de l'entreprise",
     fieldType: 'text',
     required: true,
@@ -20,6 +22,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Présentation',
+    minAccessLevel: 'public',
     key: 'secteur_activite',
     label: "Secteur d'activité",
     fieldType: 'select',
@@ -28,6 +31,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Présentation',
+    minAccessLevel: 'public',
     key: 'stade_maturite',
     label: 'Stade de maturité',
     fieldType: 'select',
@@ -36,6 +40,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Présentation',
+    minAccessLevel: 'public',
     label: 'Pitch court',
     fieldType: 'textarea',
     required: true,
@@ -44,6 +49,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   // Section 2 — Marché & produit (4 fields)
   {
     section: 'Marché & produit',
+    minAccessLevel: 'partiel',
     label: 'Marché cible',
     fieldType: 'textarea',
     required: true,
@@ -51,6 +57,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Marché & produit',
+    minAccessLevel: 'partiel',
     label: 'Proposition de valeur',
     fieldType: 'textarea',
     required: true,
@@ -58,6 +65,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Marché & produit',
+    minAccessLevel: 'partiel',
     label: 'Taille du marché (k€)',
     fieldType: 'number',
     required: false,
@@ -65,6 +73,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Marché & produit',
+    minAccessLevel: 'partiel',
     label: 'Concurrents principaux',
     fieldType: 'textarea',
     required: false,
@@ -73,6 +82,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   // Section 3 — Finances & équipe (4 fields)
   {
     section: 'Finances & équipe',
+    minAccessLevel: 'complet',
     label: 'Chiffre d’affaires (k€)',
     fieldType: 'number',
     required: false,
@@ -80,6 +90,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Finances & équipe',
+    minAccessLevel: 'complet',
     label: 'Effectif',
     fieldType: 'number',
     required: true,
@@ -87,6 +98,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Finances & équipe',
+    minAccessLevel: 'complet',
     label: 'Levée en cours (k€)',
     fieldType: 'number',
     required: false,
@@ -94,6 +106,7 @@ export const QUESTIONNAIRE_V1_FIELDS: SeedField[] = [
   },
   {
     section: 'Finances & équipe',
+    minAccessLevel: 'complet',
     label: 'Usage des fonds',
     fieldType: 'textarea',
     required: false,

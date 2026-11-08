@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import type { AccessLevel } from '@confluent/shared'
 import type { field_type, QuestionnaireField, QuestionnaireVersion } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
@@ -11,6 +12,7 @@ export interface CreateVersionFieldInput {
   options?: string[]
   required: boolean
   orderIndex: number
+  minAccessLevel?: AccessLevel
 }
 
 export interface UpdateFieldInput {

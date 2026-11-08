@@ -10,7 +10,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
-import { fieldKeySchema, hasUniqueKeys } from '@confluent/shared'
+import { accessLevelSchema, fieldKeySchema, hasUniqueKeys } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import { AdminGuard } from '../auth/guards/admin.guard'
@@ -35,6 +35,7 @@ const fieldInputSchema = z.object({
   options: z.array(z.string().min(1).max(500)).max(200).optional(),
   required: z.boolean().default(false),
   orderIndex: z.number().int().min(0),
+  minAccessLevel: accessLevelSchema.optional(),
 })
 
 const createVersionSchema = z.object({
@@ -84,7 +85,8 @@ export class AdminQuestionnaireController {
       'et la nouvelle `isPublished=true`. **Les dossiers existants gardent leur version snapshot** — ils ne sont ' +
       'jamais re-bindés (FR14 immuabilité). Chaque champ peut porter une `key` technique (snake_case, unique ' +
       'dans la version) lue par la classification : reprendre les `key` et `options` de la version précédente ' +
-      'pour que la classification continue de fonctionner.',
+      'pour que la classification continue de fonctionner. `minAccessLevel` (public | partiel | complet, ' +
+      'défaut `complet`) fixe le niveau de partage minimal pour qu’un financeur lise la réponse.',
   })
   @ApiCreatedResponse({ description: 'Version créée et publiée.' })
   create(@Body() body: CreateVersionDto) {

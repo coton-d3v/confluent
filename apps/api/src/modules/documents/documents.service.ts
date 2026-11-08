@@ -1,4 +1,4 @@
-import { Inject, Injectable, PayloadTooLargeException } from '@nestjs/common'
+import { Inject, Injectable, Logger, PayloadTooLargeException } from '@nestjs/common'
 import type { Document } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { STORAGE_TOKEN, type StorageAdapter } from './storage/storage.adapter'
@@ -7,7 +7,9 @@ const MAX_BYTES = 20 * 1024 * 1024
 
 export interface DocumentVersionView {
   version: number
-  url: string
+  // null when the stored object cannot be reached (e.g. in-memory storage after a restart): the
+  // document is still listed, only its download is unavailable.
+  url: string | null
   createdAt: Date
   mimetype: string
   size: number
@@ -21,6 +23,8 @@ export interface DocumentGroup {
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(STORAGE_TOKEN) private readonly storage: StorageAdapter,
@@ -65,7 +69,7 @@ export class DocumentsService {
     })
     const byName = new Map<string, DocumentVersionView[]>()
     for (const row of rows) {
-      const url = await this.storage.getSignedUrl(row.storageKey, 900)
+      const url = await this.signedUrlOrNull(row.storageKey)
       const view: DocumentVersionView = {
         version: row.version,
         url,
@@ -82,5 +86,15 @@ export class DocumentsService {
       current: versions[0],
       versions,
     }))
+  }
+
+  // One missing object must not fail the whole listing (and every page that embeds it).
+  private async signedUrlOrNull(storageKey: string): Promise<string | null> {
+    try {
+      return await this.storage.getSignedUrl(storageKey, 900)
+    } catch (err) {
+      this.logger.warn(`document object unavailable: ${storageKey} (${(err as Error).message})`)
+      return null
+    }
   }
 }

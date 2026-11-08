@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { accessLevelSchema } from './access-level.schema.js'
 
 export const fieldTypeSchema = z.enum([
   'text',
@@ -41,6 +42,7 @@ export const questionnaireFieldSchema = z.object({
   options: z.array(z.string()).default([]),
   required: z.boolean(),
   orderIndex: z.number().int().nonnegative(),
+  minAccessLevel: accessLevelSchema,
 })
 
 export const activeQuestionnaireSchema = z.object({
@@ -55,6 +57,7 @@ export const createQuestionnaireVersionFieldSchema = z.object({
   fieldType: fieldTypeSchema,
   options: z.array(z.string().min(1).max(500)).max(200).optional(),
   required: z.boolean(),
+  minAccessLevel: accessLevelSchema.optional(),
   orderIndex: z.number().int().nonnegative(),
 })
 

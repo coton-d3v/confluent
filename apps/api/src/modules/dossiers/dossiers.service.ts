@@ -1,13 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { highestAccessLevel, type AccessLevel } from '@confluent/shared'
 import type { Dossier } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { ClassificationService } from '../classification/classification.service'
+import { fieldVisibleAt, grantedLevel, projectDossierForLevel } from './financeur-access'
 
 export interface CreateDossierParams {
   userId: string
   name: string
+}
+
+export interface DossierReadAccess {
+  dossier: Dossier
+  // `complet` for the owner; for a financeur, the highest level among their active share links.
+  accessLevel: AccessLevel
 }
 
 export interface UpdateDossierParams {
@@ -46,13 +54,24 @@ export class DossiersService {
             some: { recipientEmail: user.email, status: 'active' },
           },
         },
-        include: { user: { select: { email: true, firstName: true, lastName: true } } },
+        include: {
+          user: { select: { email: true, firstName: true, lastName: true } },
+          shareLinks: {
+            where: { recipientEmail: user.email, status: 'active' },
+            select: { accessLevel: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       })
-      return rows.map(({ user: owner, ...d }) => {
+      return rows.map(({ user: owner, shareLinks, ...d }) => {
         const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
         const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
-        return { ...d, ownerEmail: owner.email, ownerName }
+        const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
+        return {
+          ...projectDossierForLevel(d, level ?? 'public'),
+          ownerEmail: owner.email,
+          ownerName,
+        }
       })
     }
     return this.prisma.dossier.findMany({
@@ -69,33 +88,48 @@ export class DossiersService {
     return dossier
   }
 
-  async assertReadAccess(
+  async resolveReadAccess(
     id: string,
     user: { id: string; email: string; role: string },
-  ): Promise<Dossier> {
+  ): Promise<DossierReadAccess> {
     const dossier = await this.prisma.dossier.findUnique({ where: { id } })
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
     if (user.role === 'financeur') {
-      const link = await this.prisma.shareLink.findFirst({
+      const links = await this.prisma.shareLink.findMany({
         where: { dossierId: id, recipientEmail: user.email, status: 'active' },
+        select: { accessLevel: true },
       })
-      if (!link) {
+      const accessLevel = highestAccessLevel(links.map((l) => grantedLevel(l.accessLevel)))
+      if (!accessLevel) {
         throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
       }
-      return dossier
+      return { dossier, accessLevel }
     }
     if (dossier.userId !== user.id) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    return dossier
+    return { dossier, accessLevel: 'complet' }
+  }
+
+  // Ids of the questionnaire fields whose answers the given level may read.
+  async visibleFieldIds(dossier: Dossier, accessLevel: AccessLevel): Promise<Set<string>> {
+    const fields = await this.prisma.questionnaireField.findMany({
+      where: { versionId: dossier.questionnaireVersionId },
+      select: { id: true, minAccessLevel: true },
+    })
+    return new Set(fields.filter((f) => fieldVisibleAt(f, accessLevel)).map((f) => f.id))
   }
 
   async getWithQuestionnaire(id: string, user: { id: string; email: string; role: string }) {
-    const dossier = await this.assertReadAccess(id, user)
+    const { dossier, accessLevel } = await this.resolveReadAccess(id, user)
     const snapshot = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
-    return { ...dossier, questionnaireVersion: snapshot }
+    const questionnaireVersion = snapshot && {
+      ...snapshot,
+      fields: snapshot.fields.filter((f) => fieldVisibleAt(f, accessLevel)),
+    }
+    return { ...projectDossierForLevel(dossier, accessLevel), questionnaireVersion }
   }
 
   async update(params: UpdateDossierParams): Promise<Dossier> {

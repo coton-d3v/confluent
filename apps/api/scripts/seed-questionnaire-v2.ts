@@ -15,6 +15,19 @@ interface FieldDef {
   orderIndex: number
 }
 
+// Share level required to read each section (decision 2026-11-08, story 12.1); default `complet`.
+const SECTION_ACCESS_LEVEL: Record<string, 'public' | 'partiel' | 'complet'> = {
+  'Identité du projet': 'public',
+  'Ancrage régional': 'partiel',
+  'Origine & technologie': 'partiel',
+  'Stade spécifique': 'partiel',
+  'Stade financier': 'complet',
+}
+const withAccessLevel = (f: FieldDef) => ({
+  ...f,
+  minAccessLevel: SECTION_ACCESS_LEVEL[f.section] ?? 'complet',
+})
+
 const FIELDS: FieldDef[] = [
   // ── Bloc 0 — Ancrage régional ─────────────────────────────────────────────
   {
@@ -239,7 +252,7 @@ async function main() {
       data: { isPublished: true },
     })
     await prisma.questionnaireField.createMany({
-      data: FIELDS.map((f) => ({ ...f, versionId: existing.id })),
+      data: FIELDS.map((f) => ({ ...withAccessLevel(f), versionId: existing.id })),
     })
     console.log(`✓ Version 2 republiée, ${FIELDS.length} champs recréés (id: ${existing.id})`)
     return
@@ -251,7 +264,7 @@ async function main() {
       isPublished: true,
       fields: {
         createMany: {
-          data: FIELDS,
+          data: FIELDS.map(withAccessLevel),
         },
       },
     },
