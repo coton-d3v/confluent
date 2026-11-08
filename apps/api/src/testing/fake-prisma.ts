@@ -194,6 +194,20 @@ export function createFakePrisma() {
     return { ...row, grant: withClient }
   }
 
+  // Dossier with its version's fields and its answers, as read by the classification.
+  includes.dossier = (row, include) => ({
+    ...row,
+    ...(include.answers ? { answers: filtered('dossierAnswer', { dossierId: row.id }) } : {}),
+    ...(include.questionnaireVersion
+      ? {
+          questionnaireVersion: {
+            ...get('questionnaireVersion', row.questionnaireVersionId),
+            fields: filtered('questionnaireField', { versionId: row.questionnaireVersionId }),
+          },
+        }
+      : {}),
+  })
+
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),

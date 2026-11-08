@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { describeConstraints, type AccessLevel } from '@confluent/shared'
+import { describeConstraints, missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
 import type { Dossier, QuestionnaireField } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -291,9 +291,11 @@ export class McpToolsFactory {
       },
       canEdit: isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write),
       sections,
-      missingRequired: fields
-        .filter((f) => f.required && !(answers.get(f.id) ?? '').trim())
-        .map((f) => ({ fieldId: f.id, label: f.label })),
+      // Same rule as the submission check (shared): attachments are not answers yet.
+      missingRequired: missingRequiredAnswers(fields, Object.fromEntries(answers)).map((f) => ({
+        fieldId: f.id,
+        label: f.label,
+      })),
     }
   }
 }

@@ -5,6 +5,7 @@ import {
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiUnprocessableEntityResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
@@ -107,11 +108,13 @@ export class DossiersController {
   @ApiOperation({
     summary: 'Soumettre un dossier',
     description:
-      'Stamp `submittedAt`, lance la classification (FR8) qui renseigne `sector` + `maturityStage` ' +
-      'à partir des réponses aux champs "Secteur d’activité" et "Stade de maturité". ' +
-      'Idempotent : ré-appeler met à jour les colonnes classifiées mais n’écrase pas `submittedAt` au-delà du premier appel.',
+      'Vérifie que toutes les questions obligatoires de la version du dossier ont une réponse (sinon 422, ' +
+      '`error.details` liste les champs manquants), lance la classification puis renseigne `submittedAt`. ' +
+      'Ré-appeler met à jour la classification sans changer la date de première soumission. Après ' +
+      'soumission, les réponses restent corrigeables mais une réponse obligatoire ne peut plus être effacée.',
   })
   @ApiOkResponse({ description: 'Dossier soumis, classification appliquée.' })
+  @ApiUnprocessableEntityResponse({ description: 'Réponses obligatoires manquantes.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   submit(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
     return this.service.submit(id, currentUser(req).id)

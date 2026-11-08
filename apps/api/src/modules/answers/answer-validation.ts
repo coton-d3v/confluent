@@ -1,5 +1,5 @@
 import type { QuestionnaireField } from '@prisma/client'
-import { validateAnswerValue as validateSharedRules } from '@confluent/shared'
+import { isAnswered, validateAnswerValue as validateSharedRules } from '@confluent/shared'
 import { readChoices } from '../questionnaires/questionnaire-structure'
 
 export interface AnswerValidationError {
@@ -35,6 +35,28 @@ export function normalizeAnswers<T extends { fieldId: string; value: string }>(
     if (choices.some((c) => c.key === answer.value)) return answer
     const byLabel = choices.find((c) => c.label === answer.value)
     return byLabel ? { ...answer, value: byLabel.key } : answer
+  })
+}
+
+// Once a dossier is submitted, its answers can still be corrected, but a required answer cannot be
+// cleared: the submitted dossier stays complete (E03.10).
+export function submittedDossierErrors(
+  fields: QuestionnaireField[],
+  answers: ReadonlyArray<{ fieldId: string; value: string }>,
+): AnswerValidationError[] {
+  const byId = new Map(fields.map((f) => [f.id, f]))
+  return answers.flatMap((answer) => {
+    const field = byId.get(answer.fieldId)
+    if (!field || !field.required || field.fieldType === 'file' || isAnswered(answer.value))
+      return []
+    return [
+      {
+        fieldId: field.id,
+        label: field.label,
+        message:
+          'Réponse obligatoire : le dossier est soumis, elle peut être corrigée mais pas effacée.',
+      },
+    ]
   })
 }
 

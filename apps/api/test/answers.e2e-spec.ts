@@ -30,6 +30,9 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
         emailVerifiedAt: new Date(),
       },
     })
+    await p.questionnaireVersion.create({
+      data: { id: 'v-1', questionnaireId: 'form-1', version: 1, status: 'published' },
+    })
     await p.dossier.create({
       data: {
         id: 'd-1',
@@ -46,6 +49,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
         sectionId: 's-presentation',
         label: 'Nom',
         fieldType: 'text',
+        required: true,
         constraints: { maxLength: 40 },
         orderIndex: 0,
       },
@@ -133,5 +137,22 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       F_OTHER_VERSION,
     ])
     expect(fake.table('dossierAnswer').size).toBe(0)
+  })
+
+  it('submits only once every required question is answered; then a required answer cannot be cleared', async () => {
+    const submit = () =>
+      request(app.getHttpServer())
+        .post('/v1/dossiers/d-1/submit')
+        .set('Authorization', `Bearer ${jwt}`)
+    const incomplete = await submit().expect(422)
+    expect(incomplete.body.error.details).toEqual([expect.objectContaining({ fieldId: F_NAME })])
+
+    await put([{ fieldId: F_NAME, value: 'Biosensio' }]).expect(200)
+    const done = await submit().expect(200)
+    expect(done.body.submittedAt).toBeTruthy()
+
+    await put([{ fieldId: F_NAME, value: 'Biosensio SAS' }]).expect(200)
+    const cleared = await put([{ fieldId: F_NAME, value: '' }]).expect(400)
+    expect(cleared.body.error.details[0].message).toContain('pas effacée')
   })
 })

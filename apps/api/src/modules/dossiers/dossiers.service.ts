@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { highestAccessLevel, type AccessLevel } from '@confluent/shared'
+import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
+import { highestAccessLevel, missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
 import type { Dossier } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
@@ -147,12 +147,29 @@ export class DossiersService {
     await this.prisma.dossier.delete({ where: { id: dossier.id } })
   }
 
+  // Verified on the server (E03.10): every required question of the dossier's version is answered.
+  // Submitting again refreshes the classification but keeps the first submission date.
   async submit(id: string, userId: string): Promise<Dossier> {
     const dossier = await this.getByIdForUser(id, userId)
+    const [structure, answers] = await Promise.all([
+      this.questionnaires.getVersion(dossier.questionnaireVersionId),
+      this.prisma.dossierAnswer.findMany({ where: { dossierId: dossier.id } }),
+    ])
+    const missing = missingRequiredAnswers(
+      structure?.fields ?? [],
+      Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
+    )
+    if (missing.length > 0) {
+      throw new UnprocessableEntityException({
+        code: 'DOSSIER_INCOMPLETE',
+        message: `${missing.length} réponse(s) obligatoire(s) manquante(s).`,
+        details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
+      })
+    }
     await this.classification.classify(dossier.id)
     return this.prisma.dossier.update({
       where: { id: dossier.id },
-      data: { submittedAt: new Date() },
+      data: { submittedAt: dossier.submittedAt ?? new Date() },
     })
   }
 
