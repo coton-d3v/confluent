@@ -23,7 +23,7 @@ import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ConfluentOAuthProvider } from './oauth.provider'
-import { SCOPE_LABELS } from './oauth.constants'
+import { SCOPE_LABELS, expandScopes } from './oauth.constants'
 
 const decisionSchema = z.object({
   approve: z.boolean(),
@@ -75,7 +75,10 @@ export class OAuthConsentController {
         clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
         verifiedByMetadataDocument: request.client.source === 'cimd',
       },
-      scopes: request.scopes.map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
+      // Effective permissions: writing implies reading on the server, so both are shown (R17).
+      scopes: [...expandScopes(request.scopes)]
+        .sort()
+        .map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
       expiresAt: request.expiresAt.toISOString(),
     }
   }
