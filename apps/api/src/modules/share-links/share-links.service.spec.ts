@@ -293,9 +293,8 @@ describe('ShareLinksService', () => {
     } as never
     const req = { ip: '1.2.3.4' } as never
 
-    it('lets the recipient (any case) and anonymous callers through, refuses another account', async () => {
+    it('lets the recipient (any case) through and refuses another account', async () => {
       const svc = await instantiate(buildModule({}))
-      expect(() => svc.assertRecipient(link, undefined)).not.toThrow()
       expect(() => svc.assertRecipient(link, { email: 'Marc@Fund.fr' })).not.toThrow()
       expect(() => svc.assertRecipient(link, { email: 'someone@else.fr' })).toThrow(
         ForbiddenException,

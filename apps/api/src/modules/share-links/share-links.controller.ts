@@ -28,7 +28,6 @@ import type { ShareLink } from '@prisma/client'
 import { createShareLinkSchema, shareAccessRequestSchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { Public } from '../../common/decorators/public.decorator'
-import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard'
 import { ShareLinkGuard, type AugmentedRequest } from '../auth/guards/share-link.guard'
 import { ShareLinksService, type FinanceurShareResponse } from './share-links.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
@@ -45,15 +44,15 @@ function currentUser(req: Request): AuthenticatedUser {
 export class ShareLinksController {
   constructor(private readonly service: ShareLinksService) {}
 
-  @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @UseGuards(OptionalJwtAuthGuard, ShareLinkGuard)
+  @UseGuards(ShareLinkGuard)
+  @ApiBearerAuth('jwt')
   @Get('shares/:token')
   @ApiOperation({
     summary: '[Financeur] Consulter un dossier via un lien de partage',
     description:
-      'Route **publique** protégée par le token UUIDv4 dans l’URL (CSPRNG, 128 bits d’entropie). ' +
-      'Avec un JWT, le compte doit être celui du destinataire du partage, sinon `403` ' +
+      'Exige la **session du destinataire** (JWT) en plus du token UUIDv4 de l’URL : sans session ' +
+      '`401` (le visiteur passe par `POST /shares/:token/access-request`), autre compte `403` ' +
       '(`details.reason = "recipient_mismatch"`). Le `ShareLinkGuard` vérifie que le token existe et que `status === "active"` ; ' +
       'sinon `403` générique (pas de leak) + entrée `audit_log: share_link_access_denied` avec token hashé SHA-256. ' +
       'Les accès valides génèrent un `audit_log: share_link_viewed` pour les analytics entrepreneur (FR23).\n\n' +
@@ -70,7 +69,7 @@ export class ShareLinksController {
   })
   @ApiTooManyRequestsResponse({ description: 'Rate limit atteint (10/min).' })
   async getShare(@Req() req: Request): Promise<FinanceurShareResponse> {
-    const aug = req as AugmentedRequest & { user?: AuthenticatedUser }
+    const aug = req as AugmentedRequest & { user: AuthenticatedUser }
     const shareLink = aug.shareLink!
     this.service.assertRecipient(shareLink, aug.user)
     await this.service.recordView(shareLink, req)
