@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItemSpec[] = [
 export const ADMIN_NAV_ITEMS: NavItemSpec[] = [
   { to: '/admin', label: 'Pipeline', icon: LayoutDashboard, end: true },
   { to: '/admin/dossiers', label: 'Dossiers', icon: FolderOpen },
-  { to: '/admin/questionnaire', label: 'Questionnaire', icon: ClipboardList },
+  { to: '/admin/formulaires', label: 'Formulaires', icon: ClipboardList },
   { to: '/admin/utilisateurs', label: 'Utilisateurs', icon: Users },
   { to: '/dashboard/applications', label: 'Applications IA', icon: Plug },
 ]

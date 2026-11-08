@@ -10,7 +10,8 @@ import DossierViewRoute from '@/routes/dashboard/dossiers/[slug]'
 import AdminRoute from '@/routes/admin'
 import AdminDossiersRoute from '@/routes/admin/dossiers'
 import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
-import AdminQuestionnaireRoute from '@/routes/admin/questionnaire'
+import AdminFormsRoute from '@/routes/admin/formulaires'
+import AdminFormEditorRoute from '@/routes/admin/formulaires/[formId]'
 import AdminUtilisateursRoute from '@/routes/admin/utilisateurs'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
@@ -58,7 +59,14 @@ export const router = createBrowserRouter([
         element: <AdminDossierDetailRoute />,
         handle: { hideBreadcrumb: true },
       },
-      { path: 'admin/questionnaire', element: <AdminQuestionnaireRoute /> },
+      { path: 'admin/formulaires', element: <AdminFormsRoute /> },
+      {
+        path: 'admin/formulaires/:formId',
+        element: <AdminFormEditorRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      // Former single-questionnaire page, replaced by the form builder.
+      { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
       { path: 'admin/utilisateurs', element: <AdminUtilisateursRoute /> },
       { path: '*', element: <NotFoundRoute /> },
     ],
