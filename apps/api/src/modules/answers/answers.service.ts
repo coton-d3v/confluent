@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { Dossier, DossierAnswer } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { normalizeAnswers, validateAnswers } from './answer-validation'
+import { normalizeAnswers, submittedDossierErrors, validateAnswers } from './answer-validation'
 import { InvalidAnswersException } from './invalid-answers.exception'
 
 export interface AnswerInput {
@@ -21,9 +21,10 @@ export class AnswersService {
   }
 
   // The only way to write answers (site, admin, MCP): every field must belong to the dossier's own
-  // questionnaire version and every value must fit its type — all or nothing.
+  // questionnaire version and every value must fit its type — all or nothing. A submitted dossier
+  // keeps all its required answers.
   async saveForDossier(
-    dossier: Pick<Dossier, 'id' | 'questionnaireVersionId'>,
+    dossier: Pick<Dossier, 'id' | 'questionnaireVersionId' | 'submittedAt'>,
     answers: AnswerInput[],
   ): Promise<DossierAnswer[]> {
     const fields = await this.prisma.questionnaireField.findMany({
@@ -31,6 +32,7 @@ export class AnswersService {
     })
     const normalized = normalizeAnswers(fields, answers)
     const errors = validateAnswers(fields, normalized)
+    if (dossier.submittedAt) errors.push(...submittedDossierErrors(fields, normalized))
     if (errors.length) throw new InvalidAnswersException(errors)
     return this.upsertMany(dossier.id, normalized)
   }

@@ -87,7 +87,9 @@ export function validateAnswerValue(field: AnswerField, value: string): string |
 }
 
 // Human summary of a field's limits, for hints (e.g. « 500 caractères maximum »); null when none.
-export function describeConstraints(field: Pick<AnswerField, 'fieldType' | 'constraints'>): string | null {
+export function describeConstraints(
+  field: Pick<AnswerField, 'fieldType' | 'constraints'>,
+): string | null {
   const c = readConstraints(field.fieldType, field.constraints)
   const parts: string[] = []
   if (c.minLength !== undefined) parts.push(`${c.minLength} caractères minimum`)
@@ -100,4 +102,14 @@ export function describeConstraints(field: Pick<AnswerField, 'fieldType' | 'cons
   if (parts.length === 0) return null
   const text = parts.join(', ')
   return text.charAt(0).toUpperCase() + text.slice(1) + '.'
+}
+
+export const isAnswered = (value: string | undefined): boolean => (value ?? '').trim() !== ''
+
+// Required questions still without an answer, in the given order (E03.10). Attachments are left out
+// until documents are part of the filling journey (E03.11).
+export function missingRequiredAnswers<
+  F extends { id: string; required: boolean; fieldType: FieldType },
+>(fields: readonly F[], answers: Readonly<Record<string, string>>): F[] {
+  return fields.filter((f) => f.required && f.fieldType !== 'file' && !isAnswered(answers[f.id]))
 }
