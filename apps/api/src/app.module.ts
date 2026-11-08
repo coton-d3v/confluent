@@ -15,6 +15,7 @@ import { QuestionnairesModule } from './modules/questionnaires/questionnaires.mo
 import { DocumentsModule } from './modules/documents/documents.module'
 import { AnalyticsModule } from './modules/analytics/analytics.module'
 import { AdminModule } from './modules/admin/admin.module'
+import { OAuthModule } from './modules/oauth/oauth.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -37,6 +38,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     DocumentsModule,
     AnalyticsModule,
     AdminModule,
+    OAuthModule,
   ],
   controllers: [AppController],
   providers: [

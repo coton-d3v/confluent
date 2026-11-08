@@ -1,0 +1,140 @@
+import { randomUUID } from 'node:crypto'
+
+// In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
+// sequences (register → authorize → consent → token → refresh → revoke) without a database.
+// Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
+// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`.
+type Row = Record<string, unknown> & { id: string }
+type Where = Record<string, unknown>
+
+function matches(row: Row, where: Where = {}): boolean {
+  return Object.entries(where).every(([k, cond]) => {
+    const v = row[k]
+    if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
+      const c = cond as { gt?: Date; not?: unknown; in?: unknown[] }
+      if ('gt' in c) return v instanceof Date && v.getTime() > c.gt!.getTime()
+      if ('not' in c) return v !== c.not
+      if ('in' in c) return c.in!.includes(v)
+      return true
+    }
+    return v === cond
+  })
+}
+
+const UNIQUE_KEYS: Record<string, string[]> = {
+  user: ['id', 'email'],
+  oAuthToken: ['id', 'tokenHash'],
+}
+
+export function createFakePrisma() {
+  const tables: Record<string, Map<string, Row>> = {}
+  const table = (name: string) => (tables[name] ??= new Map())
+  const includes: Record<string, (row: Row, include: Record<string, unknown>) => Row> = {}
+
+  const withInclude = (name: string, row: Row | undefined, include?: Record<string, unknown>) =>
+    row ? (include && includes[name] ? includes[name]({ ...row }, include) : { ...row }) : null
+
+  const model = (name: string, defaults: () => Record<string, unknown> = () => ({})) => ({
+    findUnique: jest.fn(
+      ({ where, include }: { where: Where; include?: Record<string, unknown> }) => {
+        const keys = UNIQUE_KEYS[name] ?? ['id']
+        const key = keys.find((k) => where[k] !== undefined) ?? 'id'
+        const row = [...table(name).values()].find((r) => r[key] === where[key])
+        return Promise.resolve(withInclude(name, row, include))
+      },
+    ),
+    findFirst: jest.fn(({ where, include }: { where?: Where; include?: Record<string, unknown> }) =>
+      Promise.resolve(
+        withInclude(
+          name,
+          [...table(name).values()].find((r) => matches(r, where)),
+          include,
+        ),
+      ),
+    ),
+    findMany: jest.fn(
+      ({ where, include }: { where?: Where; include?: Record<string, unknown> } = {}) =>
+        Promise.resolve(
+          [...table(name).values()]
+            .filter((r) => matches(r, where))
+            .map((r) => withInclude(name, r, include)),
+        ),
+    ),
+    count: jest.fn(({ where }: { where?: Where } = {}) =>
+      Promise.resolve([...table(name).values()].filter((r) => matches(r, where)).length),
+    ),
+    create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+      const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...data } as Row
+      table(name).set(row.id, row)
+      return Promise.resolve({ ...row })
+    }),
+    update: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
+      const row = [...table(name).values()].find((r) => matches(r, where))
+      if (!row) return Promise.reject(new Error(`${name} not found`))
+      return Promise.resolve({ ...Object.assign(row, data) })
+    }),
+    updateMany: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
+      let count = 0
+      for (const row of table(name).values()) {
+        if (matches(row, where)) {
+          Object.assign(row, data)
+          count++
+        }
+      }
+      return Promise.resolve({ count })
+    }),
+    upsert: jest.fn(
+      ({
+        where,
+        create,
+        update,
+      }: {
+        where: Where
+        create: Record<string, unknown>
+        update: Record<string, unknown>
+      }) => {
+        const row = [...table(name).values()].find((r) => matches(r, where))
+        if (row) return Promise.resolve({ ...Object.assign(row, update) })
+        const created = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...create } as Row
+        table(name).set(created.id, created)
+        return Promise.resolve({ ...created })
+      },
+    ),
+  })
+
+  const get = (name: string, id: unknown) => table(name).get(id as string)
+
+  // Relations used by the OAuth provider / consent controller / MCP tools.
+  includes.oAuthAuthorizationRequest = (row) => ({
+    ...row,
+    client: get('oAuthClient', row.clientId),
+  })
+  includes.oAuthGrant = (row, include) => ({
+    ...row,
+    ...(include.client ? { client: get('oAuthClient', row.clientId) } : {}),
+  })
+  includes.oAuthToken = (row, include) => {
+    const grant = get('oAuthGrant', row.grantId)
+    const grantInclude = include.grant as { include?: { client?: unknown } } | true
+    const withClient =
+      grant && typeof grantInclude === 'object' && grantInclude.include?.client
+        ? { ...grant, client: get('oAuthClient', grant.clientId) }
+        : grant && { ...grant }
+    return { ...row, grant: withClient }
+  }
+
+  const self: { prisma?: unknown } = {}
+  const prisma = {
+    onModuleInit: () => Promise.resolve(),
+    onModuleDestroy: () => Promise.resolve(),
+    $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(self.prisma)),
+    user: model('user', () => ({ isActive: true, locale: 'fr', firstName: null, lastName: null })),
+    auditLog: model('auditLog'),
+    oAuthClient: model('oAuthClient', () => ({ fetchedAt: null, clientSecret: null })),
+    oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
+    oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),
+    oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
+  }
+  self.prisma = prisma
+  return { prisma, tables, table }
+}

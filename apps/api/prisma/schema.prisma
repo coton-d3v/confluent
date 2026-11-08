@@ -57,6 +57,10 @@ enum audit_action {
   admin_revoked_share_link
   session_revoked
   refresh_token_reused
+  oauth_grant_created
+  oauth_grant_revoked
+  oauth_refresh_token_reused
+  mcp_tool_called
 
   @@map("audit_action")
 }
@@ -76,6 +80,7 @@ model User {
   dossiers         Dossier[]
   magicLinkTokens  MagicLinkToken[]
   refreshSessions  RefreshSession[]
+  oauthGrants      OAuthGrant[]
   auditLogsAsActor AuditLog[]       @relation("AuditLogActor")
 
   @@map("users")
@@ -128,19 +133,19 @@ model QuestionnaireVersion {
 }
 
 model QuestionnaireField {
-  id         String     @id @default(uuid())
-  versionId  String     @map("version_id")
-  section    String
+  id             String     @id @default(uuid())
+  versionId      String     @map("version_id")
+  section        String
   // Stable technical identifier read by the classification — survives label edits. Null for unclassified fields.
-  key        String?
-  label      String
-  fieldType  field_type @map("field_type")
-  options    String[]   @default([])
-  required   Boolean    @default(false)
-  orderIndex Int        @map("order_index")
+  key            String?
+  label          String
+  fieldType      field_type @map("field_type")
+  options        String[]   @default([])
+  required       Boolean    @default(false)
+  orderIndex     Int        @map("order_index")
   // Lowest share access level (public < partiel < complet) that may read this field's answers.
   // Defaults to the most restrictive level: a field nobody classified stays hidden from financeurs.
-  minAccessLevel String  @default("complet") @map("min_access_level")
+  minAccessLevel String     @default("complet") @map("min_access_level")
 
   version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   answers DossierAnswer[]
@@ -151,23 +156,23 @@ model QuestionnaireField {
 }
 
 model Dossier {
-  id                     String   @id @default(uuid())
-  userId                 String   @map("user_id")
+  id                     String    @id @default(uuid())
+  userId                 String    @map("user_id")
   name                   String
-  slug                   String   @unique
-  questionnaireVersionId String   @map("questionnaire_version_id")
+  slug                   String    @unique
+  questionnaireVersionId String    @map("questionnaire_version_id")
   sector                 String?
-  maturityStage          String?  @map("maturity_stage")
-  ancrageCvl             String?  @map("ancrage_cvl")
-  tagTechnologique       String?  @map("tag_technologique")
-  axe1Projet             Int?     @map("axe1_projet")
-  axe2Financier          Int?     @map("axe2_financier")
-  axe3Origine            Int?     @map("axe3_origine")
-  deeptechScore          Int?     @map("deeptech_score")
-  preCreation            Boolean? @map("pre_creation")
+  maturityStage          String?   @map("maturity_stage")
+  ancrageCvl             String?   @map("ancrage_cvl")
+  tagTechnologique       String?   @map("tag_technologique")
+  axe1Projet             Int?      @map("axe1_projet")
+  axe2Financier          Int?      @map("axe2_financier")
+  axe3Origine            Int?      @map("axe3_origine")
+  deeptechScore          Int?      @map("deeptech_score")
+  preCreation            Boolean?  @map("pre_creation")
   submittedAt            DateTime? @map("submitted_at")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
@@ -248,4 +253,87 @@ model AuditLog {
   @@index([actorId])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// ── OAuth 2.1 authorization server for MCP clients (Claude, ChatGPT…) — roadmap E01.03 ──────────
+
+// A client application. `source`: `dcr` (RFC 7591 registration) or `cimd` (client_id is an HTTPS URL
+// whose metadata document was fetched). `clientSecret` is only set for confidential DCR clients: the
+// MCP SDK compares it verbatim, so it cannot be hashed.
+model OAuthClient {
+  id                      String    @id
+  source                  String
+  name                    String
+  redirectUris            String[]  @map("redirect_uris")
+  tokenEndpointAuthMethod String    @default("none") @map("token_endpoint_auth_method")
+  clientSecret            String?   @map("client_secret")
+  metadata                Json
+  fetchedAt               DateTime? @map("fetched_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  authorizationRequests OAuthAuthorizationRequest[]
+  grants                OAuthGrant[]
+
+  @@map("oauth_clients")
+}
+
+// An /authorize request waiting for the user's consent in the web app (short-lived).
+model OAuthAuthorizationRequest {
+  id            String    @id @default(uuid())
+  clientId      String    @map("client_id")
+  redirectUri   String    @map("redirect_uri")
+  scopes        String[]
+  codeChallenge String    @map("code_challenge")
+  state         String?
+  resource      String
+  expiresAt     DateTime  @map("expires_at")
+  decidedAt     DateTime? @map("decided_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("oauth_authorization_requests")
+}
+
+// A user's consent to one client = one "connected application". Revoking it kills every token.
+model OAuthGrant {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  clientId   String    @map("client_id")
+  scopes     String[]
+  resource   String
+  expiresAt  DateTime  @map("expires_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tokens OAuthToken[]
+
+  @@index([userId])
+  @@map("oauth_grants")
+}
+
+// Authorization codes, access and refresh tokens of a grant. Only the SHA-256 of the opaque value
+// is stored. `codeChallenge`/`redirectUri` are set for codes only.
+model OAuthToken {
+  id            String    @id @default(uuid())
+  grantId       String    @map("grant_id")
+  kind          String
+  tokenHash     String    @unique @map("token_hash")
+  // Scopes this token carries (a refresh may narrow them; never widen).
+  scopes        String[]  @default([])
+  codeChallenge String?   @map("code_challenge")
+  redirectUri   String?   @map("redirect_uri")
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  grant OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  @@index([grantId])
+  @@map("oauth_tokens")
 }

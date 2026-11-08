@@ -5,6 +5,15 @@ export const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   FRONTEND_URL: z.string().url(),
+  // Public base URL of this API (OAuth issuer; the MCP endpoint is `${API_PUBLIC_URL}/mcp`).
+  API_PUBLIC_URL: z
+    .string()
+    .url()
+    .default('http://localhost:3000')
+    .transform((v) => v.replace(/\/+$/, '')),
+  // Extra browser origins allowed to call /mcp (comma-separated). Server-to-server MCP clients
+  // (Claude, ChatGPT) send no Origin header and are not affected.
+  MCP_ALLOWED_ORIGINS: z.string().optional().default(''),
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().positive(),
   SMTP_USER: z.string().optional().default(''),
