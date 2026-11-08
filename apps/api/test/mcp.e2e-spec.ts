@@ -358,8 +358,11 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     expect(grants.every((g) => g.revokedAt instanceof Date)).toBe(true)
   })
 
-  it('connected applications: list, revoke (MCP then gets 401), never another user’s grant', async () => {
+  // Code review R21: an application with several authorizations (one per device or conversation) is
+  // listed once, and revoking it cuts every authorization off.
+  it('connected applications: grouped by application, revoking one cuts all its connections', async () => {
     const token = await connect('u-1', ['dossiers:write'])
+    const secondToken = await connect('u-1', ['dossiers:read'])
     const otherToken = await connect('u-2', ['dossiers:read'])
     const jwt = (sub: string, email: string) =>
       new JwtService().signAsync(
@@ -373,42 +376,51 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     await c.close()
 
     const list = (await (
-      await fetch(`${base}/v1/oauth/grants`, { headers: auth })
+      await fetch(`${base}/v1/oauth/applications`, { headers: auth })
     ).json()) as Array<{
-      id: string
+      clientId: string
       application: { name: string }
       scopes: Array<{ scope: string }>
+      connections: number
       lastUsedAt: string | null
     }>
     expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ clientId: 'client-claude', connections: 2 })
     expect(list[0].application.name).toBe('Claude')
-    expect(list[0].scopes.map((s) => s.scope).sort()).toEqual(['dossiers:read', 'dossiers:write'])
+    expect(list[0].scopes.map((s) => s.scope)).toEqual(['dossiers:read', 'dossiers:write'])
+    expect(list[0].lastUsedAt).not.toBeNull()
 
-    const otherGrant = [...fake.table('oAuthGrant').values()].find((g) => g.userId === 'u-2')!
-    const forbidden = await fetch(`${base}/v1/oauth/grants/${otherGrant.id}`, {
+    const unknown = await fetch(`${base}/v1/oauth/applications/client-inconnu`, {
       method: 'DELETE',
       headers: auth,
     })
-    expect(forbidden.status).toBe(404)
+    expect(unknown.status).toBe(404)
 
-    const revoked = await fetch(`${base}/v1/oauth/grants/${list[0].id}`, {
-      method: 'DELETE',
-      headers: auth,
-    })
+    const revoked = await fetch(
+      `${base}/v1/oauth/applications/${encodeURIComponent('client-claude')}`,
+      {
+        method: 'DELETE',
+        headers: auth,
+      },
+    )
     expect(revoked.status).toBe(204)
-    const after = await fetch(`${base}/mcp`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-    })
-    expect(after.status).toBe(401)
-    expect(await (await fetch(`${base}/v1/oauth/grants`, { headers: auth })).json()).toEqual([])
-    // The other user's connection is untouched.
+    for (const t of [token, secondToken]) {
+      const after = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      })
+      expect(after.status).toBe(401)
+    }
+    expect(await (await fetch(`${base}/v1/oauth/applications`, { headers: auth })).json()).toEqual(
+      [],
+    )
+    // The other user's connection to the same application is untouched.
     const still = await client(otherToken)
     await expect(still.callTool({ name: 'whoami', arguments: {} })).resolves.toBeDefined()
     await still.close()
     expect(
-      [...fake.table('auditLog').values()].some((l) => l.actionType === 'oauth_grant_revoked'),
-    ).toBe(true)
+      [...fake.table('auditLog').values()].filter((l) => l.actionType === 'oauth_grant_revoked'),
+    ).toHaveLength(2)
   })
 })

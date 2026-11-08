@@ -1,4 +1,7 @@
+import type { ConnectedApplication } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
+
+export type { ConnectedApplication }
 
 export interface OAuthConsentRequest {
   id: string
@@ -27,19 +30,13 @@ export function decideConsentRequest(
   )
 }
 
-export interface ConnectedApplication {
-  id: string
-  application: { name: string; clientUri: string | null }
-  scopes: Array<{ scope: string; label: string }>
-  connectedAt: string
-  lastUsedAt: string | null
-  expiresAt: string
-}
-
 export function listConnectedApplications(): Promise<ConnectedApplication[]> {
-  return apiRequest<ConnectedApplication[]>('/v1/oauth/grants')
+  return apiRequest<ConnectedApplication[]>('/v1/oauth/applications')
 }
 
-export function revokeConnectedApplication(id: string): Promise<void> {
-  return apiRequest<void>(`/v1/oauth/grants/${encodeURIComponent(id)}`, { method: 'DELETE' })
+// Revokes every connection of the application (code review R21).
+export function revokeConnectedApplication(clientId: string): Promise<void> {
+  return apiRequest<void>(`/v1/oauth/applications/${encodeURIComponent(clientId)}`, {
+    method: 'DELETE',
+  })
 }

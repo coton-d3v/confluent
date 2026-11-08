@@ -32,7 +32,7 @@ export default function ApplicationsRoute() {
 
   async function revoke(app: ConnectedApplication) {
     try {
-      await revokeConnectedApplication(app.id)
+      await revokeConnectedApplication(app.clientId)
       toast.success(`${app.application.name} n’a plus accès à votre compte.`)
       refetch()
     } catch {
@@ -68,7 +68,7 @@ export default function ApplicationsRoute() {
         ) : (
           <ul role="list" className="mt-4 flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
             {data.map((app) => (
-              <li key={app.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+              <li key={app.clientId} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="font-medium text-foreground">{app.application.name}</p>
                   <ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">
@@ -77,6 +77,7 @@ export default function ApplicationsRoute() {
                     ))}
                   </ul>
                   <p className="mt-2 text-xs text-muted-foreground">
+                    {app.connections > 1 && `${app.connections} connexions · `}
                     Connectée le {formatDate(app.connectedAt)} ·{' '}
                     {app.lastUsedAt ? `dernière utilisation le ${formatDate(app.lastUsedAt)}` : 'jamais utilisée'} ·
                     expire le {formatDate(app.expiresAt)}
@@ -96,8 +97,11 @@ export default function ApplicationsRoute() {
           <AlertDialogHeader>
             <AlertDialogTitle>Révoquer {toRevoke?.application.name} ?</AlertDialogTitle>
             <AlertDialogDescription>
-              L’application ne pourra plus lire ni modifier vos dossiers. Cette action est immédiate ;
-              pour la réutiliser, il faudra la reconnecter.
+              L’application ne pourra plus lire ni modifier vos dossiers
+              {toRevoke && toRevoke.connections > 1
+                ? ` : ses ${toRevoke.connections} connexions sont coupées`
+                : ''}
+              . Cette action est immédiate ; pour la réutiliser, il faudra la reconnecter.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
