@@ -5,6 +5,7 @@ import { AdminDossiersService } from './admin-dossiers.service'
 import { AdminFormsController } from './admin-forms.controller'
 import { AdminClassificationController } from './admin-classification.controller'
 import { ClassificationModule } from '../classification/classification.module'
+import { OAuthModule } from '../oauth/oauth.module'
 import { AdminUsersController } from './admin-users.controller'
 import { AdminUsersService } from './admin-users.service'
 import { AdminAnalyticsController } from './admin-analytics.controller'
@@ -16,7 +17,14 @@ import { DossiersModule } from '../dossiers/dossiers.module'
 import { AuthModule } from '../auth/auth.module'
 
 @Module({
-  imports: [AnswersModule, DossiersModule, AuthModule, QuestionnairesModule, ClassificationModule],
+  imports: [
+    AnswersModule,
+    DossiersModule,
+    AuthModule,
+    QuestionnairesModule,
+    ClassificationModule,
+    OAuthModule,
+  ],
   controllers: [
     AdminDossiersController,
     AdminFormsController,

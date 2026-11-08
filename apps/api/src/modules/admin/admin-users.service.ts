@@ -3,6 +3,7 @@ import type { User, user_role } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuthService } from '../auth/auth.service'
 import { AuditService } from '../audit/audit.service'
+import { ConfluentOAuthProvider } from '../oauth/oauth.provider'
 
 export interface InviteUserInput {
   email: string
@@ -15,6 +16,7 @@ export class AdminUsersService {
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
+    private readonly oauth: ConfluentOAuthProvider,
   ) {}
 
   listUsers(): Promise<User[]> {
@@ -56,11 +58,13 @@ export class AdminUsersService {
       where: { id: userId },
       data: { isActive: false },
     })
+    // Web sessions and AI connections end now; a reactivation needs a new sign-in and a new consent.
     await this.auth.revokeAllSessions(userId)
+    const oauthGrantsRevoked = await this.oauth.revokeAllForUser(userId, 'user_deactivated')
     await this.audit.record({
       actionType: 'user_deactivated',
       actorId,
-      metadata: { userId, email: user.email },
+      metadata: { userId, email: user.email, oauthGrantsRevoked },
     })
     return updated
   }
