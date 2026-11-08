@@ -43,7 +43,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   let res = await doFetch(path, init, true)
   if (res.status === 401 && opts.retryOn401) {
-    const refreshed = await tryRefresh()
+    const refreshed = await refreshSession()
     if (refreshed) {
       res = await doFetch(path, init, true)
     }
@@ -53,7 +53,19 @@ export async function apiRequest<T>(
   return (await res.json()) as T
 }
 
-async function tryRefresh(): Promise<boolean> {
+// Refresh tokens are single-use server-side (rotation). Concurrent 401s — or the boot loader racing a
+// request — must share ONE refresh call: a second call with the same cookie would be refused and log
+// the user out.
+let refreshInFlight: Promise<boolean> | null = null
+
+export function refreshSession(): Promise<boolean> {
+  refreshInFlight ??= doRefresh().finally(() => {
+    refreshInFlight = null
+  })
+  return refreshInFlight
+}
+
+async function doRefresh(): Promise<boolean> {
   try {
     const res = await doFetch('/v1/auth/refresh', { method: 'POST' }, false)
     if (!res.ok) {
