@@ -5,7 +5,12 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { ClassificationService } from '../classification/classification.service'
-import { fieldVisibleAt, grantedLevel, projectDossierForLevel } from './financeur-access'
+import {
+  fieldVisibleAt,
+  grantedLevel,
+  projectDossierForLevel,
+  type DerivedDataContext,
+} from './financeur-access'
 
 export interface CreateDossierParams {
   userId: string
@@ -63,16 +68,18 @@ export class DossiersService {
         },
         orderBy: { createdAt: 'desc' },
       })
-      return rows.map(({ user: owner, shareLinks, ...d }) => {
-        const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
-        const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
-        const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
-        return {
-          ...projectDossierForLevel(d, level ?? 'public'),
-          ownerEmail: owner.email,
-          ownerName,
-        }
-      })
+      return Promise.all(
+        rows.map(async ({ user: owner, shareLinks, ...d }) => {
+          const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
+          const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
+          const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
+          return {
+            ...(await this.projectForLevel(d, level ?? 'public')),
+            ownerEmail: owner.email,
+            ownerName,
+          }
+        }),
+      )
     }
     return this.prisma.dossier.findMany({
       where: { userId: user.id },
@@ -129,7 +136,24 @@ export class DossiersService {
       ...snapshot,
       fields: snapshot.fields.filter((f) => fieldVisibleAt(f, accessLevel)),
     }
-    return { ...projectDossierForLevel(dossier, accessLevel), questionnaireVersion }
+    return { ...(await this.projectForLevel(dossier, accessLevel)), questionnaireVersion }
+  }
+
+  // Derived data of a dossier as a share level may read it (code review R31): the only entry point
+  // for every reader other than the owner and administrators.
+  async projectForLevel<T extends Dossier>(dossier: T, level: AccessLevel): Promise<T> {
+    return projectDossierForLevel(dossier, level, await this.derivedDataContext(dossier))
+  }
+
+  private async derivedDataContext(dossier: Dossier): Promise<DerivedDataContext> {
+    const [fields, rules] = await Promise.all([
+      this.prisma.questionnaireField.findMany({
+        where: { versionId: dossier.questionnaireVersionId },
+        select: { key: true, minAccessLevel: true },
+      }),
+      this.prisma.classificationRule.findMany({ select: { dimension: true, fieldKey: true } }),
+    ])
+    return { fieldLevels: new Map(fields.map((f) => [f.key, f.minAccessLevel])), rules }
   }
 
   async update(params: UpdateDossierParams): Promise<Dossier> {

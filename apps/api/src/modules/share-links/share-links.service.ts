@@ -14,12 +14,7 @@ import { AuthService } from '../auth/auth.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
-import {
-  DOCUMENTS_MIN_LEVEL,
-  fieldVisibleAt,
-  grantedLevel,
-  projectDossierForLevel,
-} from '../dossiers/financeur-access'
+import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt, grantedLevel } from '../dossiers/financeur-access'
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -96,7 +91,7 @@ export class ShareLinksService {
     // The level of this very link — not the highest across the recipient's links: the token is what
     // was shared, and it may have been forwarded.
     const accessLevel = grantedLevel(shareLink.accessLevel)
-    const { answers, ...row } = projectDossierForLevel(dossier, accessLevel)
+    const { answers, ...row } = await this.dossiers.projectForLevel(dossier, accessLevel)
     const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
     const visibleIds = new Set(fields.map((f) => f.id))
     return {

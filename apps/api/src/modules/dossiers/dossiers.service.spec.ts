@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common'
 import { DossiersService } from './dossiers.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
+import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
 import { ClassificationService } from '../classification/classification.service'
 
 interface PrismaMock {
@@ -19,6 +20,7 @@ interface PrismaMock {
   }
   shareLink: { findMany: jest.Mock }
   questionnaireField: { findMany: jest.Mock }
+  classificationRule: { findMany: jest.Mock }
 }
 
 function buildPrisma(): PrismaMock {
@@ -36,6 +38,7 @@ function buildPrisma(): PrismaMock {
     },
     shareLink: { findMany: jest.fn().mockResolvedValue([]) },
     questionnaireField: { findMany: jest.fn().mockResolvedValue([]) },
+    classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
   }
 }
 
@@ -126,6 +129,12 @@ describe('DossiersService', () => {
         user: { email: 'owner@example.com', firstName: 'Sophie', lastName: null },
         shareLinks: [{ accessLevel: 'public' }, { accessLevel: 'partiel' }],
       },
+    ])
+    // Source fields of the classification columns in the dossier's version.
+    prisma.questionnaireField.findMany.mockResolvedValue([
+      { key: 'secteur', minAccessLevel: 'public' },
+      { key: 'stade_projet', minAccessLevel: 'partiel' },
+      { key: 'stade_financement', minAccessLevel: 'complet' },
     ])
     const svc = await instantiate(prisma)
 

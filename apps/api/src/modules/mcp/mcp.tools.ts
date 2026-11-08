@@ -10,7 +10,7 @@ import { InvalidAnswersException } from '../answers/invalid-answers.exception'
 import { AuditService } from '../audit/audit.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { DossiersService } from '../dossiers/dossiers.service'
-import { fieldVisibleAt, projectDossierForLevel } from '../dossiers/financeur-access'
+import { fieldVisibleAt } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { readChoices } from '../questionnaires/questionnaire-structure'
@@ -272,7 +272,7 @@ export class McpToolsFactory {
           })),
       }))
       .filter((section) => section.fields.length > 0)
-    const projected = projectDossierForLevel(dossier, accessLevel)
+    const projected = await this.dossiers.projectForLevel(dossier, accessLevel)
     const isOwner = dossier.userId === caller.user.id
     return {
       dossier: {

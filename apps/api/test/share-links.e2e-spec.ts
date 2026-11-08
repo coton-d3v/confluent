@@ -10,12 +10,14 @@ import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
 import { AuditService } from './../src/modules/audit/audit.service'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
+import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
 
 describe('ShareLinksController (e2e)', () => {
   let app: INestApplication<App>
   let shareFindUnique: jest.Mock
   let dossierFindUnique: jest.Mock
   let documentFindMany: jest.Mock
+  let fieldFindMany: jest.Mock
   let auditRecord: jest.Mock
   let sendMagicLink: jest.Mock
   const users = [
@@ -49,6 +51,7 @@ describe('ShareLinksController (e2e)', () => {
     shareFindUnique = jest.fn()
     dossierFindUnique = jest.fn()
     documentFindMany = jest.fn().mockResolvedValue([])
+    fieldFindMany = jest.fn().mockResolvedValue(fields)
     auditRecord = jest.fn().mockResolvedValue(undefined)
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -69,7 +72,8 @@ describe('ShareLinksController (e2e)', () => {
           findUnique: jest.fn().mockResolvedValue({ id: 'v-2', version: 2 }),
         },
         questionnaireSection: { findMany: jest.fn().mockResolvedValue(sections) },
-        questionnaireField: { findMany: jest.fn().mockResolvedValue(fields) },
+        questionnaireField: { findMany: fieldFindMany },
+        classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
         document: { findMany: documentFindMany },
         auditLog: { create: jest.fn() },
       })
@@ -136,17 +140,32 @@ describe('ShareLinksController (e2e)', () => {
   ]
   const fields = [
     { id: 'f-name', sectionId: 's-identite', key: 'nom', label: 'Nom', minAccessLevel: 'public' },
+    // Sources of the classification columns (rules seeded by the migration).
+    {
+      id: 'f-secteur',
+      sectionId: 's-identite',
+      key: 'secteur',
+      label: 'Secteur',
+      minAccessLevel: 'public',
+    },
+    {
+      id: 'f-stade',
+      sectionId: 's-origine',
+      key: 'stade_projet',
+      label: 'Stade',
+      minAccessLevel: 'partiel',
+    },
     {
       id: 'f-origine',
       sectionId: 's-origine',
-      key: 'origine',
+      key: 'origine_projet',
       label: 'Origine',
       minAccessLevel: 'partiel',
     },
     {
       id: 'f-fin',
       sectionId: 's-fin',
-      key: 'financement',
+      key: 'stade_financement',
       label: 'Financement',
       minAccessLevel: 'complet',
     },
@@ -176,7 +195,7 @@ describe('ShareLinksController (e2e)', () => {
       status: 'active',
       accessLevel: 'public',
     })
-    expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name'])
+    expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name', 'f-secteur'])
     expect(res.body.sections.map((sec: { id: string }) => sec.id)).toEqual(['s-identite'])
     expect(res.body.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
     expect(res.body.dossier).toMatchObject({ id: 'd-1', name: 'Biosensio', sector: 'biotech' })
@@ -190,6 +209,22 @@ describe('ShareLinksController (e2e)', () => {
         dossierId: 'd-1',
       }),
     )
+  })
+
+  // Code review R31: a classification column must not reveal a field hidden at the share's level.
+  it('GET /v1/shares/:token — public: a derived column follows the level of its source field', async () => {
+    activeLink('public')
+    fieldFindMany.mockResolvedValue(
+      fields.map((f) => (f.key === 'secteur' ? { ...f, minAccessLevel: 'complet' } : f)),
+    )
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
+    expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name'])
+    expect(res.body.dossier.sector).toBeNull()
+    // Deeptech tag: derived from the origin (partiel) among others — hidden from a public share.
+    expect(res.body.dossier.tagTechnologique).toBeNull()
   })
 
   it('GET /v1/shares/:token — partiel: no financial answer, no documents', async () => {
