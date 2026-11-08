@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import { Test } from '@nestjs/testing'
 import type { INestApplication } from '@nestjs/common'
+import { JwtService } from '@nestjs/jwt'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { AppModule } from './../src/app.module'
@@ -287,5 +288,59 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       }),
     })
     await c.close()
+  })
+
+  it('connected applications: list, revoke (MCP then gets 401), never another user’s grant', async () => {
+    const token = await connect('u-1', ['dossiers:write'])
+    const otherToken = await connect('u-2', ['dossiers:read'])
+    const jwt = (sub: string, email: string) =>
+      new JwtService().signAsync(
+        { sub, email, role: 'entrepreneur' },
+        { secret: process.env.JWT_SECRET },
+      )
+    const auth = { Authorization: `Bearer ${await jwt('u-1', 'sophie@biosensio.fr')}` }
+
+    const c = await client(token)
+    await c.callTool({ name: 'whoami', arguments: {} })
+    await c.close()
+
+    const list = (await (
+      await fetch(`${base}/v1/oauth/grants`, { headers: auth })
+    ).json()) as Array<{
+      id: string
+      application: { name: string }
+      scopes: Array<{ scope: string }>
+      lastUsedAt: string | null
+    }>
+    expect(list).toHaveLength(1)
+    expect(list[0].application.name).toBe('Claude')
+    expect(list[0].scopes.map((s) => s.scope).sort()).toEqual(['dossiers:read', 'dossiers:write'])
+
+    const otherGrant = [...fake.table('oAuthGrant').values()].find((g) => g.userId === 'u-2')!
+    const forbidden = await fetch(`${base}/v1/oauth/grants/${otherGrant.id}`, {
+      method: 'DELETE',
+      headers: auth,
+    })
+    expect(forbidden.status).toBe(404)
+
+    const revoked = await fetch(`${base}/v1/oauth/grants/${list[0].id}`, {
+      method: 'DELETE',
+      headers: auth,
+    })
+    expect(revoked.status).toBe(204)
+    const after = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    })
+    expect(after.status).toBe(401)
+    expect(await (await fetch(`${base}/v1/oauth/grants`, { headers: auth })).json()).toEqual([])
+    // The other user's connection is untouched.
+    const still = await client(otherToken)
+    await expect(still.callTool({ name: 'whoami', arguments: {} })).resolves.toBeDefined()
+    await still.close()
+    expect(
+      [...fake.table('auditLog').values()].some((l) => l.actionType === 'oauth_grant_revoked'),
+    ).toBe(true)
   })
 })
