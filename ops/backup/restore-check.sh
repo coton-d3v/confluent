@@ -23,7 +23,7 @@ pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error \
 log "restored in $(( $(date +%s) - START ))s"
 
 # 3. Same row counts as at dump time.
-psql "$RESTORE_DATABASE_URL" --no-psqlrc --tuples-only --no-align --field-separator='=' --quiet <<'SQL' > "$DUMP.restored-counts"
+psql "$RESTORE_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 --tuples-only --no-align --field-separator='=' --quiet <<'SQL' > "$DUMP.restored-counts"
 SELECT 'users', count(*) FROM users
 UNION ALL SELECT 'dossiers', count(*) FROM dossiers
 UNION ALL SELECT 'dossier_answers', count(*) FROM dossier_answers
@@ -39,7 +39,7 @@ fi
 log "row counts identical to the dump-time snapshot: $(tr '\n' ' ' < "$DUMP.counts")"
 
 # 4. Referential sanity: every answer and document points to an existing dossier.
-ORPHANS=$(psql "$RESTORE_DATABASE_URL" --no-psqlrc --tuples-only --no-align --quiet -c "
+ORPHANS=$(psql "$RESTORE_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 --tuples-only --no-align --quiet -c "
   SELECT (SELECT count(*) FROM dossier_answers a LEFT JOIN dossiers d ON d.id = a.dossier_id WHERE d.id IS NULL)
        + (SELECT count(*) FROM documents x LEFT JOIN dossiers d ON d.id = x.dossier_id WHERE d.id IS NULL)")
 [ "$ORPHANS" = "0" ] || { log "FAILED: $ORPHANS orphan rows"; exit 1; }
