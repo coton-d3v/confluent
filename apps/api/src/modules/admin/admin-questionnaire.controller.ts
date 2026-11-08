@@ -23,6 +23,7 @@ class PatchFieldDto extends createZodDto(patchQuestionnaireFieldSchema) {}
 @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
 @ApiForbiddenResponse({ description: 'JWT sans rôle `admin`.' })
 @UseGuards(AdminGuard)
+// Deprecated by the form builder (`/v1/admin/forms`); removed once the admin web uses it.
 @Controller('admin/questionnaire/versions')
 export class AdminQuestionnaireController {
   constructor(private readonly service: QuestionnairesService) {}
@@ -30,6 +31,7 @@ export class AdminQuestionnaireController {
   @Get()
   @ApiOperation({
     summary: 'Lister toutes les versions du questionnaire',
+    deprecated: true,
     description:
       'Retourne tous les `questionnaire_versions` (published ou non), tri par `version` desc.',
   })
@@ -41,6 +43,7 @@ export class AdminQuestionnaireController {
   @Post()
   @ApiOperation({
     summary: 'Publier une nouvelle version du questionnaire (FR13, FR14, FR15)',
+    deprecated: true,
     description:
       'Crée et publie une nouvelle version avec ses `fields` ; la version publiée précédente passe ' +
       '`archived` dans la même transaction. **Les dossiers existants gardent leur version** : ils ne ' +
@@ -59,6 +62,7 @@ export class AdminQuestionnaireController {
   @Patch(':versionId/fields/:fieldId')
   @ApiOperation({
     summary: 'Patcher un champ d’une version spécifique',
+    deprecated: true,
     description:
       'Met à jour `label`, `fieldType`, ou `required` d’un champ. Scope strict à la version passée en URL — ' +
       '404 si le `fieldId` n’appartient pas à `versionId`. Les autres versions restent intactes.',

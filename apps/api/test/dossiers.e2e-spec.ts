@@ -54,6 +54,9 @@ describe('DossiersController (e2e)', () => {
           update: dossierUpdate,
           delete: dossierDelete,
         },
+        questionnaire: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'form-1', usage: 'dossier' }),
+        },
         questionnaireVersion: {
           findFirst: jest.fn().mockResolvedValue({ id: 'qv-1', version: 1 }),
           create: jest.fn(),

@@ -17,6 +17,17 @@ export const auditActionSchema = z.enum([
   'admin_edited_field',
   'admin_uploaded_document',
   'admin_revoked_share_link',
+  'share_link_access_requested',
+  'session_revoked',
+  'refresh_token_reused',
+  'oauth_grant_created',
+  'oauth_grant_revoked',
+  'oauth_refresh_token_reused',
+  'mcp_tool_called',
+  'form_created',
+  'form_updated',
+  'form_draft_created',
+  'form_draft_discarded',
 ]);
 
 export const auditLogSchema = z.object({

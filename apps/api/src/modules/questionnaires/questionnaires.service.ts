@@ -11,8 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
 import { createVersionStructure, type ChoiceInput } from './questionnaire-structure'
 
-// The form whose published version every new dossier is created with (E03.09 will let several
-// forms coexist per usage; today there is one per usage).
+// The form assigned to the `dossier` usage: new dossiers are created with its published version.
+// Other forms exist unassigned until E03.09 lets an administrator assign them.
 export const DOSSIER_FORM = {
   slug: 'profil-entreprise',
   name: "Profil de l'entreprise",
@@ -59,10 +59,14 @@ export class QuestionnairesService {
   }
 
   async ensureBootstrap(): Promise<QuestionnaireVersion> {
-    const published = await this.prisma.questionnaireVersion.findFirst({
-      where: { status: 'published', questionnaire: { usage: DOSSIER_FORM.usage } },
-      orderBy: { version: 'desc' },
+    const form = await this.prisma.questionnaire.findUnique({
+      where: { usage: DOSSIER_FORM.usage },
     })
+    const published =
+      form &&
+      (await this.prisma.questionnaireVersion.findFirst({
+        where: { questionnaireId: form.id, status: 'published' },
+      }))
     return published ?? (await this.seedVersion1())
   }
 
@@ -79,9 +83,13 @@ export class QuestionnairesService {
     return { version, sections, fields }
   }
 
-  listVersions(): Promise<QuestionnaireVersion[]> {
+  async listVersions(): Promise<QuestionnaireVersion[]> {
+    const form = await this.prisma.questionnaire.findUnique({
+      where: { usage: DOSSIER_FORM.usage },
+    })
+    if (!form) return []
     return this.prisma.questionnaireVersion.findMany({
-      where: { questionnaire: { usage: DOSSIER_FORM.usage } },
+      where: { questionnaireId: form.id },
       orderBy: { version: 'desc' },
     })
   }
