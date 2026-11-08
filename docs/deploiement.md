@@ -133,8 +133,9 @@ Le service `backup` du Compose de production (`ops/backup/`) exécute `backup.sh
 1. **Base** : `pg_dump` au format custom, relu (`pg_restore --list`) avant d'être conservé, empreinte SHA-256 et **comptes de lignes** des tables principales au moment du dump (`*.counts`).
 2. **Documents** : si `DOCUMENTS_REMOTE` est défini (bucket S3-compatible, une fois E02.03 installé), le bucket est recopié dans `/backups/documents/current` ; tout fichier modifié ou supprimé depuis la veille part dans `/backups/documents/archive/<horodatage>`.
 3. **Rétention locale** : 30 jours (`BACKUP_RETENTION_DAYS`).
-4. **Copie hors du serveur** : `rclone copy` vers `BACKUP_OFFSITE_REMOTE`. `copy` ne supprime jamais à distance : un serveur compromis ne peut pas effacer l'historique ; la rétention distante est une règle de cycle de vie de 30 jours sur le bucket de destination.
-5. `/backups/last-success` contient l'heure du dernier succès (à surveiller : plus de 26 h d'ancienneté = alerte). Un échec fait sortir le script en erreur, visible dans `docker compose logs backup`.
+4. **Copie hors du serveur** : `rclone copy` vers `BACKUP_OFFSITE_REMOTE`. `copy` ne supprime rien à distance, mais **remplace** un objet modifié (`documents/current/…`) : la protection de l'historique dépend de la configuration du bucket de destination (voir plus bas).
+5. **Manifeste des documents** : `confluent-<horodatage>.dump.documents.sha256` liste les documents (chemin, SHA-256) présents au moment du dump. Il permet de vérifier qu'une restauration retrouve exactement les fichiers que la base référence.
+6. `/backups/last-success` contient l'heure du dernier succès (à surveiller : plus de 26 h d'ancienneté = alerte). Un échec fait sortir le script en erreur, visible dans `docker compose logs backup`.
 
 Configuration de la destination hors serveur (exemple S3-compatible, dans le `.env` de l'hôte, `chmod 600`) :
 
@@ -147,7 +148,17 @@ RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=…
 RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY=…
 ```
 
-Le compte utilisé pour la copie hors serveur ne doit avoir que le droit d'écriture sur ce bucket (pas de suppression).
+Configuration **obligatoire** du bucket hors serveur, pour qu'un serveur compromis ne puisse effacer ni réécrire l'historique (R33) :
+
+| Réglage | Pourquoi |
+|---|---|
+| **Versionnement activé** (ou verrouillage d'objets en mode conformité de 30 jours) | Une copie qui remplace `documents/current/x` conserve l'ancienne version. |
+| Expiration à 30 jours **des seules versions non courantes**, et des objets sous `db/` | Un document inchangé depuis plus de 30 jours reste la version courante : un dump récent qui le référence reste restaurable. Une règle « tout supprimer après 30 jours » le perdrait. |
+| Compte de copie : écriture seule, **sans** suppression ni gestion des versions | Ce compte ne peut ni effacer, ni purger les versions. |
+
+À valider sur le bucket réel une fois le stockage S3 installé :
+- restaurer un dump récent qui référence un document inchangé depuis plus de 30 jours ;
+- tenter remplacement et suppression avec les seuls droits du compte de copie.
 
 ### Protéger la configuration nécessaire à la restauration
 
@@ -166,7 +177,9 @@ docker compose run --rm -v "$PWD/restore:/restore" \
   restore-check.sh /restore/confluent-<horodatage>.dump
 ```
 
-`restore-check.sh` vérifie l'empreinte, restaure (`--clean`, propriétaires et droits ignorés), compare les comptes de lignes à ceux relevés au moment du dump, contrôle l'absence de réponses et de documents orphelins, et refuse de s'exécuter si `RESTORE_DATABASE_URL` est égal à `DATABASE_URL`. Ensuite, `prisma migrate status` sur la base restaurée doit afficher « Database schema is up to date ». Pour une remise en production — décision explicite, après une restauration isolée réussie — arrêter `api`, relancer la même commande avec `-e DATABASE_URL= -e RESTORE_DATABASE_URL=<URL de production>` (le garde-fou compare ces deux variables, il faut donc vider `DATABASE_URL` volontairement), puis redémarrer `api` ; les migrations plus récentes que le dump sont appliquées par `api-migrate`.
+L'image `backup` a deux modes : `scheduler` (par défaut, sauvegarde planifiée) ou **toute autre commande, exécutée une fois** avec son code de sortie (`restore-check.sh …`, `backup.sh`). Tests sans Docker : `sh ops/backup/tests/entrypoint.test.sh` ; `sh ops/backup/tests/backup-failure.test.sh` (une extraction illisible fait échouer la sauvegarde, sans dump publié ni `last-success`) ; `BACKUP_TEST_DATABASE_URL=<base jetable> sh ops/backup/tests/dump-counts.test.sh`.
+
+`restore-check.sh` vérifie l'empreinte, restaure (`--clean`, propriétaires et droits ignorés), compare les comptes de lignes à ceux **contenus dans le dump** (calculés depuis ses données par `dump-counts.sh`, donc exactement à l'instant du dump), contrôle l'absence de réponses et de documents orphelins, et refuse de s'exécuter si `RESTORE_DATABASE_URL` est égal à `DATABASE_URL`. Ensuite, `prisma migrate status` sur la base restaurée doit afficher « Database schema is up to date ». Pour une remise en production — décision explicite, après une restauration isolée réussie — arrêter `api`, relancer la même commande avec `-e DATABASE_URL= -e RESTORE_DATABASE_URL=<URL de production>` (le garde-fou compare ces deux variables, il faut donc vider `DATABASE_URL` volontairement), puis redémarrer `api` ; les migrations plus récentes que le dump sont appliquées par `api-migrate`.
 
 ### Résultats observés
 

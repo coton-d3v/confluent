@@ -21,25 +21,23 @@ log() { printf '%s backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 mkdir -p "$DB_DIR"
 umask 077
 
-# 1. Database: custom-format dump, checked readable before it replaces anything.
+# 1. Database: custom-format dump, checked readable and counted before it is published. Until then
+#    everything is a hidden .partial file, removed if any step fails (R42).
 TMP="$DB_DIR/.confluent-$STAMP.dump.partial"
+COUNTS_TMP="$DB_DIR/.confluent-$STAMP.counts.partial"
 DUMP="$DB_DIR/confluent-$STAMP.dump"
+trap 'rm -f "$TMP" "$COUNTS_TMP"' EXIT
 log "dumping database"
 pg_dump --format=custom --no-owner --no-privileges --file="$TMP" "$DATABASE_URL"
 pg_restore --list "$TMP" >/dev/null
+# Row counts of the dump's own snapshot (R34): the restore check compares against them.
+if ! "$(dirname "$0")/dump-counts.sh" "$TMP" > "$COUNTS_TMP"; then
+  log "FAILED: the dump's data could not be read back"
+  exit 1
+fi
 mv "$TMP" "$DUMP"
+mv "$COUNTS_TMP" "$DUMP.counts"
 ( cd "$DB_DIR" && sha256sum "$(basename "$DUMP")" > "$(basename "$DUMP").sha256" )
-
-# Row counts at dump time: the restore check compares against them.
-psql "$DATABASE_URL" --no-psqlrc --tuples-only --no-align --field-separator='=' --quiet <<'SQL' > "$DUMP.counts"
-SELECT 'users', count(*) FROM users
-UNION ALL SELECT 'dossiers', count(*) FROM dossiers
-UNION ALL SELECT 'dossier_answers', count(*) FROM dossier_answers
-UNION ALL SELECT 'documents', count(*) FROM documents
-UNION ALL SELECT 'share_links', count(*) FROM share_links
-UNION ALL SELECT 'questionnaire_fields', count(*) FROM questionnaire_fields
-UNION ALL SELECT 'applied_migrations', count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;
-SQL
 log "database dump ok: $(basename "$DUMP") ($(wc -c < "$DUMP") bytes)"
 
 # 2. Documents: mirror the bucket; files changed or deleted since the last run move to a dated archive.
@@ -48,6 +46,9 @@ if [ -n "${DOCUMENTS_REMOTE:-}" ]; then
   rclone sync "$DOCUMENTS_REMOTE" "$BACKUP_DIR/documents/current" \
     --backup-dir "$BACKUP_DIR/documents/archive/$STAMP" --checksum
   log "documents ok: $(find "$BACKUP_DIR/documents/current" -type f | wc -l) objects"
+  # Manifest (R33): the documents (path and SHA-256) this dump refers to, to check a restoration.
+  ( cd "$BACKUP_DIR/documents/current" && find . -type f -exec sha256sum {} + | sort -k 2 ) \
+    > "$DUMP.documents.sha256"
 else
   log "DOCUMENTS_REMOTE not set: document backup skipped"
 fi
@@ -58,8 +59,9 @@ if [ -d "$BACKUP_DIR/documents/archive" ]; then
   find "$BACKUP_DIR/documents/archive" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION" -exec rm -rf {} +
 fi
 
-# 4. Off-server copy. `copy` never deletes remotely: a compromised server cannot wipe the history;
-#    remote retention is a lifecycle rule on the destination bucket.
+# 4. Off-server copy. `copy` does not delete remotely but DOES replace changed objects: the history
+#    is only protected by the destination bucket (versioning, expiry of non-current versions only,
+#    credentials without delete) — see docs/deploiement.md (R33).
 if [ -n "${BACKUP_OFFSITE_REMOTE:-}" ]; then
   log "copying to $BACKUP_OFFSITE_REMOTE"
   rclone copy "$BACKUP_DIR" "$BACKUP_OFFSITE_REMOTE" --exclude '.*.partial'
