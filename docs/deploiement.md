@@ -53,3 +53,25 @@ Les images API publiées **avant** E02.09 contenaient le jeton Doppler dans leur
 | Hôtes distincts, réseau privé ou Internet | TLS obligatoire : `DATABASE_URL=…?sslmode=require` (ou `verify-full` avec le certificat de l'autorité), et PostgreSQL configuré avec `ssl = on`. |
 
 Les connexions des navigateurs et des clients MCP passent par Traefik en HTTPS (certificats Let's Encrypt) ; l'API et le web écoutent en HTTP uniquement sur le réseau Docker.
+
+## Installation de référence et scripts de base de données
+
+### Fichiers Compose
+
+| Fichier | Rôle |
+|---|---|
+| `docker-compose.yml` | Développement local uniquement (PostgreSQL, MinIO, Mailhog). |
+| `docker-compose.prod.yml` | Référence versionnée de la production : `postgres` (sans port publié), `api-migrate` (migrations avant démarrage), `api`, `web`. |
+| Compose du serveur (Traefik + Doppler) | Variante réellement exécutée ; elle doit reprendre de la référence : `api-migrate` avant `api`, `DOPPLER_TOKEN` fourni à l'exécution, aucun port publié pour PostgreSQL. |
+
+### Ce qui est autorisé en production
+
+| Commande | Production | Rôle |
+|---|---|---|
+| `db:migrate:deploy` (service `api-migrate`) | ✅ | Applique les migrations versionnées, seule façon de faire évoluer le schéma. |
+| `questionnaire:v2` (profil `seed`) | ✅ création seulement | Publie la V2 si elle n'existe pas, en une transaction (dépublication et publication ensemble). Recréer une V2 existante est refusé ; en développement aussi dès qu'elle a des réponses. |
+| `db:seed` | ❌ | Données de démonstration (`@localhost.dev`). |
+| `db:migrate:reset` | ❌ | Supprime toutes les tables. |
+| `prisma db push` | ❌ | Jamais, en aucun environnement partagé : le schéma diverge des migrations. |
+
+Les commandes refusées s'arrêtent avec un message lorsque `NODE_ENV=production` (valeur des images de production). Pour une opération ponctuelle assumée, la relancer avec `CONFLUENT_ALLOW_DESTRUCTIVE=yes`, après une sauvegarde.
