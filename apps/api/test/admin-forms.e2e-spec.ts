@@ -160,6 +160,29 @@ describe('/v1/admin/forms (e2e)', () => {
     expect(versionOf(before.body.id as string)).not.toBe(published.body.version.id)
   })
 
+  it('refuses a draft change based on an outdated revision (If-Match), accepts the current one', async () => {
+    const created = await call('post', '').send({ name: 'Révisions' }).expect(201)
+    const formId = created.body.id as string
+    const draft = await call('post', `/${formId}/draft/sections`)
+      .send({ title: 'Projet' })
+      .expect(201)
+    const seen = draft.body.form.draft.updatedAt as string
+    await new Promise((r) => setTimeout(r, 5))
+    const next = await call('post', `/${formId}/draft/sections`)
+      .set('If-Match', `"${seen}"`)
+      .send({ title: 'Équipe' })
+      .expect(201)
+    const stale = await call('post', `/${formId}/draft/sections`)
+      .set('If-Match', seen)
+      .send({ title: 'Finances' })
+      .expect(409)
+    expect(stale.body.error.message).toContain('modifié entre-temps')
+    await call('post', `/${formId}/draft/sections`)
+      .set('If-Match', next.body.form.draft.updatedAt as string)
+      .send({ title: 'Finances' })
+      .expect(201)
+  })
+
   it('refuses to publish an incomplete draft, with the problems in error.details', async () => {
     const created = await call('post', '').send({ name: 'Vide' }).expect(201)
     const res = await call('post', `/${created.body.id}/draft/publish`).expect(422)
