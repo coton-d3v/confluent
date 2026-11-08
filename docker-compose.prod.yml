@@ -5,7 +5,8 @@
 # Required env vars (from .env or CI secrets):
 #   API_IMAGE                 — image tag, e.g. ghcr.io/org/confluent-api:production-latest
 #   WEB_IMAGE                 — image tag, e.g. ghcr.io/org/confluent-web:production-latest
-#   DATABASE_URL              — full Postgres connection string
+#   DATABASE_URL              — full Postgres connection string (API runtime account)
+#   MIGRATION_DATABASE_URL    — optional; account used by api-migrate (DDL rights)
 #   POSTGRES_USER / _PASSWORD / _DB — used by the postgres service only
 #   WEB_PORT                  — host port for the web container (default: 80)
 #   + all the keys validated by apps/api/src/config/config.schema.ts
@@ -32,7 +33,9 @@ services:
     environment:
       # Optional: with a Doppler service token the entrypoint injects secrets at run time.
       DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
-      DATABASE_URL: ${DATABASE_URL}
+      # Migrations may use a dedicated account with DDL rights; the running API then keeps a
+      # least-privilege account (DATABASE_URL). Falls back to DATABASE_URL when unset.
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL}}
     depends_on:
       postgres:
         condition: service_healthy

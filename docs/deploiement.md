@@ -43,7 +43,21 @@ Les images API publiées **avant** E02.09 contenaient le jeton Doppler dans leur
 
 - Le service `postgres` des fichiers Compose de production **ne publie aucun port** : il n'est joignable que par les conteneurs du même réseau Docker (`api`, `api-migrate`).
 - Ne jamais ajouter de `ports:` au service `postgres` en production. Pour une intervention, utiliser `docker compose exec postgres psql …` ou un tunnel SSH vers l'hôte.
-- Comptes : l'API utilise un compte dédié non administrateur ; les migrations peuvent utiliser un compte distinct disposant des droits DDL (roadmap E02.02).
+- Comptes (roadmap E02.02) : l'API tourne avec un compte applicatif sans droit de modifier le schéma (`DATABASE_URL`) ; les migrations utilisent un compte distinct propriétaire des tables (`MIGRATION_DATABASE_URL`, lu par `api-migrate`, et `DATABASE_URL` à défaut). Exemple de mise en place :
+
+  ```sql
+  CREATE ROLE confluent_migrator LOGIN PASSWORD '…';          -- propriétaire du schéma
+  CREATE ROLE confluent_app LOGIN PASSWORD '…';               -- compte de l'API
+  GRANT CONNECT ON DATABASE confluent TO confluent_app;
+  GRANT USAGE ON SCHEMA public TO confluent_app;
+  ALTER DEFAULT PRIVILEGES FOR ROLE confluent_migrator IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO confluent_app;
+  ALTER DEFAULT PRIVILEGES FOR ROLE confluent_migrator IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO confluent_app;
+  -- tables déjà existantes : GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO confluent_app;
+  ```
+
+  Les identifiants de développement et de production sont distincts (bases, comptes et projets Doppler séparés) : un identifiant de dev ne doit jamais ouvrir la base de production.
 
 ### Chiffrement des connexions
 
