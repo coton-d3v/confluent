@@ -24,6 +24,17 @@ function matches(row: Row, where: Where = {}): boolean {
 const UNIQUE_KEYS: Record<string, string[]> = {
   user: ['id', 'email'],
   oAuthToken: ['id', 'tokenHash'],
+  dossier: ['id', 'slug'],
+}
+
+// Prisma compound unique input, e.g. { dossierId_fieldId: { dossierId, fieldId } } → plain filter.
+function flattenWhere(where: Where = {}): Where {
+  const out: Where = {}
+  for (const [k, v] of Object.entries(where)) {
+    if (k.includes('_') && v && typeof v === 'object' && !(v instanceof Date)) Object.assign(out, v)
+    else out[k] = v
+  }
+  return out
 }
 
 export function createFakePrisma() {
@@ -93,7 +104,7 @@ export function createFakePrisma() {
         create: Record<string, unknown>
         update: Record<string, unknown>
       }) => {
-        const row = [...table(name).values()].find((r) => matches(r, where))
+        const row = [...table(name).values()].find((r) => matches(r, flattenWhere(where)))
         if (row) return Promise.resolve({ ...Object.assign(row, update) })
         const created = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...create } as Row
         table(name).set(created.id, created)
@@ -127,13 +138,27 @@ export function createFakePrisma() {
   const prisma = {
     onModuleInit: () => Promise.resolve(),
     onModuleDestroy: () => Promise.resolve(),
-    $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(self.prisma)),
+    $transaction: jest.fn((arg: unknown) =>
+      Array.isArray(arg)
+        ? Promise.all(arg)
+        : (arg as (tx: unknown) => Promise<unknown>)(self.prisma),
+    ),
     user: model('user', () => ({ isActive: true, locale: 'fr', firstName: null, lastName: null })),
     auditLog: model('auditLog'),
     oAuthClient: model('oAuthClient', () => ({ fetchedAt: null, clientSecret: null })),
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
     oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
+    dossier: model('dossier', () => ({ submittedAt: null })),
+    shareLink: model('shareLink'),
+    questionnaireVersion: model('questionnaireVersion'),
+    questionnaireField: model('questionnaireField', () => ({
+      key: null,
+      options: [],
+      required: false,
+      minAccessLevel: 'complet',
+    })),
+    dossierAnswer: model('dossierAnswer'),
   }
   self.prisma = prisma
   return { prisma, tables, table }

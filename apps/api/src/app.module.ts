@@ -16,6 +16,7 @@ import { DocumentsModule } from './modules/documents/documents.module'
 import { AnalyticsModule } from './modules/analytics/analytics.module'
 import { AdminModule } from './modules/admin/admin.module'
 import { OAuthModule } from './modules/oauth/oauth.module'
+import { McpModule } from './modules/mcp/mcp.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -39,6 +40,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     AnalyticsModule,
     AdminModule,
     OAuthModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [
