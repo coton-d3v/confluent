@@ -1,4 +1,4 @@
-import { publicApiRequest, apiRequest } from '@/lib/api-client'
+import { publicApiRequest, apiRequest, refreshSession } from '@/lib/api-client'
 import { setAuth, getAuthState, type AuthUser } from './auth-store'
 
 interface SessionResponse {
@@ -33,13 +33,9 @@ export async function updateProfile(firstName: string, lastName: string): Promis
   }
 }
 
+// Restores the session from the refresh cookie; shares the in-flight refresh with apiRequest.
 export async function initAuth(): Promise<void> {
-  try {
-    const body = await publicApiRequest<SessionResponse>('/v1/auth/refresh', { method: 'POST' })
-    setAuth({ accessToken: body.accessToken, user: body.user })
-  } catch {
-    setAuth(null)
-  }
+  await refreshSession()
 }
 
 export async function logout(): Promise<void> {
