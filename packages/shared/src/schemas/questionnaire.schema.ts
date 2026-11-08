@@ -74,45 +74,12 @@ export const activeQuestionnaireSchema = z.object({
   fields: z.array(questionnaireFieldSchema),
 })
 
-// A choice when publishing a version: without `key`, it is derived from the label. To rename a
-// choice without changing classification or the meaning of answers, keep its key.
+// A choice as written by the form builder: without `key`, it is derived from the label. To rename
+// a choice without changing classification or the meaning of answers, keep its key.
 export const choiceInputSchema = z.object({
   key: fieldKeySchema.optional(),
   label: z.string().min(1).max(500),
 })
-
-export const createQuestionnaireVersionFieldSchema = z.object({
-  section: z.string().min(1).max(200),
-  key: fieldKeySchema.optional(),
-  label: z.string().min(1).max(500),
-  fieldType: fieldTypeSchema,
-  choices: z
-    .array(choiceInputSchema)
-    .max(200)
-    .refine(hasUniqueKeys, { message: 'Each choice key must be unique within a field.' })
-    .optional(),
-  required: z.boolean().default(false),
-  minAccessLevel: accessLevelSchema.optional(),
-  orderIndex: z.number().int().nonnegative(),
-})
-
-export const createQuestionnaireVersionSchema = z.object({
-  fields: z
-    .array(createQuestionnaireVersionFieldSchema)
-    .min(1)
-    .max(500)
-    .refine(hasUniqueKeys, { message: 'Each field key must be unique within a version.' }),
-})
-
-export const patchQuestionnaireFieldSchema = z
-  .object({
-    label: z.string().min(1).max(500).optional(),
-    fieldType: fieldTypeSchema.optional(),
-    required: z.boolean().optional(),
-  })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'At least one field must be provided.',
-  })
 
 export type FieldType = z.infer<typeof fieldTypeSchema>
 export type QuestionnaireVersionStatus = z.infer<typeof questionnaireVersionStatusSchema>
@@ -122,8 +89,3 @@ export type Choice = z.infer<typeof choiceSchema>
 export type ChoiceInput = z.infer<typeof choiceInputSchema>
 export type QuestionnaireField = z.infer<typeof questionnaireFieldSchema>
 export type ActiveQuestionnaire = z.infer<typeof activeQuestionnaireSchema>
-export type CreateQuestionnaireVersionFieldInput = z.infer<
-  typeof createQuestionnaireVersionFieldSchema
->
-export type CreateQuestionnaireVersionInput = z.infer<typeof createQuestionnaireVersionSchema>
-export type PatchQuestionnaireFieldInput = z.infer<typeof patchQuestionnaireFieldSchema>

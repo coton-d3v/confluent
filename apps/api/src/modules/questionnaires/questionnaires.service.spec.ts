@@ -1,4 +1,5 @@
 import { QuestionnairesService } from './questionnaires.service'
+import { createVersionStructure } from './questionnaire-structure'
 import { createFakePrisma } from '../../testing/fake-prisma'
 
 function setup() {
@@ -27,10 +28,12 @@ describe('QuestionnairesService', () => {
     expect(fake.table('questionnaireVersion').size).toBe(1)
   })
 
-  it('publishing a new version archives the previous one: exactly one published version', async () => {
+  it('reads a version with fields ordered by section, then position, whatever the insertion order', async () => {
     const { fake, svc } = setup()
-    await svc.getActive()
-    const v2 = await svc.createVersion([
+    const version = await fake.prisma.questionnaireVersion.create({
+      data: { questionnaireId: 'form-1', version: 1, status: 'draft' },
+    })
+    await createVersionStructure(fake.prisma as never, version.id, [
       {
         section: 'Identité',
         label: 'Nom du projet',
@@ -54,44 +57,13 @@ describe('QuestionnairesService', () => {
         orderIndex: 0,
       },
     ])
-    expect(v2).toMatchObject({ version: 2, status: 'published' })
-    const statuses = [...fake.table('questionnaireVersion').values()].map(
-      (v) => `${String(v.version)}:${String(v.status)}`,
-    )
-    expect(statuses.sort()).toEqual(['1:archived', '2:published'])
-    const active = await svc.getActive()
-    expect(active.version.id).toBe(v2.id)
-    // Generated keys never collide within a version (given in input order); explicit keys are kept;
-    // reading returns fields by section, then position.
-    expect(active.fields.map((f) => f.key)).toEqual(['nom_du_projet_2', 'nom_du_projet', 'montant'])
-  })
-
-  it('keeps explicit choice keys and derives the missing ones, unique within the field', async () => {
-    const { svc } = setup()
-    await svc.getActive()
-    const v2 = await svc.createVersion([
-      {
-        section: 'Financement',
-        key: 'stade_financement',
-        label: 'Stade de financement',
-        fieldType: 'select',
-        required: true,
-        orderIndex: 0,
-        choices: [
-          // Renamed label, key kept from the previous version: answers and classification unchanged.
-          { key: 'fonds_propres_uniquement', label: 'Autofinancement' },
-          { label: 'Seed' },
-          { label: 'seed' },
-          { label: 'Fonds propres uniquement' },
-        ],
-      },
-    ])
-    const field = (await svc.getVersion(v2.id))!.fields[0]
-    expect(field.choices).toEqual([
-      { key: 'fonds_propres_uniquement', label: 'Autofinancement' },
-      { key: 'seed', label: 'Seed' },
-      { key: 'seed_2', label: 'seed' },
-      { key: 'fonds_propres_uniquement_2', label: 'Fonds propres uniquement' },
+    const structure = (await svc.getVersion(version.id))!
+    expect(structure.sections.map((x) => x.title)).toEqual(['Identité', 'Finances'])
+    // Generated keys never collide within a version (given in input order); explicit keys are kept.
+    expect(structure.fields.map((f) => f.key)).toEqual([
+      'nom_du_projet_2',
+      'nom_du_projet',
+      'montant',
     ])
   })
 })
