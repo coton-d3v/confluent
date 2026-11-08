@@ -25,6 +25,7 @@ Commandes : `pnpm dev:api`, `pnpm dev:web`, `pnpm typecheck`, `pnpm --filter @co
 
 - Toute modification de schéma passe par une **migration versionnée** dans `apps/api/prisma/migrations/` (générée avec `prisma migrate diff --from-url … --to-schema-datamodel …`), jamais par `db push`.
 - Une migration doit réussir sur des données existantes (backfill ou renumérotation explicites) ; contraintes `CHECK` pour les colonnes texte à valeurs fermées.
+- Avant PR, rejouer **toute la chaîne en une commande** sur une base vide : `MIGRATION_CHECK_DATABASE_URL=… sh apps/api/scripts/check-migration-chain.sh` (les helpers `pg_temp` sont recréés avec `CREATE OR REPLACE` et supprimés en fin de migration, car toutes les migrations partagent une session).
 
 ## Tests et vérifications (avant toute PR)
 

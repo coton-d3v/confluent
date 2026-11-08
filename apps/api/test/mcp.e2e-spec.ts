@@ -92,7 +92,10 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       key: 'stade_financement',
       label: 'Stade de financement actuel',
       fieldType: 'select',
-      options: ['Fonds propres uniquement', 'Seed – investisseurs professionnels'],
+      choices: [
+        { key: 'fonds_propres_uniquement', label: 'Fonds propres uniquement' },
+        { key: 'seed_investisseurs_professionnels', label: 'Seed – investisseurs professionnels' },
+      ],
       required: true,
       orderIndex: 0,
     })
@@ -210,10 +213,17 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const after = json(
       await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
     )
-    const fields = (
-      after.sections as Array<{ fields: Array<{ fieldId: string; answer: string }> }>
-    ).flatMap((s) => s.fields)
+    type Described = { fieldId: string; answer: string; answerLabel?: string; choices?: unknown[] }
+    const fields = (after.sections as Array<{ fields: Described[] }>).flatMap((s) => s.fields)
     expect(fields.find((f) => f.fieldId === 'f-name')?.answer).toBe('Biosensio')
+    // Sent by its label, the list answer is stored as the choice key and described with both.
+    expect(fields.find((f) => f.fieldId === 'f-stage')).toMatchObject({
+      answer: 'seed_investisseurs_professionnels',
+      answerLabel: 'Seed – investisseurs professionnels',
+      choices: expect.arrayContaining([
+        { key: 'fonds_propres_uniquement', label: 'Fonds propres uniquement' },
+      ]),
+    })
     expect([...fake.table('dossierAnswer').values()]).toHaveLength(2)
     await c.close()
   })

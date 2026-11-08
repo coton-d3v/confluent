@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { AccessLevel } from '@confluent/shared'
-import type { Dossier } from '@prisma/client'
+import type { Dossier, QuestionnaireField } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService } from '../answers/answers.service'
@@ -13,6 +13,7 @@ import { DossiersService } from '../dossiers/dossiers.service'
 import { fieldVisibleAt, projectDossierForLevel } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
+import { readChoices } from '../questionnaires/questionnaire-structure'
 
 // Who is calling: always derived from the OAuth access token, never from tool arguments (E01.06).
 export interface McpCaller {
@@ -57,8 +58,8 @@ export class McpToolsFactory {
       {
         instructions:
           'Confluent héberge les dossiers de financement d’entreprises innovantes. Commencez par ' +
-          'list_dossiers, puis get_dossier pour lire les questions (avec leur fieldId, type, options ' +
-          'et réponse actuelle) et voir ce qui manque. update_answers enregistre des réponses ; ' +
+          'list_dossiers, puis get_dossier pour lire les questions (avec leur fieldId, type, choix ' +
+          'possibles et réponse actuelle) et voir ce qui manque. update_answers enregistre des réponses ; ' +
           'n’inventez jamais une réponse : demandez-la à l’utilisateur.',
       },
     )
@@ -119,7 +120,8 @@ export class McpToolsFactory {
         title: 'Lire un dossier',
         description:
           'Questions du dossier (version de questionnaire du dossier), groupées par section, avec ' +
-          'pour chacune fieldId, type, options, obligatoire, et réponse actuelle ; plus la liste des ' +
+          'pour chacune fieldId, type, choix possibles (clé et libellé), obligatoire, et réponse ' +
+          'actuelle (clé du choix pour une liste, avec son libellé) ; plus la liste des ' +
           'champs obligatoires sans réponse. Utilisez les fieldId pour update_answers.',
         inputSchema: { dossier: dossierRef },
         annotations: { readOnlyHint: true },
@@ -138,8 +140,8 @@ export class McpToolsFactory {
         description:
           'Enregistre une ou plusieurs réponses dans un dossier dont vous êtes propriétaire. ' +
           'Chaque réponse cible un fieldId de get_dossier. Valeurs : texte libre ; nombre ("1200" ou ' +
-          '"3,5") ; date "AAAA-MM-JJ" ; case à cocher "true"/"false" ; liste : exactement une des ' +
-          'options. Une chaîne vide efface la réponse. Rien n’est enregistré si une valeur est invalide.',
+          '"3,5") ; date "AAAA-MM-JJ" ; case à cocher "true"/"false" ; liste : la clé d’un des ' +
+          'choix (son libellé exact est aussi accepté). Une chaîne vide efface la réponse. Rien n’est enregistré si une valeur est invalide.',
         inputSchema: {
           dossier: dossierRef,
           answers: z
@@ -264,8 +266,7 @@ export class McpToolsFactory {
             ...(f.helpText ? { help: f.helpText } : {}),
             type: f.fieldType,
             required: f.required,
-            ...(f.options.length ? { options: f.options } : {}),
-            answer: answers.get(f.id) ?? null,
+            ...describeChoices(f, answers.get(f.id) ?? null),
           })),
       }))
       .filter((section) => section.fields.length > 0)
@@ -293,4 +294,12 @@ export class McpToolsFactory {
         .map((f) => ({ fieldId: f.id, label: f.label })),
     }
   }
+}
+
+// A list field exposes its choices; its answer is a choice key, given with the label it displays.
+function describeChoices(field: QuestionnaireField, answer: string | null) {
+  const choices = readChoices(field.choices)
+  if (field.fieldType !== 'select' || choices.length === 0) return { answer }
+  const answerLabel = choices.find((c) => c.key === answer)?.label
+  return { choices, answer, ...(answerLabel ? { answerLabel } : {}) }
 }

@@ -43,7 +43,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       data: {
         id: F_NAME,
         versionId: 'v-1',
-        section: 'Présentation',
+        sectionId: 's-presentation',
         label: 'Nom',
         fieldType: 'text',
         orderIndex: 0,
@@ -53,10 +53,13 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       data: {
         id: F_STAGE,
         versionId: 'v-1',
-        section: 'Présentation',
+        sectionId: 's-presentation',
         label: 'Stade',
         fieldType: 'select',
-        options: ['MVP', 'Seed'],
+        choices: [
+          { key: 'mvp', label: 'MVP' },
+          { key: 'seed', label: 'Seed' },
+        ],
         orderIndex: 1,
       },
     })
@@ -64,7 +67,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       data: {
         id: F_OTHER_VERSION,
         versionId: 'v-2',
-        section: 'Identité',
+        sectionId: 's-identite',
         label: 'Nouveau',
         fieldType: 'text',
         orderIndex: 0,
@@ -100,9 +103,14 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
   it('saves answers that belong to the dossier version and fit their type', async () => {
     await put([
       { fieldId: F_NAME, value: 'Biosensio' },
-      { fieldId: F_STAGE, value: 'Seed' },
+      { fieldId: F_STAGE, value: 'mvp' },
     ]).expect(200)
     expect(fake.table('dossierAnswer').size).toBe(2)
+  })
+
+  it('stores the choice key when a list answer is sent by its exact label', async () => {
+    await put([{ fieldId: F_STAGE, value: 'Seed' }]).expect(200)
+    expect([...fake.table('dossierAnswer').values()].map((a) => a.value)).toEqual(['seed'])
   })
 
   it('rejects the whole batch with field-level details, writing nothing', async () => {

@@ -65,4 +65,33 @@ describe('QuestionnairesService', () => {
     // reading returns fields by section, then position.
     expect(active.fields.map((f) => f.key)).toEqual(['nom_du_projet_2', 'nom_du_projet', 'montant'])
   })
+
+  it('keeps explicit choice keys and derives the missing ones, unique within the field', async () => {
+    const { svc } = setup()
+    await svc.getActive()
+    const v2 = await svc.createVersion([
+      {
+        section: 'Financement',
+        key: 'stade_financement',
+        label: 'Stade de financement',
+        fieldType: 'select',
+        required: true,
+        orderIndex: 0,
+        choices: [
+          // Renamed label, key kept from the previous version: answers and classification unchanged.
+          { key: 'fonds_propres_uniquement', label: 'Autofinancement' },
+          { label: 'Seed' },
+          { label: 'seed' },
+          { label: 'Fonds propres uniquement' },
+        ],
+      },
+    ])
+    const field = (await svc.getVersion(v2.id))!.fields[0]
+    expect(field.choices).toEqual([
+      { key: 'fonds_propres_uniquement', label: 'Autofinancement' },
+      { key: 'seed', label: 'Seed' },
+      { key: 'seed_2', label: 'seed' },
+      { key: 'fonds_propres_uniquement_2', label: 'Fonds propres uniquement' },
+    ])
+  })
 })

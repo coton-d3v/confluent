@@ -10,52 +10,13 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
-import { accessLevelSchema, fieldKeySchema, hasUniqueKeys } from '@confluent/shared'
+import { createQuestionnaireVersionSchema, patchQuestionnaireFieldSchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
-import { z } from 'zod'
 import { AdminGuard } from '../auth/guards/admin.guard'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 
-const fieldTypeSchema = z.enum([
-  'text',
-  'textarea',
-  'email',
-  'number',
-  'date',
-  'select',
-  'checkbox',
-  'file',
-])
-
-const fieldInputSchema = z.object({
-  section: z.string().min(1).max(200),
-  key: fieldKeySchema.optional(),
-  label: z.string().min(1).max(500),
-  fieldType: fieldTypeSchema,
-  options: z.array(z.string().min(1).max(500)).max(200).optional(),
-  required: z.boolean().default(false),
-  orderIndex: z.number().int().min(0),
-  minAccessLevel: accessLevelSchema.optional(),
-})
-
-const createVersionSchema = z.object({
-  fields: z.array(fieldInputSchema).min(1).max(500).refine(hasUniqueKeys, {
-    message: 'Each field key must be unique within a version.',
-  }),
-})
-
-const patchFieldSchema = z
-  .object({
-    label: z.string().min(1).max(500).optional(),
-    fieldType: fieldTypeSchema.optional(),
-    required: z.boolean().optional(),
-  })
-  .refine((v) => Object.keys(v).length > 0, {
-    message: 'At least one field must be provided.',
-  })
-
-class CreateVersionDto extends createZodDto(createVersionSchema) {}
-class PatchFieldDto extends createZodDto(patchFieldSchema) {}
+class CreateVersionDto extends createZodDto(createQuestionnaireVersionSchema) {}
+class PatchFieldDto extends createZodDto(patchQuestionnaireFieldSchema) {}
 
 @ApiTags('Admin · Questionnaire')
 @ApiBearerAuth('jwt')
@@ -81,12 +42,14 @@ export class AdminQuestionnaireController {
   @ApiOperation({
     summary: 'Publier une nouvelle version du questionnaire (FR13, FR14, FR15)',
     description:
-      'Crée une nouvelle version avec ses `fields`. Transaction : marque la version précédente `isPublished=false` ' +
-      'et la nouvelle `isPublished=true`. **Les dossiers existants gardent leur version snapshot** — ils ne sont ' +
-      'jamais re-bindés (FR14 immuabilité). Chaque champ peut porter une `key` technique (snake_case, unique ' +
-      'dans la version) lue par la classification : reprendre les `key` et `options` de la version précédente ' +
-      'pour que la classification continue de fonctionner. `minAccessLevel` (public | partiel | complet, ' +
-      'défaut `complet`) fixe le niveau de partage minimal pour qu’un financeur lise la réponse.',
+      'Crée et publie une nouvelle version avec ses `fields` ; la version publiée précédente passe ' +
+      '`archived` dans la même transaction. **Les dossiers existants gardent leur version** : ils ne ' +
+      'sont jamais rattachés à la nouvelle (FR14). Chaque champ porte une `key` technique (snake_case, ' +
+      'unique dans la version, dérivée du libellé si absente) et, pour une liste, des `choices` ' +
+      '`{ key?, label }` (clé dérivée du libellé si absente). Les réponses stockent la clé du choix et la ' +
+      'classification lit les clés : pour renommer un champ ou un choix sans changer leur sens, reprendre ' +
+      'leurs `key` de la version précédente. `minAccessLevel` (public | partiel | complet, défaut ' +
+      '`complet`) fixe le niveau de partage minimal pour qu’un financeur lise la réponse.',
   })
   @ApiCreatedResponse({ description: 'Version créée et publiée.' })
   create(@Body() body: CreateVersionDto) {

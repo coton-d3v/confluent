@@ -179,7 +179,9 @@ model QuestionnaireField {
   label          String
   helpText       String?    @map("help_text")
   fieldType      field_type @map("field_type")
-  options        String[]   @default([])
+  // Choices of a `select` field (E03.06): [{ "key": "seed", "label": "Seed – investisseurs" }].
+  // Answers store the choice key, so renaming a label never changes how an answer is read.
+  choices        Json       @default("[]")
   required       Boolean    @default(false)
   orderIndex     Int        @map("order_index")
   // Type-specific limits (E03.05), e.g. { "maxLength": 500 } or { "min": 0, "max": 100 }.

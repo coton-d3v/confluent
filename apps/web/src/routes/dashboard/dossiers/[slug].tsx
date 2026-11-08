@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { AccessListRow } from '@/components/confluent/AccessListRow'
 import { DossierField } from '@/components/confluent/DossierField'
+import { answerLabel } from '@/features/questionnaire/answer-label'
 import { MetricCard } from '@/components/confluent/MetricCard'
 import { RevokeAccessDialog } from '@/components/confluent/RevokeAccessDialog'
 import { SharePanel } from '@/components/confluent/SharePanel'
@@ -311,7 +312,7 @@ function DossierView({
                         <DossierField
                           key={q.id}
                           label={q.label}
-                          value={answersByFieldId[q.id] ?? ''}
+                          value={answerLabel(q, answersByFieldId[q.id] ?? '')}
                         />
                       ))}
                     </dl>

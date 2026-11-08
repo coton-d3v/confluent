@@ -9,7 +9,7 @@ import type {
 import type { AccessLevel } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
-import { createVersionStructure } from './questionnaire-structure'
+import { createVersionStructure, type ChoiceInput } from './questionnaire-structure'
 
 // The form whose published version every new dossier is created with (E03.09 will let several
 // forms coexist per usage; today there is one per usage).
@@ -24,7 +24,7 @@ export interface CreateVersionFieldInput {
   key?: string
   label: string
   fieldType: field_type
-  options?: string[]
+  choices?: ChoiceInput[]
   required: boolean
   orderIndex: number
   minAccessLevel?: AccessLevel

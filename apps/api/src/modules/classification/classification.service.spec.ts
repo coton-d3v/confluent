@@ -27,7 +27,12 @@ async function instantiate(prisma: unknown) {
   return moduleRef.get(ClassificationService)
 }
 
-type Field = { id: string; key: string | null; label: string }
+type Field = {
+  id: string
+  key: string | null
+  label: string
+  choices?: { key: string; label: string }[]
+}
 
 function dossierWith(fields: Field[], answers: Record<string, string>) {
   return {
@@ -51,7 +56,15 @@ const EMPTY = {
 
 const V2_FIELDS: Field[] = [
   { id: 'f-ancrage', key: 'ancrage_cvl', label: 'Votre lien avec la région Centre Val de Loire' },
-  { id: 'f-secteur', key: 'secteur', label: 'Secteur principal' },
+  {
+    id: 'f-secteur',
+    key: 'secteur',
+    label: 'Secteur principal',
+    choices: [
+      { key: 'biotech', label: 'biotech' },
+      { key: 'saas', label: 'SaaS' },
+    ],
+  },
   {
     id: 'f-structure',
     key: 'structure_juridique',
@@ -63,7 +76,12 @@ const V2_FIELDS: Field[] = [
   { id: 'f-brevets', key: 'brevets', label: 'Avez-vous des brevets ?' },
   { id: 'f-verrou', key: 'verrou_scientifique', label: 'Verrou scientifique ?' },
   { id: 'f-rd', key: 'rd_public', label: 'Financement R&D public ?' },
-  { id: 'f-stade', key: 'stade_projet', label: 'Stade du projet' },
+  {
+    id: 'f-stade',
+    key: 'stade_projet',
+    label: 'Stade du projet',
+    choices: [{ key: 'trl_4_6_developpement', label: 'TRL 4-6 Développement' }],
+  },
   { id: 'f-other', key: null, label: 'Nom du projet' },
 ]
 
@@ -71,16 +89,16 @@ describe('ClassificationService.classify', () => {
   it('classifies a full V2 deeptech dossier and persists the result', async () => {
     const { prisma, update } = buildPrisma(
       dossierWith(V2_FIELDS, {
-        'f-ancrage': 'Mon projet est basé en CVL',
+        'f-ancrage': 'mon_projet_est_base_en_cvl',
         'f-secteur': 'biotech',
-        'f-structure': 'En cours de création',
-        'f-financement': 'Seed – investisseurs professionnels',
-        'f-origine': "Spin-off d'un laboratoire / recherche publique",
-        'f-techno': 'Oui, clairement',
-        'f-brevets': 'Oui déposés',
-        'f-verrou': 'Non',
-        'f-rd': 'En cours',
-        'f-stade': 'TRL 4-6 Développement',
+        'f-structure': 'en_cours_de_creation',
+        'f-financement': 'seed_investisseurs_professionnels',
+        'f-origine': 'spin_off_d_un_laboratoire_recherche_publique',
+        'f-techno': 'oui_clairement',
+        'f-brevets': 'oui_deposes',
+        'f-verrou': 'non',
+        'f-rd': 'en_cours',
+        'f-stade': 'trl_4_6_developpement',
         'f-other': 'Acme',
       }),
     )
@@ -100,13 +118,20 @@ describe('ClassificationService.classify', () => {
     expect(update).toHaveBeenCalledWith({ where: { id: 'd-1' }, data: expected })
   })
 
-  it('keeps classifying when labels are renamed (lookup by key, not label)', async () => {
-    const renamed = V2_FIELDS.map((f) => ({ ...f, label: `${f.label} (renommé)` }))
+  it('keeps classifying when field and choice labels are renamed (lookup by key, not label)', async () => {
+    const renamed = V2_FIELDS.map((f) => ({
+      ...f,
+      label: `${f.label} (renommé)`,
+      choices: f.choices?.map((c) => ({
+        ...c,
+        label: c.key === 'saas' ? 'SaaS' : `${c.label} (renommé)`,
+      })),
+    }))
     const { prisma } = buildPrisma(
       dossierWith(renamed, {
-        'f-secteur': 'SaaS',
-        'f-financement': 'Fonds propres uniquement',
-        'f-techno': "Non – c'est avant tout un modèle ou un service",
+        'f-secteur': 'saas',
+        'f-financement': 'fonds_propres_uniquement',
+        'f-techno': 'non_c_est_avant_tout_un_modele_ou_un_service',
       }),
     )
     const svc = await instantiate(prisma)
@@ -146,10 +171,26 @@ describe('ClassificationService.classify', () => {
     })
   })
 
-  it('logs a warning when an answer matches no known option', async () => {
+  it('ignores a former option label: only choice keys are classified', async () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const { prisma } = buildPrisma(
-      dossierWith(V2_FIELDS, { 'f-financement': 'Option renommée par un admin' }),
+      dossierWith(V2_FIELDS, { 'f-financement': 'Fonds propres uniquement' }),
+    )
+    const svc = await instantiate(prisma)
+    expect(await svc.classify('d-1')).toMatchObject({ axe2Financier: null })
+    warn.mockRestore()
+  })
+
+  it('treats an empty answer as missing', async () => {
+    const { prisma } = buildPrisma(dossierWith(V2_FIELDS, { 'f-structure': '', 'f-techno': '' }))
+    const svc = await instantiate(prisma)
+    expect(await svc.classify('d-1')).toEqual(EMPTY)
+  })
+
+  it('logs a warning when an answer matches no known choice', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const { prisma } = buildPrisma(
+      dossierWith(V2_FIELDS, { 'f-financement': 'choix_ajoute_par_un_admin' }),
     )
     const svc = await instantiate(prisma)
     expect(await svc.classify('d-1')).toMatchObject({ axe2Financier: null })

@@ -46,6 +46,12 @@ export const questionnaireSectionSchema = z.object({
   orderIndex: z.number().int().nonnegative(),
 })
 
+// A choice of a `select` field: answers store `key`, `label` is what people read (E03.06).
+export const choiceSchema = z.object({
+  key: fieldKeySchema,
+  label: z.string(),
+})
+
 export const questionnaireFieldSchema = z.object({
   id: z.string().uuid(),
   versionId: z.string().uuid(),
@@ -54,7 +60,7 @@ export const questionnaireFieldSchema = z.object({
   label: z.string(),
   helpText: z.string().nullable(),
   fieldType: fieldTypeSchema,
-  options: z.array(z.string()).default([]),
+  choices: z.array(choiceSchema).default([]),
   required: z.boolean(),
   orderIndex: z.number().int().nonnegative(),
   constraints: z.record(z.string(), z.unknown()).default({}),
@@ -68,13 +74,24 @@ export const activeQuestionnaireSchema = z.object({
   fields: z.array(questionnaireFieldSchema),
 })
 
+// A choice when publishing a version: without `key`, it is derived from the label. To rename a
+// choice without changing classification or the meaning of answers, keep its key.
+export const choiceInputSchema = z.object({
+  key: fieldKeySchema.optional(),
+  label: z.string().min(1).max(500),
+})
+
 export const createQuestionnaireVersionFieldSchema = z.object({
   section: z.string().min(1).max(200),
   key: fieldKeySchema.optional(),
   label: z.string().min(1).max(500),
   fieldType: fieldTypeSchema,
-  options: z.array(z.string().min(1).max(500)).max(200).optional(),
-  required: z.boolean(),
+  choices: z
+    .array(choiceInputSchema)
+    .max(200)
+    .refine(hasUniqueKeys, { message: 'Each choice key must be unique within a field.' })
+    .optional(),
+  required: z.boolean().default(false),
   minAccessLevel: accessLevelSchema.optional(),
   orderIndex: z.number().int().nonnegative(),
 })
@@ -101,6 +118,8 @@ export type FieldType = z.infer<typeof fieldTypeSchema>
 export type QuestionnaireVersionStatus = z.infer<typeof questionnaireVersionStatusSchema>
 export type QuestionnaireVersion = z.infer<typeof questionnaireVersionSchema>
 export type QuestionnaireSection = z.infer<typeof questionnaireSectionSchema>
+export type Choice = z.infer<typeof choiceSchema>
+export type ChoiceInput = z.infer<typeof choiceInputSchema>
 export type QuestionnaireField = z.infer<typeof questionnaireFieldSchema>
 export type ActiveQuestionnaire = z.infer<typeof activeQuestionnaireSchema>
 export type CreateQuestionnaireVersionFieldInput = z.infer<

@@ -25,13 +25,48 @@ export function toKey(label: string): string {
   return /^[a-z]/.test(slug) ? slug : `f_${slug}`
 }
 
+// A choice of a `select` field (E03.06). Answers store `key`; `label` is only displayed.
+export interface Choice {
+  key: string
+  label: string
+}
+
+// A choice to create: without `key`, it is derived from the label.
+export interface ChoiceInput {
+  key?: string
+  label: string
+}
+
+// Explicit keys are kept as given; missing ones are derived with `toKey`, suffixed when they would
+// collide with another choice of the field.
+export function toChoices(inputs: readonly ChoiceInput[]): Choice[] {
+  const taken = new Set(inputs.flatMap((c) => (c.key ? [c.key] : [])))
+  return inputs.map(({ key, label }) => ({ key: key ?? uniqueKey(toKey(label), taken), label }))
+}
+
+// Choices from plain labels (seeds).
+export const labelsToChoices = (labels: readonly string[]): ChoiceInput[] =>
+  labels.map((label) => ({ label }))
+
+// Reads the `choices` JSON column defensively (unknown shapes yield no choice).
+export function readChoices(value: unknown): Choice[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (c): c is Choice =>
+      !!c &&
+      typeof c === 'object' &&
+      typeof (c as Choice).key === 'string' &&
+      typeof (c as Choice).label === 'string',
+  )
+}
+
 export interface StructureFieldInput {
   section: string
   key?: string
   label: string
   helpText?: string | null
   fieldType: field_type
-  options?: string[]
+  choices?: readonly ChoiceInput[]
   required: boolean
   orderIndex: number
   constraints?: Prisma.InputJsonValue
@@ -56,8 +91,9 @@ export async function createVersionStructure(
   }
   const fieldKeys = new Set(fields.flatMap((f) => (f.key ? [f.key] : [])))
   await tx.questionnaireField.createMany({
-    data: fields.map(({ section, key, ...f }) => ({
+    data: fields.map(({ section, key, choices, ...f }) => ({
       ...f,
+      choices: toChoices(choices ?? []) as unknown as Prisma.InputJsonValue,
       versionId,
       sectionId: sectionIds.get(section)!,
       key: key ?? uniqueKey(toKey(f.label), fieldKeys),
