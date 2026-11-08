@@ -58,6 +58,8 @@ export const FormErrors = {
       code: 'CHOICES_NOT_ALLOWED',
       message: 'Seul un champ de type liste peut avoir des choix.',
     }),
+  invalidConstraints: (message: string) =>
+    new BadRequestException({ code: 'INVALID_CONSTRAINTS', message }),
   draftInvalid: (problems: DraftProblem[]) =>
     new UnprocessableEntityException({
       code: 'DRAFT_INVALID',

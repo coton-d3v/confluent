@@ -113,6 +113,26 @@ describe('/v1/admin/forms (e2e)', () => {
     ])
   })
 
+  it('stores limits that fit the field type and refuses the others', async () => {
+    const created = await call('post', '').send({ name: 'Limites' }).expect(201)
+    const formId = created.body.id as string
+    const draft = await call('post', `/${formId}/draft/sections`)
+      .send({ title: 'Projet' })
+      .expect(201)
+    const sectionId = draft.body.sections[0].id as string
+    const ok = await call('post', `/${formId}/draft/fields`)
+      .send({ sectionId, label: 'Pitch', fieldType: 'textarea', constraints: { maxLength: 500 } })
+      .expect(201)
+    expect(ok.body.fields[0].constraints).toEqual({ maxLength: 500 })
+    const bad = await call('post', `/${formId}/draft/fields`)
+      .send({ sectionId, label: 'Effectif', fieldType: 'number', constraints: { maxLength: 3 } })
+      .expect(400)
+    expect(bad.body.error.message).toBe('Ces limites ne correspondent pas au type du champ.')
+    await call('post', `/${formId}/draft/fields`)
+      .send({ sectionId, label: 'Effectif', fieldType: 'number', constraints: { inconnu: 1 } })
+      .expect(400)
+  })
+
   it('refuses to publish an incomplete draft, with the problems in error.details', async () => {
     const created = await call('post', '').send({ name: 'Vide' }).expect(201)
     const res = await call('post', `/${created.body.id}/draft/publish`).expect(422)

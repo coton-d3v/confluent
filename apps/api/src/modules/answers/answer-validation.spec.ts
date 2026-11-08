@@ -2,8 +2,9 @@ import type { QuestionnaireField } from '@prisma/client'
 import { normalizeAnswers, validateAnswerValue, validateAnswers } from './answer-validation'
 
 type Choice = { key: string; label: string }
-const field = (fieldType: string, choices: Choice[] = [], id = 'f') =>
-  ({ id, label: 'Champ', fieldType, choices }) as unknown as QuestionnaireField
+const field = (fieldType: string, choices: Choice[] = [], id = 'f', constraints: object = {}) =>
+  ({ id, label: 'Champ', fieldType, choices, constraints }) as unknown as QuestionnaireField
+const limited = (fieldType: string, constraints: object) => field(fieldType, [], 'f', constraints)
 
 const AB: Choice[] = [
   { key: 'a', label: 'Choix A' },
@@ -33,6 +34,25 @@ describe('validateAnswerValue', () => {
     )
     expect(validateAnswerValue(field('select', AB), 'c')).not.toBeNull()
     expect(validateAnswerValue(field('select'), 'c')).toBeNull()
+  })
+
+  it.each([
+    ['text', { maxLength: 5 }, 'court', null],
+    ['text', { maxLength: 5 }, 'trop long', '5 caractères maximum.'],
+    ['textarea', { minLength: 10 }, 'bref', '10 caractères minimum.'],
+    ['number', { min: 0, max: 100 }, '42,5', null],
+    ['number', { min: 0 }, '-1', 'Valeur minimale : 0.'],
+    ['number', { max: 1000 }, '1500', 'Valeur maximale : 1\u202f000.'],
+    ['number', { integer: true }, '3,5', 'Nombre entier attendu.'],
+    ['date', { min: '2026-01-01' }, '2025-12-31', 'Date au plus tôt : 01/01/2026.'],
+    ['date', { max: '2026-12-31' }, '2026-06-15', null],
+  ])('applies %s limits %j to %p', (type, constraints, value, expected) => {
+    expect(validateAnswerValue(limited(type, constraints), value)).toBe(expected)
+  })
+
+  it('ignores stored limits that do not fit the field type', () => {
+    expect(validateAnswerValue(limited('email', { maxLength: 3 }), 'a@b.fr')).toBeNull()
+    expect(validateAnswerValue(limited('number', { min: 'x' }), '5')).toBeNull()
   })
 
   it('always accepts an empty string (clearing an answer) and refuses file fields', () => {

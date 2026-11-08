@@ -5,12 +5,15 @@ import {
   type QuestionnaireSection,
   type QuestionnaireVersion,
 } from '@prisma/client'
-import type {
-  CreateDraftFieldInput,
+import {
+  constraintsProblem,
+  type CreateDraftFieldInput,
+  type FieldConstraints,
+  type FieldType,
   CreateDraftSectionInput,
-  DraftProblem,
-  UpdateDraftFieldInput,
-  UpdateDraftSectionInput,
+  type DraftProblem,
+  type UpdateDraftFieldInput,
+  type UpdateDraftSectionInput,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
@@ -211,6 +214,7 @@ export class FormDraftsService {
     return this.editDraft(formId, async (tx, { draft, sections, fields }) => {
       if (!sections.some((s) => s.id === input.sectionId)) throw FormErrors.sectionNotFound()
       if (input.choices && input.fieldType !== 'select') throw FormErrors.choicesNotAllowed()
+      const constraints = checkedConstraints(input.fieldType, input.constraints ?? {})
       await tx.questionnaireField.create({
         data: {
           versionId: draft.id,
@@ -221,6 +225,7 @@ export class FormDraftsService {
           fieldType: input.fieldType,
           required: input.required,
           choices: asJson(toChoices(input.choices ?? [])),
+          constraints: asJson(constraints),
           minAccessLevel: input.minAccessLevel ?? 'complet',
           orderIndex: nextIndex(fields.filter((f) => f.sectionId === input.sectionId)),
         },
@@ -251,6 +256,10 @@ export class FormDraftsService {
       }
       if (fieldType !== 'select') data.choices = asJson([])
       else if (input.choices) data.choices = asJson(toChoices(input.choices))
+      // Limits of another type are meaningless: a type change without new limits clears them.
+      if (input.constraints)
+        data.constraints = asJson(checkedConstraints(fieldType, input.constraints))
+      else if (fieldType !== field.fieldType) data.constraints = asJson({})
 
       const moving = input.sectionId !== undefined && input.sectionId !== field.sectionId
       if (moving) {
@@ -344,6 +353,12 @@ export class FormDraftsService {
     }
     return uniqueKey(toKey(label), taken)
   }
+}
+
+function checkedConstraints(fieldType: FieldType, constraints: FieldConstraints): FieldConstraints {
+  const problem = constraintsProblem(fieldType, constraints)
+  if (problem) throw FormErrors.invalidConstraints(problem)
+  return constraints
 }
 
 const nextIndex = (rows: ReadonlyArray<{ orderIndex: number }>) =>

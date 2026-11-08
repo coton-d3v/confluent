@@ -46,6 +46,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
         sectionId: 's-presentation',
         label: 'Nom',
         fieldType: 'text',
+        constraints: { maxLength: 40 },
         orderIndex: 0,
       },
     })
@@ -106,6 +107,13 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       { fieldId: F_STAGE, value: 'mvp' },
     ]).expect(200)
     expect(fake.table('dossierAnswer').size).toBe(2)
+  })
+
+  it('applies the field limits set in the form builder (shared rules)', async () => {
+    const res = await put([{ fieldId: F_NAME, value: 'x'.repeat(41) }]).expect(400)
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ fieldId: F_NAME, message: '40 caractères maximum.' }),
+    ])
   })
 
   it('stores the choice key when a list answer is sent by its exact label', async () => {

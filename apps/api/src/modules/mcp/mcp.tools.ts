@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { AccessLevel } from '@confluent/shared'
+import { describeConstraints, type AccessLevel } from '@confluent/shared'
 import type { Dossier, QuestionnaireField } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -120,7 +120,8 @@ export class McpToolsFactory {
         title: 'Lire un dossier',
         description:
           'Questions du dossier (version de questionnaire du dossier), groupées par section, avec ' +
-          'pour chacune fieldId, type, choix possibles (clé et libellé), obligatoire, et réponse ' +
+          'pour chacune fieldId, type, choix possibles (clé et libellé), limites de saisie, ' +
+          'obligatoire, et réponse ' +
           'actuelle (clé du choix pour une liste, avec son libellé) ; plus la liste des ' +
           'champs obligatoires sans réponse. Utilisez les fieldId pour update_answers.',
         inputSchema: { dossier: dossierRef },
@@ -264,6 +265,7 @@ export class McpToolsFactory {
             key: f.key,
             label: f.label,
             ...(f.helpText ? { help: f.helpText } : {}),
+            ...limitsOf(f),
             type: f.fieldType,
             required: f.required,
             ...describeChoices(f, answers.get(f.id) ?? null),
@@ -302,4 +304,10 @@ function describeChoices(field: QuestionnaireField, answer: string | null) {
   if (field.fieldType !== 'select' || choices.length === 0) return { answer }
   const answerLabel = choices.find((c) => c.key === answer)?.label
   return { choices, answer, ...(answerLabel ? { answerLabel } : {}) }
+}
+
+// Input limits set in the form builder (E03.05), in words, so that an agent respects them.
+function limitsOf(field: QuestionnaireField) {
+  const limits = describeConstraints(field)
+  return limits ? { limits } : {}
 }
