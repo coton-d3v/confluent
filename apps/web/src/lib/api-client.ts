@@ -1,6 +1,7 @@
 import { getAuthState, setAuth } from '@/features/auth/auth-store'
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
+export const API_BASE_URL =
+  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
 
 export interface ApiError {
   code: string

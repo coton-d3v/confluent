@@ -5,6 +5,7 @@ type RouteHandle = { hideBreadcrumb?: boolean } | undefined
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard: 'Mes dossiers',
   'tableau-de-bord': 'Tableau de bord',
+  applications: 'Applications IA',
   dossiers: 'Dossiers',
   nouveau: 'Nouveau',
   admin: 'Admin',

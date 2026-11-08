@@ -26,3 +26,20 @@ export function decideConsentRequest(
     { method: 'POST', body: JSON.stringify({ approve, scopes }) },
   )
 }
+
+export interface ConnectedApplication {
+  id: string
+  application: { name: string; clientUri: string | null }
+  scopes: Array<{ scope: string; label: string }>
+  connectedAt: string
+  lastUsedAt: string | null
+  expiresAt: string
+}
+
+export function listConnectedApplications(): Promise<ConnectedApplication[]> {
+  return apiRequest<ConnectedApplication[]>('/v1/oauth/grants')
+}
+
+export function revokeConnectedApplication(id: string): Promise<void> {
+  return apiRequest<void>(`/v1/oauth/grants/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
