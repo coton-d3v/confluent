@@ -106,7 +106,9 @@ function QuestionnaireWizard({
   function diffAgainstSaved(current: Record<string, string>): AnswerInput[] {
     const diff: AnswerInput[] = []
     for (const [fieldId, value] of Object.entries(current)) {
-      if (lastSavedRef.current[fieldId] !== value) {
+      const saved = lastSavedRef.current[fieldId]
+      // A skipped optional question that was never answered has nothing to save.
+      if (saved !== value && !(saved === undefined && value === '')) {
         diff.push({ fieldId, value })
       }
     }

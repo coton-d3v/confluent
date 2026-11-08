@@ -13,7 +13,7 @@ export function DossierField({ label, value, className }: DossierFieldProps) {
       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 text-[13px] font-medium text-foreground leading-relaxed break-words">
+      <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium leading-relaxed text-foreground">
         {hasValue ? value : <span className="text-muted-foreground">—</span>}
       </dd>
     </div>

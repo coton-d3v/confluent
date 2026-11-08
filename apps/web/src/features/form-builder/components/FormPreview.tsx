@@ -1,4 +1,4 @@
-import type { FormVersionStructure } from '@confluent/shared'
+import { describeConstraints, type FormVersionStructure } from '@confluent/shared'
 import { FIELD_TYPE_LABELS } from '../labels'
 
 // What an entrepreneur will be asked, section by section (E03.03 preview). Nothing is interactive.
@@ -25,6 +25,9 @@ export function FormPreview({ structure }: { structure: FormVersionStructure }) 
                   </p>
                   {field.helpText && (
                     <p className="text-xs text-muted-foreground">{field.helpText}</p>
+                  )}
+                  {describeConstraints(field) && (
+                    <p className="text-xs text-muted-foreground">{describeConstraints(field)}</p>
                   )}
                   {field.fieldType === 'select' ? (
                     <ul className="flex flex-col gap-1.5">
