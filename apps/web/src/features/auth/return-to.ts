@@ -3,7 +3,7 @@
 // paths so it cannot become an open redirect.
 const KEY = 'confluent.returnTo'
 const MAX_AGE_MS = 30 * 60 * 1000
-const ALLOWED_PREFIXES = ['/oauth/consent']
+const ALLOWED_PREFIXES = ['/oauth/consent', '/share/']
 
 export function rememberReturnTo(path: string): void {
   if (!ALLOWED_PREFIXES.some((p) => path.startsWith(p))) return

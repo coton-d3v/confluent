@@ -1,13 +1,13 @@
 import { useMemo } from 'react'
-import { useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import type { AccessLevel, DocumentGroup, FinanceurShareResponse } from '@confluent/shared'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { DossierField } from '@/components/confluent/DossierField'
 import { Badge } from '@/components/ui/badge'
-import { getSharedDossier } from '@/features/share-access/api'
+import { useSharedDossier } from '@/features/share-access/useSharedDossier'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
-import { useAsync } from '@/lib/useAsync'
 import { AccessDeniedPage } from '@/routes/share/AccessDeniedPage'
+import { RecipientMismatchPage } from '@/routes/share/RecipientMismatchPage'
 
 // The API already filters fields, answers and documents by the share's access level; this page only
 // explains to the financeur what the level leaves out.
@@ -36,16 +36,20 @@ export default function ShareDossierRoute() {
 }
 
 function ShareDossierView({ token }: { token: string }) {
-  const { data, isLoading, error } = useAsync(() => getSharedDossier(token), [token])
-
-  if (isLoading) {
+  const state = useSharedDossier(token)
+  if (state.status === 'anonymous') {
+    return <Navigate to={`/share/${encodeURIComponent(token)}`} replace />
+  }
+  if (state.status === 'mismatch') return <RecipientMismatchPage email={state.email} />
+  if (state.status === 'denied') return <AccessDeniedPage />
+  if (state.status === 'loading') {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
         <p className="text-sm text-muted-foreground">Chargement du dossier…</p>
       </main>
     )
   }
-  if (error || !data) return <AccessDeniedPage />
+  const { data } = state
 
   return (
     <>
