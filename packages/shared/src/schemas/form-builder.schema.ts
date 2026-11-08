@@ -58,6 +58,9 @@ export const formVersionStructureSchema = z.object({
 const nameSchema = z.string().trim().min(1).max(200)
 
 export const createFormSchema = z.object({ name: nameSchema })
+
+// The form takes the usage over from the form that had it (E03.09).
+export const assignFormUsageSchema = z.object({ usage: formUsageSchema })
 export const renameFormSchema = z.object({ name: nameSchema })
 export const duplicateFormSchema = z.object({ name: nameSchema })
 
@@ -126,6 +129,7 @@ export type FormDetail = z.infer<typeof formDetailSchema>
 export type DraftProblem = z.infer<typeof draftProblemSchema>
 export type FormVersionStructure = z.infer<typeof formVersionStructureSchema>
 export type CreateFormInput = z.infer<typeof createFormSchema>
+export type AssignFormUsageInput = z.infer<typeof assignFormUsageSchema>
 export type RenameFormInput = z.infer<typeof renameFormSchema>
 export type DuplicateFormInput = z.infer<typeof duplicateFormSchema>
 export type CreateDraftSectionInput = z.infer<typeof createDraftSectionSchema>

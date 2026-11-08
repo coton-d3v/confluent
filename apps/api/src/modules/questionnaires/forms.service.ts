@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import type { Prisma, Questionnaire, QuestionnaireVersion } from '@prisma/client'
+import type { FormUsage } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { FormErrors } from './form-errors'
@@ -126,6 +127,39 @@ export class FormsService {
       },
     })
     return this.get(copy.id)
+  }
+
+  // The form takes `usage` over from the form that had it, in one transaction: new dossiers are then
+  // created with its published version, existing dossiers keep theirs (E03.09). There is no plain
+  // unassignment: a usage always has a form, so it can only move to another published form.
+  async assignUsage(formId: string, usage: FormUsage, actorId: string): Promise<FormDetailView> {
+    const form = await this.findEditableForm(formId)
+    if (form.usage === usage) return this.get(formId)
+    const published = await this.prisma.questionnaireVersion.findFirst({
+      where: { questionnaireId: formId, status: 'published' },
+    })
+    if (!published) throw FormErrors.notPublished()
+    const replaced = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.questionnaire.findUnique({ where: { usage } })
+      // Freed first: the unique index on `usage` is checked statement by statement.
+      if (current) {
+        await tx.questionnaire.update({ where: { id: current.id }, data: { usage: null } })
+      }
+      await tx.questionnaire.update({ where: { id: formId }, data: { usage } })
+      return current
+    })
+    await this.audit.record({
+      actionType: 'form_updated',
+      actorId,
+      metadata: {
+        formId,
+        change: 'assigned',
+        usage,
+        versionId: published.id,
+        replacedFormId: replaced?.id ?? null,
+      },
+    })
+    return this.get(formId)
   }
 
   // An archived form is kept with all its versions (dossiers still read theirs) but can no longer be

@@ -24,6 +24,7 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger'
 import {
+  assignFormUsageSchema,
   createDraftFieldSchema,
   createDraftSectionSchema,
   createFormSchema,
@@ -45,6 +46,7 @@ import {
 } from '../questionnaires/forms.service'
 
 class CreateFormDto extends createZodDto(createFormSchema) {}
+class AssignUsageDto extends createZodDto(assignFormUsageSchema) {}
 class RenameFormDto extends createZodDto(renameFormSchema) {}
 class DuplicateFormDto extends createZodDto(duplicateFormSchema) {}
 class CreateSectionDto extends createZodDto(createDraftSectionSchema) {}
@@ -125,6 +127,23 @@ export class AdminFormsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
     return this.forms.duplicate(formId, body.name, user.id)
+  }
+
+  @Put(':formId/usage')
+  @ApiOperation({
+    summary: 'Affecter un formulaire à un usage',
+    description:
+      '`usage: "dossier"` : les nouveaux dossiers sont créés avec la version publiée de ce formulaire, ' +
+      'qui remplace le précédent dans la même transaction. Les dossiers existants gardent leur version. ' +
+      'Refusé pour un formulaire jamais publié ou archivé.',
+  })
+  @ApiConflictResponse({ description: 'Formulaire jamais publié, ou archivé.' })
+  assignUsage(
+    @Param('formId', uuid) formId: string,
+    @Body() body: AssignUsageDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.assignUsage(formId, body.usage, user.id)
   }
 
   @Post(':formId/archive')
