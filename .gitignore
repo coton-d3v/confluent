@@ -9,3 +9,5 @@ dist
 _bmad
 .claude
 
+# Product roadmap: private document of its owner, kept out of this public repository (R24)
+docs/ROADMAP.md
