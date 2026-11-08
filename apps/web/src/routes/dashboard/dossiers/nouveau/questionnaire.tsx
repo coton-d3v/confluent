@@ -3,9 +3,10 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { QuestionnaireProgress } from '@/features/questionnaire/components/QuestionnaireProgress'
 import { QuestionnaireStep } from '@/features/questionnaire/components/QuestionnaireStep'
 import { SectionSummary } from '@/features/questionnaire/components/SectionSummary'
-import { getActiveQuestionnaire } from '@/features/questionnaire/api'
 import { buildDynamicQuestionnaire, type DynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { listAnswers, upsertAnswers } from '@/features/dossiers/answers.api'
+import { getDossier } from '@/features/dossiers/api'
+import { Button } from '@/components/ui/button'
 import { useAsync } from '@/lib/useAsync'
 import type { AnswerInput } from '@confluent/shared'
 
@@ -23,13 +24,17 @@ export default function QuestionnaireRoute() {
 }
 
 function QuestionnaireLoader({ dossierId }: { dossierId: string }) {
-  const questionnaireQuery = useAsync(() => getActiveQuestionnaire(), [])
+  // The dossier's own questionnaire version (snapshot taken at creation), never the currently
+  // active one: after a new version is published, resuming an older dossier must show — and save
+  // into — the fields it was created with.
+  const dossierQuery = useAsync(() => getDossier(dossierId), [dossierId])
   const answersQuery = useAsync(() => listAnswers(dossierId), [dossierId])
 
-  if (questionnaireQuery.isLoading || answersQuery.isLoading) {
+  if (dossierQuery.isLoading || answersQuery.isLoading) {
     return <p className="pt-8 text-sm text-muted-foreground">Chargement du questionnaire…</p>
   }
-  if (questionnaireQuery.error || answersQuery.error || !questionnaireQuery.data) {
+  const snapshot = dossierQuery.data?.questionnaireVersion
+  if (dossierQuery.error || answersQuery.error || !snapshot) {
     return (
       <p className="pt-8 text-sm text-destructive">
         Impossible de charger le questionnaire. Réessayez plus tard.
@@ -40,7 +45,7 @@ function QuestionnaireLoader({ dossierId }: { dossierId: string }) {
   for (const row of answersQuery.data ?? []) {
     initialAnswers[row.fieldId] = row.value
   }
-  const dynamic = buildDynamicQuestionnaire(questionnaireQuery.data)
+  const dynamic = buildDynamicQuestionnaire(snapshot)
   if (dynamic.totalQuestions === 0) {
     return (
       <p className="pt-8 text-sm text-destructive">
@@ -91,6 +96,12 @@ function QuestionnaireWizard({
 
   const lastSavedRef = useRef<Record<string, string>>(initialAnswers)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Saves run one after the other: overlapping requests could otherwise land out of order and leave
+  // an older value in the database.
+  const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true))
+  const advancingRef = useRef(false)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
   function diffAgainstSaved(current: Record<string, string>): AnswerInput[] {
     const diff: AnswerInput[] = []
@@ -102,16 +113,27 @@ function QuestionnaireWizard({
     return diff
   }
 
-  async function flushSave(current: Record<string, string>): Promise<void> {
-    const diff = diffAgainstSaved(current)
-    if (diff.length === 0) return
-    const snapshot = { ...current }
-    try {
-      await upsertAnswers(dossierId, diff)
-      lastSavedRef.current = { ...lastSavedRef.current, ...snapshot }
-    } catch {
-      // swallow — autosave is best-effort; explicit submit will retry
+  // Resolves true once `current` is persisted, false if the request failed (the diff stays pending
+  // and is sent again by the next save or by "Réessayer").
+  function flushSave(current: Record<string, string>): Promise<boolean> {
+    const run = async (): Promise<boolean> => {
+      const diff = diffAgainstSaved(current)
+      if (diff.length === 0) return true
+      try {
+        await upsertAnswers(dossierId, diff)
+        lastSavedRef.current = {
+          ...lastSavedRef.current,
+          ...Object.fromEntries(diff.map((a) => [a.fieldId, a.value])),
+        }
+        setSaveFailed(false)
+        return true
+      } catch {
+        setSaveFailed(true)
+        return false
+      }
     }
+    saveChainRef.current = saveChainRef.current.then(run, run)
+    return saveChainRef.current
   }
 
   function scheduleSave(current: Record<string, string>) {
@@ -119,6 +141,12 @@ function QuestionnaireWizard({
     saveTimerRef.current = setTimeout(() => {
       void flushSave(current)
     }, AUTOSAVE_DEBOUNCE_MS)
+  }
+
+  async function retrySave() {
+    setRetrying(true)
+    await flushSave(answers)
+    setRetrying(false)
   }
 
   useEffect(() => {
@@ -171,8 +199,16 @@ function QuestionnaireWizard({
       : `Section ${currentQuestion.sectionIndex} · Question ${currentQuestion.positionInSection} sur ${currentSection.questions.length}`
 
   async function handleAdvance(cleaned: string) {
+    // Ignore a second click while the previous one is still saving.
+    if (advancingRef.current) return
+    advancingRef.current = true
     const nextAnswers = { ...answers, [currentQuestion.id]: cleaned }
-    await flushSave(nextAnswers)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setState((prev) => ({ ...prev, answers: nextAnswers }))
+    const saved = await flushSave(nextAnswers)
+    advancingRef.current = false
+    // Never move on — let alone reach the completion screen — with an answer that was not saved.
+    if (!saved) return
 
     if (editingFromSummary) {
       setEditingFromSummary(false)
@@ -259,6 +295,17 @@ function QuestionnaireWizard({
       >
         {indicatorText}
       </div>
+      {saveFailed && (
+        <div
+          role="alert"
+          className="mt-6 flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>Vos dernières réponses n’ont pas pu être enregistrées. Vérifiez votre connexion.</span>
+          <Button size="sm" variant="outline" onClick={() => void retrySave()} disabled={retrying}>
+            {retrying ? 'Enregistrement…' : 'Réessayer'}
+          </Button>
+        </div>
+      )}
       <div
         key={`${view}-${position}`}
         className={
