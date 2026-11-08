@@ -10,7 +10,6 @@ import {
   listAdminDossiers,
   patchAdminAnswers,
 } from '@/features/admin/dossiers.api'
-import { getActiveQuestionnaire } from '@/features/questionnaire/api'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { useAsync } from '@/lib/useAsync'
 import { Button } from '@/components/ui/button'
@@ -69,7 +68,6 @@ function AdminDossierDetailView({
   const headingRef = useRef<HTMLHeadingElement>(null)
   const detailQuery = useAsync(() => getAdminDossier(dossierId), [dossierId])
   const auditQuery = useAsync(() => getAdminDossierAuditLog(dossierId), [dossierId])
-  const questionnaireQuery = useAsync(() => getActiveQuestionnaire(), [])
 
   useEffect(() => {
     headingRef.current?.focus()
@@ -81,10 +79,9 @@ function AdminDossierDetailView({
     return map
   }, [detailQuery.data])
 
-  const dynamic = useMemo(
-    () => (questionnaireQuery.data ? buildDynamicQuestionnaire(questionnaireQuery.data) : null),
-    [questionnaireQuery.data],
-  )
+  // The dossier's own questionnaire version: answers and edits target the fields it was created with.
+  const snapshot = detailQuery.data?.questionnaireVersion
+  const dynamic = useMemo(() => (snapshot ? buildDynamicQuestionnaire(snapshot) : null), [snapshot])
 
   const handleSaveAnswer = useCallback(
     async (fieldId: string, value: string) => {
@@ -159,7 +156,7 @@ function AdminDossierDetailView({
         </p>
       </div>
 
-      {detailQuery.isLoading || questionnaireQuery.isLoading ? (
+      {detailQuery.isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : detailQuery.error || !detailQuery.data || !dynamic ? (
         <p className="mt-8 text-sm text-destructive">

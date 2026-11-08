@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService } from '../documents/documents.service'
 import { AuthService } from '../auth/auth.service'
+import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { EMAIL_TRANSPORT } from '../auth/email/email-transport'
 
 function buildModule(overrides: {
@@ -21,6 +22,7 @@ function buildModule(overrides: {
   sendMagicLink?: jest.Mock
   auditRecord?: jest.Mock
   dossierFindUnique?: jest.Mock
+  getVersion?: jest.Mock
   listDocuments?: jest.Mock
 }) {
   return {
@@ -57,6 +59,7 @@ function buildModule(overrides: {
         jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
     },
     auth: { requestMagicLink: jest.fn().mockResolvedValue(undefined) },
+    questionnaires: { getVersion: overrides.getVersion ?? jest.fn().mockResolvedValue(null) },
     documents: {
       listForDossier: overrides.listDocuments ?? jest.fn().mockResolvedValue([]),
     },
@@ -77,6 +80,7 @@ async function instantiate(mocks: ReturnType<typeof buildModule>): Promise<Share
       { provide: DossiersService, useValue: mocks.dossiers },
       { provide: DocumentsService, useValue: mocks.documents },
       { provide: AuthService, useValue: mocks.auth },
+      { provide: QuestionnairesService, useValue: mocks.questionnaires },
       { provide: EMAIL_TRANSPORT, useValue: mocks.email },
     ],
   }).compile()
@@ -216,17 +220,24 @@ describe('ShareLinksService', () => {
       axe3Origine: 3,
       deeptechScore: 3,
       preCreation: false,
-      questionnaireVersion: {
-        fields: [
-          { id: 'f-name', section: 'Identité du projet', minAccessLevel: 'public' },
-          { id: 'f-origine', section: 'Origine & technologie', minAccessLevel: 'partiel' },
-          { id: 'f-financement', section: 'Stade financier', minAccessLevel: 'complet' },
-        ],
-      },
+      questionnaireVersionId: 'v-2',
       answers: [
         { fieldId: 'f-name', value: 'Biosensio' },
         { fieldId: 'f-origine', value: 'Spin-off d’un laboratoire' },
         { fieldId: 'f-financement', value: 'Seed – investisseurs professionnels' },
+      ],
+    }
+    const structure = {
+      version: { id: 'v-2' },
+      sections: [
+        { id: 's-identite', title: 'Identité du projet', orderIndex: 0 },
+        { id: 's-origine', title: 'Origine & technologie', orderIndex: 1 },
+        { id: 's-financier', title: 'Stade financier', orderIndex: 2 },
+      ],
+      fields: [
+        { id: 'f-name', sectionId: 's-identite', minAccessLevel: 'public' },
+        { id: 'f-origine', sectionId: 's-origine', minAccessLevel: 'partiel' },
+        { id: 'f-financement', sectionId: 's-financier', minAccessLevel: 'complet' },
       ],
     }
     const docs = [{ filename: 'bp.pdf', current: {}, versions: [] }]
@@ -234,6 +245,7 @@ describe('ShareLinksService', () => {
     async function resolve(accessLevel: string) {
       const mocks = buildModule({
         dossierFindUnique: jest.fn().mockResolvedValue(dossierRow),
+        getVersion: jest.fn().mockResolvedValue(structure),
         listDocuments: jest.fn().mockResolvedValue(docs),
       })
       const svc = await instantiate(mocks)
@@ -251,6 +263,8 @@ describe('ShareLinksService', () => {
       const { res, mocks } = await resolve('public')
       expect(res.share.accessLevel).toBe('public')
       expect(res.fields.map((f) => f.id)).toEqual(['f-name'])
+      // Sections without any visible field are not sent either.
+      expect(res.sections.map((sec) => sec.id)).toEqual(['s-identite'])
       expect(res.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
       expect(res.dossier).toMatchObject({ sector: 'biotech', tagTechnologique: 'deeptech' })
       expect(res.dossier).toMatchObject({

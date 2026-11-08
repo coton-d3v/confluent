@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { AdminDossiersController } from './admin-dossiers.controller'
 import { AdminDossiersService } from './admin-dossiers.service'
 import { AdminQuestionnaireController } from './admin-questionnaire.controller'
@@ -13,7 +14,7 @@ import { DossiersModule } from '../dossiers/dossiers.module'
 import { AuthModule } from '../auth/auth.module'
 
 @Module({
-  imports: [AnswersModule, DossiersModule, AuthModule],
+  imports: [AnswersModule, DossiersModule, AuthModule, QuestionnairesModule],
   controllers: [
     AdminDossiersController,
     AdminQuestionnaireController,

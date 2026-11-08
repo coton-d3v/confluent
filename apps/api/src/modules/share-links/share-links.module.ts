@@ -4,10 +4,11 @@ import { ShareLinksService } from './share-links.service'
 import { ShareLinkGuard } from '../auth/guards/share-link.guard'
 import { DossiersModule } from '../dossiers/dossiers.module'
 import { DocumentsModule } from '../documents/documents.module'
+import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { AuthModule } from '../auth/auth.module'
 
 @Module({
-  imports: [DossiersModule, DocumentsModule, AuthModule],
+  imports: [DossiersModule, DocumentsModule, AuthModule, QuestionnairesModule],
   controllers: [ShareLinksController],
   providers: [ShareLinksService, ShareLinkGuard],
   exports: [ShareLinksService],

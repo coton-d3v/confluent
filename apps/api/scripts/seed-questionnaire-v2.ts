@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 import type { field_type } from '@prisma/client'
 import { refuseInProduction } from './lib/environment-guard'
+import { createVersionStructure } from '../src/modules/questionnaires/questionnaire-structure'
 
 const prisma = new PrismaClient()
 
@@ -264,8 +265,17 @@ const FIELDS: FieldDef[] = [
   },
 ]
 
+const DOSSIER_FORM = { slug: 'profil-entreprise', name: "Profil de l'entreprise", usage: 'dossier' }
+
 async function main() {
-  const existing = await prisma.questionnaireVersion.findUnique({ where: { version: 2 } })
+  const form = await prisma.questionnaire.upsert({
+    where: { slug: DOSSIER_FORM.slug },
+    update: {},
+    create: DOSSIER_FORM,
+  })
+  const existing = await prisma.questionnaireVersion.findUnique({
+    where: { questionnaireId_version: { questionnaireId: form.id, version: 2 } },
+  })
   if (existing) {
     // Recreating the fields would orphan (or, through the FK, block on) every V2 answer: allowed in
     // development only, where the demo data can be rebuilt.
@@ -279,30 +289,29 @@ async function main() {
     }
   }
 
-  // Unpublishing the previous version and publishing V2 happen together, or not at all: a failure
-  // can no longer leave the platform without a published questionnaire.
+  // Archiving the published version and publishing V2 happen together, or not at all: a failure can
+  // never leave the platform without a published questionnaire.
   const version = await prisma.$transaction(async (tx) => {
     await tx.questionnaireVersion.updateMany({
-      where: { isPublished: true },
-      data: { isPublished: false },
+      where: { questionnaireId: form.id, status: 'published' },
+      data: { status: 'archived' },
     })
-    if (existing) {
-      await tx.questionnaireField.deleteMany({ where: { versionId: existing.id } })
-      await tx.questionnaireField.createMany({
-        data: FIELDS.map((f) => ({ ...withAccessLevel(f), versionId: existing.id })),
-      })
-      return tx.questionnaireVersion.update({
-        where: { id: existing.id },
-        data: { isPublished: true },
-      })
-    }
-    return tx.questionnaireVersion.create({
-      data: {
-        version: 2,
-        isPublished: true,
-        fields: { createMany: { data: FIELDS.map(withAccessLevel) } },
-      },
-    })
+    const v2 = existing
+      ? await tx.questionnaireVersion.update({
+          where: { id: existing.id },
+          data: { status: 'published', publishedAt: new Date() },
+        })
+      : await tx.questionnaireVersion.create({
+          data: {
+            questionnaireId: form.id,
+            version: 2,
+            status: 'published',
+            publishedAt: new Date(),
+          },
+        })
+    if (existing) await tx.questionnaireSection.deleteMany({ where: { versionId: v2.id } })
+    await createVersionStructure(tx, v2.id, FIELDS.map(withAccessLevel))
+    return v2
   })
 
   console.log(

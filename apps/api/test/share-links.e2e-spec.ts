@@ -65,6 +65,11 @@ describe('ShareLinksController (e2e)', () => {
         },
         shareLink: { findUnique: shareFindUnique },
         dossier: { findUnique: dossierFindUnique },
+        questionnaireVersion: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'v-2', version: 2 }),
+        },
+        questionnaireSection: { findMany: jest.fn().mockResolvedValue(sections) },
+        questionnaireField: { findMany: jest.fn().mockResolvedValue(fields) },
         document: { findMany: documentFindMany },
         auditLog: { create: jest.fn() },
       })
@@ -103,29 +108,49 @@ describe('ShareLinksController (e2e)', () => {
     axe3Origine: 3,
     deeptechScore: 3,
     preCreation: false,
-    questionnaireVersion: {
-      fields: [
-        { id: 'f-name', section: 'Identité du projet', label: 'Nom', minAccessLevel: 'public' },
-        {
-          id: 'f-origine',
-          section: 'Origine & technologie',
-          label: 'Origine',
-          minAccessLevel: 'partiel',
-        },
-        {
-          id: 'f-fin',
-          section: 'Stade financier',
-          label: 'Financement',
-          minAccessLevel: 'complet',
-        },
-      ],
-    },
+    questionnaireVersionId: 'v-2',
     answers: [
       { fieldId: 'f-name', value: 'Biosensio' },
       { fieldId: 'f-origine', value: 'Spin-off' },
       { fieldId: 'f-fin', value: 'Seed' },
     ],
   }
+
+  // The dossier's questionnaire version, read through QuestionnairesService.getVersion.
+  const sections = [
+    {
+      id: 's-identite',
+      versionId: 'v-2',
+      key: 'identite',
+      title: 'Identité du projet',
+      orderIndex: 0,
+    },
+    {
+      id: 's-origine',
+      versionId: 'v-2',
+      key: 'origine',
+      title: 'Origine & technologie',
+      orderIndex: 1,
+    },
+    { id: 's-fin', versionId: 'v-2', key: 'financier', title: 'Stade financier', orderIndex: 2 },
+  ]
+  const fields = [
+    { id: 'f-name', sectionId: 's-identite', key: 'nom', label: 'Nom', minAccessLevel: 'public' },
+    {
+      id: 'f-origine',
+      sectionId: 's-origine',
+      key: 'origine',
+      label: 'Origine',
+      minAccessLevel: 'partiel',
+    },
+    {
+      id: 'f-fin',
+      sectionId: 's-fin',
+      key: 'financement',
+      label: 'Financement',
+      minAccessLevel: 'complet',
+    },
+  ]
 
   function activeLink(accessLevel: string) {
     shareFindUnique.mockResolvedValue({
@@ -152,6 +177,7 @@ describe('ShareLinksController (e2e)', () => {
       accessLevel: 'public',
     })
     expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name'])
+    expect(res.body.sections.map((sec: { id: string }) => sec.id)).toEqual(['s-identite'])
     expect(res.body.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
     expect(res.body.dossier).toMatchObject({ id: 'd-1', name: 'Biosensio', sector: 'biotech' })
     expect(res.body.dossier).toMatchObject({ axe1Projet: null, axe2Financier: null })

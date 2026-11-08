@@ -10,7 +10,7 @@ import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
 import { mountOAuthServer } from './../src/modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './../src/modules/mcp/mcp.http'
 import { hashToken } from './../src/modules/oauth/oauth.constants'
-import { createFakePrisma } from './support/fake-prisma'
+import { createFakePrisma } from '../src/testing/fake-prisma'
 
 const FUTURE = new Date(Date.now() + 3600_000)
 
@@ -68,19 +68,28 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     await p.oAuthClient.create({
       data: { id: 'client-claude', source: 'dcr', name: 'Claude', redirectUris: [], metadata: {} },
     })
-    await p.questionnaireVersion.create({ data: { id: 'v-2', version: 2 } })
-    await p.questionnaireVersion.create({ data: { id: 'v-1', version: 1 } })
+    await p.questionnaireVersion.create({ data: { id: 'v-2', version: 2, status: 'published' } })
+    await p.questionnaireVersion.create({ data: { id: 'v-1', version: 1, status: 'archived' } })
+    for (const [id, versionId, title, orderIndex] of [
+      ['s-identite', 'v-2', 'Identité du projet', 0],
+      ['s-financier', 'v-2', 'Stade financier', 1],
+      ['s-presentation', 'v-1', 'Présentation', 0],
+    ] as const) {
+      await p.questionnaireSection.create({ data: { id, versionId, key: id, title, orderIndex } })
+    }
     const field = (id: string, data: Record<string, unknown>) =>
       p.questionnaireField.create({ data: { id, versionId: 'v-2', ...data } })
     await field('f-name', {
-      section: 'Identité du projet',
+      sectionId: 's-identite',
+      key: 'nom_du_projet',
       label: 'Nom du projet',
       fieldType: 'text',
       required: true,
       orderIndex: 0,
     })
     await field('f-stage', {
-      section: 'Stade financier',
+      sectionId: 's-financier',
+      key: 'stade_financement',
       label: 'Stade de financement actuel',
       fieldType: 'select',
       options: ['Fonds propres uniquement', 'Seed – investisseurs professionnels'],
@@ -91,7 +100,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       data: {
         id: 'f-old',
         versionId: 'v-1',
-        section: 'Présentation',
+        sectionId: 's-presentation',
+        key: 'ancien',
         label: 'Ancien',
         fieldType: 'text',
         orderIndex: 0,

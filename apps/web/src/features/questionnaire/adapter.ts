@@ -8,28 +8,27 @@ export interface DynamicQuestionnaire {
   fieldsById: Record<string, QuestionnaireField>
 }
 
-export function buildDynamicQuestionnaire(qz: Pick<ActiveQuestionnaire, 'fields'>): DynamicQuestionnaire {
-  const sectionOrder: string[] = []
-  const grouped = new Map<string, QuestionnaireField[]>()
-  for (const f of qz.fields) {
-    if (!grouped.has(f.section)) {
-      grouped.set(f.section, [])
-      sectionOrder.push(f.section)
-    }
-    grouped.get(f.section)!.push(f)
-  }
-  for (const arr of grouped.values()) {
-    arr.sort((a, b) => a.orderIndex - b.orderIndex)
-  }
-  const sections: Section[] = sectionOrder.map((title) => ({
-    id: title,
-    title,
-    questions: grouped.get(title)!.map((f) => ({
-      id: f.id,
-      label: f.label,
-      options: f.options && f.options.length > 0 ? f.options : undefined,
-    })),
-  }))
+// Builds the wizard/reading model from a version's ordered sections and fields. Sections without
+// any field (e.g. all hidden by a share's access level) are left out.
+export function buildDynamicQuestionnaire(
+  qz: Pick<ActiveQuestionnaire, 'sections' | 'fields'>,
+): DynamicQuestionnaire {
+  const sections: Section[] = [...qz.sections]
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map((section) => ({
+      id: section.id,
+      title: section.title,
+      questions: qz.fields
+        .filter((f) => f.sectionId === section.id)
+        .sort((a, b) => a.orderIndex - b.orderIndex)
+        .map((f) => ({
+          id: f.id,
+          label: f.label,
+          hint: f.helpText ?? undefined,
+          options: f.options && f.options.length > 0 ? f.options : undefined,
+        })),
+    }))
+    .filter((section) => section.questions.length > 0)
   const flat: QuestionMeta[] = []
   let global = 0
   sections.forEach((section, sIdx) => {

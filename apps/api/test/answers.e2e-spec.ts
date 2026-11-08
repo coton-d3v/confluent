@@ -8,7 +8,7 @@ import { AppModule } from './../src/app.module'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
-import { createFakePrisma } from './support/fake-prisma'
+import { createFakePrisma } from '../src/testing/fake-prisma'
 
 const F_NAME = '0f6f1b3e-1111-4111-8111-111111111111'
 const F_STAGE = '0f6f1b3e-2222-4222-8222-222222222222'

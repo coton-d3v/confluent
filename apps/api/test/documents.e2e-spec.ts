@@ -8,7 +8,7 @@ import { GlobalExceptionFilter } from './../src/common/filters/global-exception.
 import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
 import { DocumentsService } from './../src/modules/documents/documents.service'
-import { createFakePrisma } from './support/fake-prisma'
+import { createFakePrisma } from '../src/testing/fake-prisma'
 
 describe('Document upload (e2e)', () => {
   let app: INestApplication<App>

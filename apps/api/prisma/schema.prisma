@@ -121,34 +121,75 @@ model MagicLinkToken {
   @@map("magic_link_tokens")
 }
 
+// A form definition (ROADMAP E03.01). `usage` says what its answers describe; today only `dossier`
+// (the company profile filled in each dossier). Workspace-specific forms arrive with E05.
+model Questionnaire {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  name      String
+  usage     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  versions QuestionnaireVersion[]
+
+  @@map("questionnaires")
+}
+
+// One version of a form. `status`: draft (editable, unused) → published (exactly one per form, used for
+// new dossiers, immutable) → archived (kept for the dossiers created with it). See E03.02/E03.08.
 model QuestionnaireVersion {
-  id          String   @id @default(uuid())
-  version     Int      @unique
-  isPublished Boolean  @default(false) @map("is_published")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  questionnaireId String    @map("questionnaire_id")
+  version         Int
+  status          String    @default("draft")
+  publishedAt     DateTime? @map("published_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  fields   QuestionnaireField[]
-  dossiers Dossier[]
+  questionnaire Questionnaire          @relation(fields: [questionnaireId], references: [id])
+  sections      QuestionnaireSection[]
+  fields        QuestionnaireField[]
+  dossiers      Dossier[]
 
+  @@unique([questionnaireId, version])
+  @@index([questionnaireId, status])
   @@map("questionnaire_versions")
+}
+
+// Ordered section of a version; `key` is stable across versions (E03.03, E03.06).
+model QuestionnaireSection {
+  id         String @id @default(uuid())
+  versionId  String @map("version_id")
+  key        String
+  title      String
+  orderIndex Int    @map("order_index")
+
+  version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  fields  QuestionnaireField[]
+
+  @@unique([versionId, key])
+  @@map("questionnaire_sections")
 }
 
 model QuestionnaireField {
   id             String     @id @default(uuid())
   versionId      String     @map("version_id")
-  section        String
-  // Stable technical identifier read by the classification — survives label edits. Null for unclassified fields.
-  key            String?
+  sectionId      String     @map("section_id")
+  // Stable technical identifier (E03.06): classification and integrations read it; labels may change.
+  key            String
   label          String
+  helpText       String?    @map("help_text")
   fieldType      field_type @map("field_type")
   options        String[]   @default([])
   required       Boolean    @default(false)
   orderIndex     Int        @map("order_index")
+  // Type-specific limits (E03.05), e.g. { "maxLength": 500 } or { "min": 0, "max": 100 }.
+  constraints    Json       @default("{}")
   // Lowest share access level (public < partiel < complet) that may read this field's answers.
   // Defaults to the most restrictive level: a field nobody classified stays hidden from financeurs.
   minAccessLevel String     @default("complet") @map("min_access_level")
 
   version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  section QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   answers DossierAnswer[]
 
   @@unique([versionId, key])

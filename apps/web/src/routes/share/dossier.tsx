@@ -97,8 +97,8 @@ function ClassificationBadges({ dossier }: { dossier: FinanceurShareResponse['do
 
 function SharedAnswers({ data }: { data: FinanceurShareResponse }) {
   const questionnaire = useMemo(
-    () => buildDynamicQuestionnaire({ fields: data.fields }),
-    [data.fields],
+    () => buildDynamicQuestionnaire({ sections: data.sections, fields: data.fields }),
+    [data.sections, data.fields],
   )
   const answersByFieldId = useMemo(
     () => Object.fromEntries(data.answers.map((a) => [a.fieldId, a.value])),

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useCurrentUser } from '@/features/current-user/context'
+import type { QuestionnaireVersionStatus } from '@confluent/shared'
 import { getActiveQuestionnaire } from '@/features/questionnaire/api'
 import {
   listQuestionnaireVersions,
@@ -18,6 +19,15 @@ export default function AdminQuestionnaireRoute() {
   const me = useCurrentUser()
   if (me.role !== 'admin') return <Navigate to="/dashboard" replace />
   return <AdminQuestionnaireBuilder />
+}
+
+const VERSION_STATUS: Record<
+  QuestionnaireVersionStatus,
+  { label: string; variant: 'default' | 'secondary' | 'outline' }
+> = {
+  draft: { label: 'Brouillon', variant: 'outline' },
+  published: { label: 'Publiée', variant: 'default' },
+  archived: { label: 'Archivée', variant: 'secondary' },
 }
 
 function AdminQuestionnaireBuilder() {
@@ -82,11 +92,9 @@ function AdminQuestionnaireBuilder() {
                   className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
                 >
                   <span className="text-foreground">Version {v.version}</span>
-                  {v.isPublished ? (
-                    <Badge variant="default">Publiée</Badge>
-                  ) : (
-                    <Badge variant="secondary">Archivée</Badge>
-                  )}
+                  <Badge variant={VERSION_STATUS[v.status].variant}>
+                    {VERSION_STATUS[v.status].label}
+                  </Badge>
                 </li>
               ))}
             </ul>
