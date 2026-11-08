@@ -55,12 +55,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus()
       const res = exception.getResponse()
-      const message =
-        typeof res === 'string' ? res : ((res as { message?: string }).message ?? exception.message)
+      const body =
+        typeof res === 'string'
+          ? { message: res }
+          : (res as { message?: string; details?: unknown })
       response.status(status).json({
         error: {
           code: HTTP_STATUS_CODES[status] ?? `HTTP_${status}`,
-          message,
+          message: body.message ?? exception.message,
+          // Field-level details (e.g. invalid answers) are passed through when an exception carries them.
+          ...(body.details !== undefined ? { details: body.details } : {}),
         },
       } satisfies ErrorBody)
       return

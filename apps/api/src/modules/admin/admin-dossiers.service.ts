@@ -80,7 +80,11 @@ export class AdminDossiersService {
       where: { dossierId, fieldId: { in: updates.map((u) => u.fieldId) } },
     })
     const existingByField = new Map(existing.map((e) => [e.fieldId, e.value]))
-    await this.answers.upsertMany(dossierId, updates)
+    const dossier = await this.prisma.dossier.findUnique({ where: { id: dossierId } })
+    if (!dossier) {
+      throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
+    }
+    await this.answers.saveForDossier(dossier, updates)
     for (const u of updates) {
       await this.audit.record({
         actionType: 'admin_edited_field',
