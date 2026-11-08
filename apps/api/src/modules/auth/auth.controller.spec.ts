@@ -7,6 +7,7 @@ async function buildController(overrides: {
   requestMagicLink?: jest.Mock
   verifyMagicLink?: jest.Mock
   refreshSession?: jest.Mock
+  revokeSession?: jest.Mock
 }) {
   const configValues: Record<string, string> = { NODE_ENV: 'test' }
   const moduleRef = await Test.createTestingModule({
@@ -18,6 +19,7 @@ async function buildController(overrides: {
           requestMagicLink: overrides.requestMagicLink ?? jest.fn().mockResolvedValue(undefined),
           verifyMagicLink: overrides.verifyMagicLink,
           refreshSession: overrides.refreshSession,
+          revokeSession: overrides.revokeSession ?? jest.fn().mockResolvedValue(undefined),
         },
       },
       { provide: ConfigService, useValue: { get: (k: string) => configValues[k] } },
@@ -69,13 +71,18 @@ describe('AuthController', () => {
     })
   })
 
-  it('clears the refresh cookie on logout', async () => {
-    const controller = await buildController({})
+  it('revokes the server-side session and clears the refresh cookie on logout', async () => {
+    const revokeSession = jest.fn().mockResolvedValue(undefined)
+    const controller = await buildController({ revokeSession })
+    const req = {
+      cookies: { confluent_refresh: 'refresh.token' },
+    } as unknown as import('express').Request
     const res = {
       clearCookie: jest.fn(),
       cookie: jest.fn(),
     } as unknown as import('express').Response
-    const result = controller.logout(res)
+    const result = await controller.logout(req, res)
+    expect(revokeSession).toHaveBeenCalledWith('refresh.token')
     expect(res.clearCookie).toHaveBeenCalledWith('confluent_refresh', { path: '/' })
     expect(result).toEqual({ message: 'Logged out.' })
   })

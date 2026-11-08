@@ -17,6 +17,8 @@ describe('AuthController (e2e)', () => {
   let userUpdate: jest.Mock
   let tokenFindUnique: jest.Mock
   let tokenUpdate: jest.Mock
+  let tokenUpdateMany: jest.Mock
+  let sessions: Map<string, Record<string, unknown>>
   let tokenCreate: jest.Mock
   let auditCreate: jest.Mock
 
@@ -26,6 +28,9 @@ describe('AuthController (e2e)', () => {
     userUpdate = jest.fn().mockResolvedValue({})
     tokenFindUnique = jest.fn()
     tokenUpdate = jest.fn().mockResolvedValue({})
+    tokenUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
+    sessions = new Map()
+    let sessionSeq = 0
     tokenCreate = jest.fn().mockResolvedValue({})
     auditCreate = jest.fn().mockResolvedValue({})
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -40,6 +45,33 @@ describe('AuthController (e2e)', () => {
           create: tokenCreate,
           findUnique: tokenFindUnique,
           update: tokenUpdate,
+          updateMany: tokenUpdateMany,
+        },
+        // Stateful refresh_sessions so rotation/logout can be exercised end to end over HTTP.
+        refreshSession: {
+          create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+            const row = { id: `rs-${++sessionSeq}`, revokedAt: null, replacedById: null, ...data }
+            sessions.set(row.id, row)
+            return row
+          }),
+          findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+            sessions.has(where.id) ? { ...sessions.get(where.id) } : null,
+          ),
+          update: jest.fn(async ({ where, data }: { where: { id: string }; data: object }) =>
+            Object.assign(sessions.get(where.id)!, data),
+          ),
+          updateMany: jest.fn(
+            async ({ where, data }: { where: Record<string, unknown>; data: object }) => {
+              let count = 0
+              for (const row of sessions.values()) {
+                if (Object.entries(where).every(([k, v]) => row[k] === v)) {
+                  Object.assign(row, data)
+                  count++
+                }
+              }
+              return { count }
+            },
+          ),
         },
         auditLog: { create: auditCreate },
       })
@@ -96,6 +128,7 @@ describe('AuthController (e2e)', () => {
         id: 'u1',
         email: 'sophie@biosensio.fr',
         role: 'entrepreneur',
+        isActive: true,
         emailVerifiedAt: new Date(),
       },
     })
@@ -114,6 +147,8 @@ describe('AuthController (e2e)', () => {
   })
 
   it('GET /v1/auth/verify — expired token: 401 INVALID_TOKEN', async () => {
+    // The conditional update (consumedAt null AND expiresAt > now) matches nothing.
+    tokenUpdateMany.mockResolvedValue({ count: 0 })
     tokenFindUnique.mockResolvedValue({
       id: 'mlt-2',
       expiresAt: new Date(Date.now() - 60_000),
@@ -138,6 +173,50 @@ describe('AuthController (e2e)', () => {
       .query({ token: 'not-a-uuid' })
       .expect(400)
     expect(res.body.error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('verify → refresh rotates the cookie → logout → the refresh cookie is dead', async () => {
+    const user = {
+      id: 'u1',
+      email: 'sophie@biosensio.fr',
+      role: 'entrepreneur',
+      isActive: true,
+      emailVerifiedAt: new Date(),
+    }
+    findUnique.mockResolvedValue(user)
+    tokenFindUnique.mockResolvedValue({
+      id: 'mlt-3',
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      user,
+    })
+    const cookieOf = (res: request.Response) =>
+      ((res.headers['set-cookie'] as unknown as string[]) ?? [])
+        .find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!
+        .split(';')[0]
+
+    const login = await request(app.getHttpServer())
+      .get('/v1/auth/verify')
+      .query({ token: '123e4567-e89b-42d3-a456-556642440002' })
+      .expect(200)
+    const firstCookie = cookieOf(login)
+
+    const refreshed = await request(app.getHttpServer())
+      .post('/v1/auth/refresh')
+      .set('Cookie', firstCookie)
+      .expect(200)
+    const secondCookie = cookieOf(refreshed)
+    expect(secondCookie).not.toBe(firstCookie)
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/logout')
+      .set('Cookie', secondCookie)
+      .expect(200)
+    await request(app.getHttpServer())
+      .post('/v1/auth/refresh')
+      .set('Cookie', secondCookie)
+      .expect(401)
+    expect([...sessions.values()].every((s) => s.revokedAt !== null)).toBe(true)
   })
 
   it('POST /v1/auth/logout — clears the refresh cookie', async () => {

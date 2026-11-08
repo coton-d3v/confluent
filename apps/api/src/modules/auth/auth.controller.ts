@@ -10,7 +10,11 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import type { Request, Response } from 'express'
-import { magicLinkRequestSchema, updateProfileSchema, type MagicLinkRequest } from '@confluent/shared'
+import {
+  magicLinkRequestSchema,
+  updateProfileSchema,
+  type MagicLinkRequest,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import type { AppConfig } from '../../config/config.schema'
@@ -89,8 +93,9 @@ export class AuthController {
   @ApiOperation({
     summary: 'Rotation du couple access/refresh',
     description:
-      'Lit le cookie `confluent_refresh`, vérifie sa signature + l’état `isActive` de l’user, ' +
-      'puis ré-émet un nouvel access token + un nouveau cookie refresh. ' +
+      'Lit le cookie `confluent_refresh`, vérifie sa signature, sa session serveur et l’état `isActive` ' +
+      'de l’user, puis ré-émet un nouvel access token + un nouveau cookie refresh. Le refresh présenté ' +
+      'est révoqué (usage unique) ; le réutiliser plus tard révoque toute la session (vol présumé). ' +
       'Appelé automatiquement par le client après un `401` sur une route protégée.',
   })
   @ApiOkResponse({ description: 'Nouveau couple de tokens émis.' })
@@ -123,11 +128,16 @@ export class AuthController {
   @ApiOperation({
     summary: 'Déconnexion',
     description:
-      'Efface le cookie `confluent_refresh`. L’access token déjà émis reste valide jusqu’à expiration ' +
-      '(15 min max) — c’est acceptable V1 sans blacklist côté serveur.',
+      'Révoque côté serveur toute la session de connexion du cookie `confluent_refresh` (le refresh ' +
+      'token et ses rotations ne peuvent plus être utilisés), puis efface le cookie. L’access token ' +
+      'déjà émis reste valide jusqu’à expiration (15 min max), sauf compte désactivé.',
   })
-  @ApiOkResponse({ description: 'Cookie refresh effacé.' })
-  logout(@Res({ passthrough: true }) res: Response): { message: string } {
+  @ApiOkResponse({ description: 'Session révoquée, cookie refresh effacé.' })
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ message: string }> {
+    await this.auth.revokeSession(req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined)
     res.clearCookie(REFRESH_COOKIE_NAME, { path: '/' })
     return { message: 'Logged out.' }
   }
