@@ -159,6 +159,7 @@ export function createFakePrisma() {
       minAccessLevel: 'complet',
     })),
     dossierAnswer: model('dossierAnswer'),
+    document: model('document'),
   }
   self.prisma = prisma
   return { prisma, tables, table }
