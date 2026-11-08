@@ -1,4 +1,8 @@
-import type { QuestionnaireField, QuestionnaireSection } from '@confluent/shared'
+import {
+  describeConstraints,
+  type QuestionnaireField,
+  type QuestionnaireSection,
+} from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ACCESS_LEVEL_LABELS, FIELD_TYPE_LABELS } from '../labels'
@@ -104,6 +108,9 @@ export function SectionBlock({
                   <span>{ACCESS_LEVEL_LABELS[field.minAccessLevel].split(' — ')[0]}</span>
                   <code className="text-[11px]">{field.key}</code>
                 </div>
+                {describeConstraints(field) && (
+                  <p className="mt-1 text-xs text-muted-foreground">{describeConstraints(field)}</p>
+                )}
                 {field.fieldType === 'select' && field.choices.length > 0 && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {field.choices.map((c) => c.label).join(' · ')}

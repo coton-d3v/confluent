@@ -49,7 +49,7 @@ export function SectionSummary({
                 <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
                   {q.label}
                 </dt>
-                <dd className="mt-1 text-[13px] font-medium text-foreground">
+                <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium text-foreground">
                   {answer.length > 0 ? (
                     answerLabel(q, answer)
                   ) : (

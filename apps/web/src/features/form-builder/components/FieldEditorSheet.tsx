@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react'
-import { useFieldArray, useForm, useWatch } from 'react-hook-form'
+import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  type FieldErrors,
+  type UseFormRegister,
+} from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   accessLevelSchema,
   fieldTypeSchema,
+  readConstraints,
+  type FieldType,
   type QuestionnaireField,
   type QuestionnaireSection,
 } from '@confluent/shared'
@@ -39,6 +47,14 @@ const fieldFormSchema = z.object({
   fieldType: fieldTypeSchema,
   required: z.boolean(),
   minAccessLevel: accessLevelSchema,
+  // Input limits (E03.05), as typed; empty = no limit. Only those of the field type are sent.
+  minLength: z.string().regex(/^\d*$/, 'Nombre entier attendu.'),
+  maxLength: z.string().regex(/^\d*$/, 'Nombre entier attendu.'),
+  min: z.string().regex(/^(-?\d+([.,]\d+)?)?$/, 'Nombre attendu.'),
+  max: z.string().regex(/^(-?\d+([.,]\d+)?)?$/, 'Nombre attendu.'),
+  integer: z.boolean(),
+  minDate: z.string(),
+  maxDate: z.string(),
   // `key` is absent for a choice added here: the API derives it from the label.
   choices: z.array(
     z.object({
@@ -85,8 +101,18 @@ export function FieldEditorSheet({
   )
 }
 
+const text = (value: number | string | undefined) => (value === undefined ? '' : String(value))
+
 function initialValues({ field, sectionId }: FieldEditorRequest): FieldFormValues {
+  const limits = field ? readConstraints(field.fieldType, field.constraints) : {}
   return {
+    minLength: text(limits.minLength),
+    maxLength: text(limits.maxLength),
+    min: typeof limits.min === 'number' ? text(limits.min) : '',
+    max: typeof limits.max === 'number' ? text(limits.max) : '',
+    integer: limits.integer ?? false,
+    minDate: typeof limits.min === 'string' ? limits.min : '',
+    maxDate: typeof limits.max === 'string' ? limits.max : '',
     sectionId: field?.sectionId ?? sectionId,
     label: field?.label ?? '',
     key: field?.key ?? '',
@@ -180,6 +206,8 @@ function FieldForm({
             ))}
           </NativeSelect>
         </FormRow>
+
+        <LimitInputs fieldType={fieldType} register={register} errors={errors} />
 
         {fieldType === 'select' && (
           <fieldset className="flex flex-col gap-2">
@@ -308,4 +336,60 @@ function FormRow({
       )}
     </div>
   )
+}
+
+// Limits that fit the chosen type; the API checks them again (consistency, min ≤ max).
+function LimitInputs({
+  fieldType,
+  register,
+  errors,
+}: {
+  fieldType: FieldType
+  register: UseFormRegister<FieldFormValues>
+  errors: FieldErrors<FieldFormValues>
+}) {
+  if (fieldType === 'text' || fieldType === 'textarea') {
+    return (
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
+        <FormRow id="field-min-length" label="Caractères minimum" error={errors.minLength?.message}>
+          <Input id="field-min-length" inputMode="numeric" {...register('minLength')} />
+        </FormRow>
+        <FormRow id="field-max-length" label="Caractères maximum" error={errors.maxLength?.message}>
+          <Input id="field-max-length" inputMode="numeric" {...register('maxLength')} />
+        </FormRow>
+      </fieldset>
+    )
+  }
+  if (fieldType === 'number') {
+    return (
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
+        <FormRow id="field-min" label="Minimum" error={errors.min?.message}>
+          <Input id="field-min" inputMode="decimal" {...register('min')} />
+        </FormRow>
+        <FormRow id="field-max" label="Maximum" error={errors.max?.message}>
+          <Input id="field-max" inputMode="decimal" {...register('max')} />
+        </FormRow>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <input type="checkbox" className="size-4 accent-primary" {...register('integer')} />
+          Nombre entier uniquement
+        </label>
+      </fieldset>
+    )
+  }
+  if (fieldType === 'date') {
+    return (
+      <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
+        <FormRow id="field-min-date" label="Au plus tôt">
+          <Input id="field-min-date" type="date" {...register('minDate')} />
+        </FormRow>
+        <FormRow id="field-max-date" label="Au plus tard">
+          <Input id="field-max-date" type="date" {...register('maxDate')} />
+        </FormRow>
+      </fieldset>
+    )
+  }
+  return null
 }
