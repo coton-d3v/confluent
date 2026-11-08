@@ -236,8 +236,11 @@ function MobileBottomNav({ navItems }: { navItems: NavItemSpec[] }) {
 export function AppShell() {
   const { user, loading } = useAuthState()
   const navigate = useNavigate()
-  const needsOnboarding = !user?.firstName
-  const [profileOpen, setProfileOpen] = useState(needsOnboarding)
+  // Derived, not initial state: during the session restore `user` is still null, and a useState
+  // seeded then would keep the onboarding sheet open on every page reload.
+  const needsOnboarding = !!user && !user.firstName
+  // Only the voluntary "edit my profile" opening is local state.
+  const [editingProfile, setEditingProfile] = useState(false)
 
   if (loading) {
     return (
@@ -270,11 +273,11 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen bg-background">
       <SkipLink />
-      <DesktopSidebar user={user} navItems={navItems} onLogout={handleLogout} onEditProfile={() => setProfileOpen(true)} />
+      <DesktopSidebar user={user} navItems={navItems} onLogout={handleLogout} onEditProfile={() => setEditingProfile(true)} />
       <TabletRail user={user} navItems={navItems} />
       <ProfileSheet
-        open={profileOpen}
-        onOpenChange={setProfileOpen}
+        open={needsOnboarding || editingProfile}
+        onOpenChange={setEditingProfile}
         required={needsOnboarding}
         currentFirstName={currentFirstName}
         currentLastName={currentLastName}
