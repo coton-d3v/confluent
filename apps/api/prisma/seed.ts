@@ -1,5 +1,8 @@
 import { PrismaClient, type user_role } from '@prisma/client'
 import { QUESTIONNAIRE_V1_FIELDS } from '../src/modules/questionnaires/questionnaire.seed'
+import { refuseInProduction } from '../scripts/lib/environment-guard'
+
+refuseInProduction('Seed de démonstration (comptes @localhost.dev, dossier Biosensio)')
 
 const prisma = new PrismaClient()
 
@@ -24,20 +27,17 @@ const BIOSENSIO_ANSWERS: Record<string, string> = {
   "Nom de l'entreprise": 'Biosensio',
   "Secteur d'activité": 'Biotech',
   'Stade de maturité': 'Seed',
-  'Pitch court':
-    'Plateforme de biocapteurs connectés pour le monitoring agricole en temps réel.',
-  'Marché cible':
-    'PME agricoles et coopératives en Centre-Val de Loire, marché européen EUR 2.1B.',
+  'Pitch court': 'Plateforme de biocapteurs connectés pour le monitoring agricole en temps réel.',
+  'Marché cible': 'PME agricoles et coopératives en Centre-Val de Loire, marché européen EUR 2.1B.',
   'Proposition de valeur':
     'Réduction de 30% de l’usage de phytosanitaires via des capteurs IoT auto-calibrés.',
   'Taille du marché (k€)': '2100',
   'Concurrents principaux':
     'Semios (US), Connecterra (NL), CropX (IL). Différenciation : calibration sans intervention.',
   'Chiffre d’affaires (k€)': '120',
-  'Effectif': '8',
+  Effectif: '8',
   'Levée en cours (k€)': '1500',
-  'Usage des fonds':
-    'Industrialisation du capteur v2, expansion commerciale France + Benelux.',
+  'Usage des fonds': 'Industrialisation du capteur v2, expansion commerciale France + Benelux.',
 }
 
 async function main(): Promise<void> {

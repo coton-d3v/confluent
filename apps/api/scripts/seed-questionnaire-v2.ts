@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 import type { field_type } from '@prisma/client'
+import { refuseInProduction } from './lib/environment-guard'
 
 const prisma = new PrismaClient()
 
@@ -37,8 +38,8 @@ const FIELDS: FieldDef[] = [
     fieldType: 'select',
     options: [
       'Mon projet est basé en CVL',
-      'Je cherche à m\'y installer',
-      'Je découvre l\'écosystème',
+      "Je cherche à m'y installer",
+      "Je découvre l'écosystème",
     ],
     required: false,
     orderIndex: 0,
@@ -47,7 +48,7 @@ const FIELDS: FieldDef[] = [
   // ── Bloc 1 — Identité du projet ───────────────────────────────────────────
   {
     section: 'Identité du projet',
-    label: 'Nom du projet ou de l\'entreprise',
+    label: "Nom du projet ou de l'entreprise",
     fieldType: 'text',
     options: [],
     required: true,
@@ -60,17 +61,45 @@ const FIELDS: FieldDef[] = [
     fieldType: 'select',
     options: [
       // Deeptech
-      'biotech', 'medtech', 'chimie verte', 'énergie', 'spatial',
-      'matériaux avancés', 'quantique', 'photonique', 'nucléaire',
+      'biotech',
+      'medtech',
+      'chimie verte',
+      'énergie',
+      'spatial',
+      'matériaux avancés',
+      'quantique',
+      'photonique',
+      'nucléaire',
       // Tech
-      'SaaS', 'marketplace', 'fintech', 'edtech', 'legaltech', 'proptech',
-      'insurtech', 'HRtech', 'agritech numérique', 'healthtech numérique',
-      'mobility tech', 'logistique tech', 'cleantech numérique',
-      'food tech numérique', 'cybersécurité', 'IA-ML', 'IoT', 'gaming',
-      'govtech', 'retail tech', 'media tech', 'sports tech',
+      'SaaS',
+      'marketplace',
+      'fintech',
+      'edtech',
+      'legaltech',
+      'proptech',
+      'insurtech',
+      'HRtech',
+      'agritech numérique',
+      'healthtech numérique',
+      'mobility tech',
+      'logistique tech',
+      'cleantech numérique',
+      'food tech numérique',
+      'cybersécurité',
+      'IA-ML',
+      'IoT',
+      'gaming',
+      'govtech',
+      'retail tech',
+      'media tech',
+      'sports tech',
       // Non-tech
-      'commerce', 'restauration', 'service à la personne', 'immobilier',
-      'artisanat', 'ESS non-tech',
+      'commerce',
+      'restauration',
+      'service à la personne',
+      'immobilier',
+      'artisanat',
+      'ESS non-tech',
     ],
     required: true,
     orderIndex: 1,
@@ -109,7 +138,7 @@ const FIELDS: FieldDef[] = [
   },
   {
     section: 'Identité du projet',
-    label: 'Taille de l\'équipe fondatrice',
+    label: "Taille de l'équipe fondatrice",
     fieldType: 'select',
     options: ['Solo', 'Duo', '3 fondateurs et plus'],
     required: true,
@@ -133,7 +162,7 @@ const FIELDS: FieldDef[] = [
     fieldType: 'select',
     options: [
       'Fonds propres uniquement',
-      'Love money – subventions – prêts d\'honneur',
+      "Love money – subventions – prêts d'honneur",
       'Seed – investisseurs professionnels',
       'Pré-Série A ou au-delà',
     ],
@@ -149,10 +178,10 @@ const FIELDS: FieldDef[] = [
     fieldType: 'select',
     options: [
       'Projet créé ex nihilo',
-      'Spin-off d\'une entreprise',
-      'Spin-off d\'un laboratoire / recherche publique',
-      'Reprise d\'entreprise existante',
-      'Pivot d\'une activité existante (> 5 ans)',
+      "Spin-off d'une entreprise",
+      "Spin-off d'un laboratoire / recherche publique",
+      "Reprise d'entreprise existante",
+      "Pivot d'une activité existante (> 5 ans)",
     ],
     required: true,
     orderIndex: 0,
@@ -165,7 +194,7 @@ const FIELDS: FieldDef[] = [
     options: [
       'Oui, clairement',
       'Partiellement – en développement',
-      'Non – c\'est avant tout un modèle ou un service',
+      "Non – c'est avant tout un modèle ou un service",
     ],
     required: true,
     orderIndex: 1,
@@ -236,42 +265,49 @@ const FIELDS: FieldDef[] = [
 ]
 
 async function main() {
-  // Dépublier la version précédente
-  await prisma.questionnaireVersion.updateMany({
-    where: { isPublished: true },
-    data: { isPublished: false },
-  })
-
-  // Créer ou récupérer la version 2
   const existing = await prisma.questionnaireVersion.findUnique({ where: { version: 2 } })
   if (existing) {
-    // Republier et re-créer les champs si déjà existante
-    await prisma.questionnaireField.deleteMany({ where: { versionId: existing.id } })
-    await prisma.questionnaireVersion.update({
-      where: { id: existing.id },
-      data: { isPublished: true },
+    // Recreating the fields would orphan (or, through the FK, block on) every V2 answer: allowed in
+    // development only, where the demo data can be rebuilt.
+    refuseInProduction('Recréation des champs de la V2 existante')
+    const answers = await prisma.dossierAnswer.count({
+      where: { field: { versionId: existing.id } },
     })
-    await prisma.questionnaireField.createMany({
-      data: FIELDS.map((f) => ({ ...withAccessLevel(f), versionId: existing.id })),
-    })
-    console.log(`✓ Version 2 republiée, ${FIELDS.length} champs recréés (id: ${existing.id})`)
-    return
+    if (answers > 0) {
+      console.error(`✗ La V2 a déjà ${answers} réponses : ses champs ne sont pas recréés.`)
+      process.exit(1)
+    }
   }
 
-  const version = await prisma.questionnaireVersion.create({
-    data: {
-      version: 2,
-      isPublished: true,
-      fields: {
-        createMany: {
-          data: FIELDS.map(withAccessLevel),
-        },
+  // Unpublishing the previous version and publishing V2 happen together, or not at all: a failure
+  // can no longer leave the platform without a published questionnaire.
+  const version = await prisma.$transaction(async (tx) => {
+    await tx.questionnaireVersion.updateMany({
+      where: { isPublished: true },
+      data: { isPublished: false },
+    })
+    if (existing) {
+      await tx.questionnaireField.deleteMany({ where: { versionId: existing.id } })
+      await tx.questionnaireField.createMany({
+        data: FIELDS.map((f) => ({ ...withAccessLevel(f), versionId: existing.id })),
+      })
+      return tx.questionnaireVersion.update({
+        where: { id: existing.id },
+        data: { isPublished: true },
+      })
+    }
+    return tx.questionnaireVersion.create({
+      data: {
+        version: 2,
+        isPublished: true,
+        fields: { createMany: { data: FIELDS.map(withAccessLevel) } },
       },
-    },
+    })
   })
 
-  console.log(`✓ Questionnaire V2 publié — ${FIELDS.length} champs créés (id: ${version.id})`)
-  console.log(`→ Rechargez l'app et créez un nouveau dossier pour voir les nouvelles questions.`)
+  console.log(
+    `✓ Questionnaire V2 ${existing ? 'republié' : 'publié'} — ${FIELDS.length} champs (id: ${version.id})`,
+  )
 }
 
 main()
