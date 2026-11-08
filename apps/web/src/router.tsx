@@ -18,6 +18,7 @@ import AuthVerifyRoute from '@/routes/auth/verify'
 import NotFoundRoute from '@/routes/not-found'
 import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
 import ConfidentialiteRoute from '@/routes/legal/confidentialite'
+import OAuthConsentRoute from '@/routes/oauth/consent'
 
 export const router = createBrowserRouter([
   {
@@ -66,4 +67,5 @@ export const router = createBrowserRouter([
   { path: '/auth/verify', element: <AuthVerifyRoute /> },
   { path: '/mentions-legales', element: <MentionsLegalesRoute /> },
   { path: '/confidentialite', element: <ConfidentialiteRoute /> },
+  { path: '/oauth/consent', element: <OAuthConsentRoute /> },
 ])
