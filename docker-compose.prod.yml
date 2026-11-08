@@ -33,9 +33,11 @@ services:
     environment:
       # Optional: with a Doppler service token the entrypoint injects secrets at run time.
       DOPPLER_TOKEN: ${DOPPLER_TOKEN:-}
-      # Migrations may use a dedicated account with DDL rights; the running API then keeps a
-      # least-privilege account (DATABASE_URL). Falls back to DATABASE_URL when unset.
-      DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL}}
+      # Migrations use a dedicated account with DDL rights; the running API keeps a least-privilege
+      # account (DATABASE_URL). The choice is made by scripts/migrate-deploy.sh, after Doppler
+      # injected its secrets, so an injected DATABASE_URL never replaces it (code review R35).
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy

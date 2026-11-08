@@ -57,6 +57,27 @@ Les images API publiées **avant** E02.09 contenaient le jeton Doppler dans leur
   -- tables déjà existantes : GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO confluent_app;
   ```
 
+  Pour une installation existante, où les tables appartiennent à l'ancien compte unique, rendre le schéma et ses objets au migrateur **avant** le premier déploiement avec deux comptes :
+
+  ```sql
+  ALTER SCHEMA public OWNER TO confluent_migrator;
+  REASSIGN OWNED BY <ancien_compte> TO confluent_migrator;   -- tables, séquences, types énumérés
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO confluent_app;
+  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO confluent_app;
+  ```
+
+  **Choix du compte avec Doppler (R35).** `api-migrate` reçoit `DATABASE_URL` (applicatif) et `MIGRATION_DATABASE_URL`. C'est `apps/api/scripts/migrate-deploy.sh`, exécuté **à l'intérieur** de `doppler run`, qui retient `MIGRATION_DATABASE_URL`. Une `DATABASE_URL` injectée par Doppler ne peut donc plus le remplacer.
+  - Si Doppler fournit lui-même `MIGRATION_DATABASE_URL`, c'est cette valeur qui s'applique.
+  - Sinon, celle du Compose s'applique, puisque Doppler ne remplace que les noms qu'il connaît.
+  - Sans `MIGRATION_DATABASE_URL`, le script le signale et migre avec `DATABASE_URL`.
+
+  Vérification après déploiement :
+  - `docker compose logs api-migrate` affiche « using MIGRATION_DATABASE_URL » ;
+  - `SELECT current_user` renvoie `confluent_app` depuis l'API ;
+  - une tentative de `CREATE TABLE` avec le compte applicatif échoue (`permission denied for schema public`).
+
+  Test sans base : `sh apps/api/scripts/tests/migrate-deploy.test.sh`.
+
   Les identifiants de développement et de production sont distincts (bases, comptes et projets Doppler séparés) : un identifiant de dev ne doit jamais ouvrir la base de production.
 
 ### Chiffrement des connexions
