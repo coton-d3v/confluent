@@ -89,13 +89,48 @@ Les images API publiées **avant** E02.09 contenaient le jeton Doppler dans leur
 
 Les connexions des navigateurs et des clients MCP passent par Traefik en HTTPS (certificats Let's Encrypt) ; l'API et le web écoutent en HTTP uniquement sur le réseau Docker.
 
+## Stockage des documents
+
+Les documents des dossiers sont stockés dans un bucket S3-compatible privé (Garage), hors du serveur applicatif et hors de Coder (ROADMAP E02.03/E02.04). Chaque environnement a son serveur, son bucket et ses identifiants : `confluent-dev` pour le développement, `confluent-production` pour la production. Les identifiants de dev n'ont aucun droit sur la production.
+
+| Variable | Valeur |
+|---|---|
+| `STORAGE_DRIVER` | `s3` (défaut). `memory` garde les fichiers dans le processus : réservé aux tests, refusé au démarrage si `NODE_ENV=production`. |
+| `S3_ENDPOINT` | URL du serveur S3 de l'environnement (fournie avec ses identifiants). |
+| `S3_REGION` | `garage` : Garage refuse toute autre région (`SignatureDoesNotMatch`). |
+| `S3_BUCKET` | `confluent-dev` / `confluent-production`. |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Clé limitée à la lecture/écriture de ce seul bucket, fournie par Doppler (ou le `.env` local, ignoré par git). Jamais dans le dépôt, les images, le site ou les journaux. |
+
+Fonctionnement :
+- le navigateur n'a aucune clé : les fichiers passent par l'API (multipart, 20 Mo au plus, refusé dès que la limite est franchie pendant l'envoi) ;
+- le type est reconnu d'après le contenu (PDF, PNG, JPEG, WebP, HEIC, Word, Excel, PowerPoint, OpenDocument, CSV, texte) ; tout autre contenu est refusé (`415`), quel que soit le type annoncé ;
+- l'objet est rangé sous une clé opaque `dossiers/<dossier>/<uuid>` ; le nom d'origine et le numéro de version restent en base (Garage n'a pas de versionnement S3 : chaque version est un objet distinct) ;
+- le téléchargement passe par une URL signée de 15 minutes, délivrée seulement après vérification des droits et de l'existence de l'objet, et force l'enregistrement du fichier sous son nom d'origine ;
+- quota du bucket atteint → `507` (« espace de stockage plein ») ; stockage injoignable → `503`, sans document créé ;
+- un fichier introuvable dans le bucket apparaît comme « perdu » dans la liste des documents (et non comme une erreur de tout le dossier) ; le porteur de projet est invité à le redéposer.
+
+Au démarrage, l'API vérifie l'accès au bucket et journalise `Document storage reachable.` ou `Document storage unreachable: …` (l'API démarre quand même : réponses et dossiers n'en dépendent pas).
+
+Le préfixe `_selftest/` est réservé au contrôle du serveur de stockage : l'application n'y écrit jamais et `_selftest/persistence-marker.txt` doit rester en place.
+
+### Pièces perdues
+
+Les documents déposés avant le stockage S3 étaient gardés en mémoire et ont disparu au premier redémarrage. Pour les identifier (lecture seule, aucune suppression) :
+
+```bash
+pnpm --filter @confluent/api documents:audit            # en local
+docker compose exec api pnpm --filter @confluent/api documents:audit   # sur le serveur
+```
+
+Sortie : une ligne par fichier perdu (dossier, email du porteur, nom, version, date, version courante ou ancienne) ; code `0` si tout est présent, `1` si des fichiers sont perdus, `2` si la configuration ou le stockage empêchent de conclure. Les versions courantes perdues sont signalées au porteur dans son dossier ; l'audit sert à le relancer si besoin.
+
 ## Installation de référence et scripts de base de données
 
 ### Fichiers Compose
 
 | Fichier | Rôle |
 |---|---|
-| `docker-compose.yml` | Développement local uniquement (PostgreSQL, MinIO, Mailhog). |
+| `docker-compose.yml` | Développement local uniquement (PostgreSQL, Mailhog). Les documents vont dans le bucket S3 de dev. |
 | `docker-compose.prod.yml` | Référence versionnée de la production : `postgres` (sans port publié), `api-migrate` (migrations avant démarrage), `api`, `web`. |
 | Compose du serveur (Traefik + Doppler) | Variante réellement exécutée ; elle doit reprendre de la référence : `api-migrate` avant `api`, `DOPPLER_TOKEN` fourni à l'exécution, aucun port publié pour PostgreSQL. |
 

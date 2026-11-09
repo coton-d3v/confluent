@@ -49,3 +49,16 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ ...validEnv, NODE_ENV: 'staging' })).toThrow(/NODE_ENV/)
   })
 })
+
+describe('STORAGE_DRIVER', () => {
+  it('defaults to the S3 storage', () => {
+    expect(validateConfig(validEnv).STORAGE_DRIVER).toBe('s3')
+  })
+
+  it('refuses the in-memory storage in production, where every document would be lost', () => {
+    expect(() =>
+      validateConfig({ ...validEnv, NODE_ENV: 'production', STORAGE_DRIVER: 'memory' }),
+    ).toThrow(/STORAGE_DRIVER/)
+    expect(validateConfig({ ...validEnv, STORAGE_DRIVER: 'memory' }).STORAGE_DRIVER).toBe('memory')
+  })
+})

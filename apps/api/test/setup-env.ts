@@ -7,6 +7,7 @@ process.env.SMTP_PORT ??= '1025'
 process.env.SMTP_FROM ??= 'noreply@confluent.local'
 process.env.JWT_SECRET ??= 'a'.repeat(32)
 process.env.JWT_REFRESH_SECRET ??= 'b'.repeat(32)
+process.env.STORAGE_DRIVER ??= 'memory'
 process.env.S3_ENDPOINT ??= 'http://localhost:9000'
 process.env.S3_REGION ??= 'us-east-1'
 process.env.S3_BUCKET ??= 'confluent-dev'

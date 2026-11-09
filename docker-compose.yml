@@ -1,4 +1,5 @@
-# Local development services for Confluent (Story 6.1). Not intended for production — see docker-compose.prod.yml when Epic 10 lands.
+# Local development services for Confluent (Story 6.1). Not intended for production — see docker-compose.prod.yml.
+# Documents go to the shared dev S3 bucket (see docs/deploiement.md, « Stockage des documents »), not to a local service.
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,17 +16,6 @@ services:
       interval: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio_data:/data
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -35,6 +25,4 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
-  minio_data:
     driver: local
