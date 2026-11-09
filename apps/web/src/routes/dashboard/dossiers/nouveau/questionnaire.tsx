@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useBlocker, useNavigate, useSearchParams } from 'react-router-dom'
 import { QuestionnaireProgress } from '@/features/questionnaire/components/QuestionnaireProgress'
 import { QuestionnaireStep } from '@/features/questionnaire/components/QuestionnaireStep'
 import { SectionSummary } from '@/features/questionnaire/components/SectionSummary'
 import { buildDynamicQuestionnaire, type DynamicQuestionnaire } from '@/features/questionnaire/adapter'
-import { listAnswers, upsertAnswers } from '@/features/dossiers/answers.api'
+import { listAnswers } from '@/features/dossiers/answers.api'
 import { getDossier } from '@/features/dossiers/api'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { useAsync } from '@/lib/useAsync'
-import { isAnswered, type AnswerInput } from '@confluent/shared'
-
-const AUTOSAVE_DEBOUNCE_MS = 800
+import { isAnswered } from '@confluent/shared'
+import { SaveStatusIndicator } from '@/features/questionnaire/components/SaveStatusIndicator'
+import { useAnswerAutosave } from '@/features/questionnaire/useAnswerAutosave'
 
 const recapPath = (dossierId: string) =>
   `/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`
@@ -118,68 +127,52 @@ function QuestionnaireWizard({
   }, [editingFromSummary])
   const { answers, position, view } = state
 
-  const lastSavedRef = useRef<Record<string, string>>(initialAnswers)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Saves run one after the other: overlapping requests could otherwise land out of order and leave
-  // an older value in the database.
-  const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true))
-  const advancingRef = useRef(false)
-  const [saveFailed, setSaveFailed] = useState(false)
+  const autosave = useAnswerAutosave(dossierId, initialAnswers)
+  // A transition (advance after saving) is in progress: the step is read-only until it ends, so
+  // nothing typed meanwhile can be overwritten by the answers captured before the save (R22).
+  const [transitioning, setTransitioning] = useState(false)
   const [retrying, setRetrying] = useState(false)
-
-  function diffAgainstSaved(current: Record<string, string>): AnswerInput[] {
-    const diff: AnswerInput[] = []
-    for (const [fieldId, value] of Object.entries(current)) {
-      const saved = lastSavedRef.current[fieldId]
-      // A skipped optional question that was never answered has nothing to save.
-      if (saved !== value && !(saved === undefined && value === '')) {
-        diff.push({ fieldId, value })
-      }
-    }
-    return diff
-  }
-
-  // Resolves true once `current` is persisted, false if the request failed (the diff stays pending
-  // and is sent again by the next save or by "Réessayer").
-  function flushSave(current: Record<string, string>): Promise<boolean> {
-    const run = async (): Promise<boolean> => {
-      const diff = diffAgainstSaved(current)
-      if (diff.length === 0) return true
-      try {
-        await upsertAnswers(dossierId, diff)
-        lastSavedRef.current = {
-          ...lastSavedRef.current,
-          ...Object.fromEntries(diff.map((a) => [a.fieldId, a.value])),
-        }
-        setSaveFailed(false)
-        return true
-      } catch {
-        setSaveFailed(true)
-        return false
-      }
-    }
-    saveChainRef.current = saveChainRef.current.then(run, run)
-    return saveChainRef.current
-  }
-
-  function scheduleSave(current: Record<string, string>) {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      void flushSave(current)
-    }, AUTOSAVE_DEBOUNCE_MS)
-  }
 
   async function retrySave() {
     setRetrying(true)
-    await flushSave(answers)
+    await autosave.flush(autosave.latest())
     setRetrying(false)
   }
 
+  // Leaving the questionnaire inside the app while something is unsaved (R23): it is sent first;
+  // if that fails, the person chooses to stay, retry or leave without saving.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      currentLocation.pathname !== nextLocation.pathname && autosave.isDirty(),
+  )
+  const [leaveFailed, setLeaveFailed] = useState(false)
+  const blockerRef = useRef(blocker)
   useEffect(() => {
+    blockerRef.current = blocker
+  })
+  // Sends what is unsaved, including what was typed while a send was in progress; true once the
+  // latest answers are in the database.
+  const { flush, latest, isDirty } = autosave
+  const saveEverything = useCallback(async () => {
+    let ok = await flush(latest())
+    while (ok && isDirty()) ok = await flush(latest())
+    return ok
+  }, [flush, latest, isDirty])
+  // One attempt per blocked navigation (code review R23): after a failure, nothing is sent again
+  // until the person chooses « Réessayer » in the dialog.
+  const blockedKey = blocker.state === 'blocked' ? blocker.location.key : null
+  useEffect(() => {
+    if (blockedKey === null) return
+    let cancelled = false
+    void saveEverything().then((ok) => {
+      if (cancelled) return
+      if (ok) blockerRef.current.proceed?.()
+      else setLeaveFailed(true)
+    })
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      cancelled = true
     }
-  }, [])
+  }, [blockedKey, saveEverything])
 
   useEffect(() => {
     function onDocumentKeyDown(e: KeyboardEvent) {
@@ -225,14 +218,13 @@ function QuestionnaireWizard({
       : `Section ${currentQuestion.sectionIndex} · Question ${currentQuestion.positionInSection} sur ${currentSection.questions.length}`
 
   async function handleAdvance(cleaned: string) {
-    // Ignore a second click while the previous one is still saving.
-    if (advancingRef.current) return
-    advancingRef.current = true
-    const nextAnswers = { ...answers, [currentQuestion.id]: cleaned }
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    setState((prev) => ({ ...prev, answers: nextAnswers }))
-    const saved = await flushSave(nextAnswers)
-    advancingRef.current = false
+    if (transitioning) return
+    setTransitioning(true)
+    const id = currentQuestion.id
+    const nextAnswers = { ...autosave.latest(), [id]: cleaned }
+    setState((prev) => ({ ...prev, answers: { ...prev.answers, [id]: cleaned } }))
+    const saved = await autosave.flush(nextAnswers)
+    setTransitioning(false)
     // Never move on — let alone reach the completion screen — with an answer that was not saved.
     if (!saved) return
 
@@ -240,74 +232,54 @@ function QuestionnaireWizard({
       navigate(recapPath(dossierId))
       return
     }
-
+    setDirection('forward')
     if (editingFromSummary) {
       setEditingFromSummary(false)
-      setDirection('forward')
-      setState({
-        answers: nextAnswers,
-        position: lastGlobalIndexOfCurrentSection,
-        view: 'summary',
-      })
+      setState((prev) => ({ ...prev, position: lastGlobalIndexOfCurrentSection, view: 'summary' }))
       return
     }
-
     if (position >= totalQuestions) {
-      setState({ answers: nextAnswers, position, view: 'question' })
       navigate(recapPath(dossierId))
       return
     }
-
     const isSectionBoundary =
       currentQuestion.positionInSection === currentSection.questions.length &&
       currentQuestion.sectionIndex < totalSections
-    if (isSectionBoundary) {
-      setDirection('forward')
-      setState({ ...state, answers: nextAnswers, view: 'summary' })
-      return
-    }
-
-    setDirection('forward')
-    setState({ ...state, answers: nextAnswers, position: position + 1 })
+    setState((prev) =>
+      isSectionBoundary ? { ...prev, view: 'summary' } : { ...prev, position: prev.position + 1 },
+    )
   }
 
   function handleBack() {
     if (editingFromSummary) return
     if (position > 1) {
       setDirection('backward')
-      setState({ ...state, position: position - 1 })
+      setState((prev) => ({ ...prev, position: prev.position - 1 }))
     }
   }
 
   function handleAnswerChange(next: string) {
-    const nextAnswers = { ...answers, [currentQuestion.id]: next }
-    setState({ ...state, answers: nextAnswers })
-    scheduleSave(nextAnswers)
+    if (transitioning) return
+    const id = currentQuestion.id
+    autosave.schedule({ ...autosave.latest(), [id]: next })
+    setState((prev) => ({ ...prev, answers: { ...prev.answers, [id]: next } }))
   }
 
   function handleEditFromSummary(targetGlobalIndex: number) {
     setEditingFromSummary(true)
     setDirection('backward')
-    setState({ ...state, position: targetGlobalIndex, view: 'question' })
+    setState((prev) => ({ ...prev, position: targetGlobalIndex, view: 'question' }))
   }
 
   function handleReturnToSummary() {
     setEditingFromSummary(false)
     setDirection('forward')
-    setState({
-      ...state,
-      position: lastGlobalIndexOfCurrentSection,
-      view: 'summary',
-    })
+    setState((prev) => ({ ...prev, position: lastGlobalIndexOfCurrentSection, view: 'summary' }))
   }
 
   function handleValidateSection() {
     setDirection('forward')
-    setState({
-      ...state,
-      position: position + 1,
-      view: 'question',
-    })
+    setState((prev) => ({ ...prev, position: prev.position + 1, view: 'question' }))
   }
 
   return (
@@ -324,7 +296,8 @@ function QuestionnaireWizard({
       >
         {indicatorText}
       </div>
-      {saveFailed && (
+      <SaveStatusIndicator status={autosave.status} />
+      {autosave.status === 'failed' && (
         <div
           role="alert"
           className="mt-6 flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
@@ -360,6 +333,7 @@ function QuestionnaireWizard({
             onChange={handleAnswerChange}
             onAdvance={handleAdvance}
             onBack={handleBack}
+            busy={transitioning}
             canGoBack={!editingFromSummary && position > 1}
             returnToSummary={
               editingFromSummary
@@ -371,6 +345,57 @@ function QuestionnaireWizard({
           />
         )}
       </div>
+      <LeaveWithoutSavingDialog
+        open={leaveFailed}
+        onStay={() => {
+          setLeaveFailed(false)
+          if (blocker.state === 'blocked') blocker.reset()
+        }}
+        onLeave={() => {
+          setLeaveFailed(false)
+          if (blocker.state === 'blocked') blocker.proceed()
+        }}
+        onRetry={async () => {
+          if (!(await saveEverything())) return
+          setLeaveFailed(false)
+          blockerRef.current.proceed?.()
+        }}
+      />
     </>
+  )
+}
+
+// Shown when leaving the questionnaire while the last answers could not be sent (R23).
+function LeaveWithoutSavingDialog({
+  open,
+  onStay,
+  onLeave,
+  onRetry,
+}: {
+  open: boolean
+  onStay: () => void
+  onLeave: () => void
+  onRetry: () => Promise<void>
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => !next && onStay()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Vos dernières réponses ne sont pas enregistrées</AlertDialogTitle>
+          <AlertDialogDescription>
+            L’enregistrement a échoué. Réessayez avant de quitter, ou quittez en perdant ces réponses.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onStay}>Rester</AlertDialogCancel>
+          <Button type="button" variant="outline" onClick={onLeave}>
+            Quitter sans enregistrer
+          </Button>
+          <Button type="button" onClick={() => void onRetry()}>
+            Réessayer
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
