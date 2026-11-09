@@ -1,15 +1,20 @@
-import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js'
 import { InvalidClientMetadataError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js'
 import { PrismaService } from '../../prisma/prisma.service'
+import { CimdInvalidError, CimdTransientError, fetchMetadataJson } from './cimd/cimd-fetcher'
 
 const CIMD_REFRESH_MS = 60 * 60 * 1000
-const CIMD_TIMEOUT_MS = 5000
-const CIMD_MAX_BYTES = 64 * 1024
+// Beyond this age, a document is not served any more, even while its host is unreachable (R12).
+const CIMD_FALLBACK_MAX_MS = 24 * 60 * 60 * 1000
+const CIMD_LIMITS = { timeoutMs: 5000, maxBytes: 64 * 1024 }
+
+// Fetches a Client ID Metadata Document as JSON (pinned, size-limited: cimd/cimd-fetcher.ts).
+export type CimdFetch = (url: URL) => Promise<unknown>
+export const CIMD_FETCH = Symbol('CIMD_FETCH')
+export const defaultCimdFetch: CimdFetch = (url) => fetchMetadataJson(url, CIMD_LIMITS)
 
 // MCP spec: redirect URIs MUST be HTTPS or loopback.
 export function isAllowedRedirectUri(uri: string): boolean {
@@ -36,26 +41,6 @@ export function isMetadataDocumentClientId(clientId: string): boolean {
   }
 }
 
-function isPrivateAddress(address: string): boolean {
-  if (isIP(address) === 6) {
-    const a = address.toLowerCase()
-    if (a.startsWith('::ffff:')) return isPrivateAddress(a.slice(7))
-    return (
-      a === '::1' || a === '::' || a.startsWith('fc') || a.startsWith('fd') || a.startsWith('fe80')
-    )
-  }
-  const [a, b] = address.split('.').map(Number)
-  return (
-    a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127)
-  )
-}
-
 type ClientRow = Prisma.OAuthClientGetPayload<object>
 
 function toClientInformation(row: ClientRow): OAuthClientInformationFull {
@@ -74,7 +59,10 @@ function toClientInformation(row: ClientRow): OAuthClientInformationFull {
 export class OAuthClientsStore implements OAuthRegisteredClientsStore {
   private readonly logger = new Logger(OAuthClientsStore.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CIMD_FETCH) private readonly fetchJson: CimdFetch,
+  ) {}
 
   async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
     const row = await this.prisma.oAuthClient.findUnique({ where: { id: clientId } })
@@ -87,8 +75,19 @@ export class OAuthClientsStore implements OAuthRegisteredClientsStore {
       return toClientInformation(await this.fetchMetadataDocument(clientId))
     } catch (err) {
       this.logger.warn(`CIMD fetch failed for ${clientId}: ${(err as Error).message}`)
-      // A previously validated document stays usable if the client's host is briefly unreachable.
-      return row ? toClientInformation(row) : undefined
+      // A withdrawn or invalid document (404, other identity, bad content) invalidates the cache
+      // durably: a later outage must not bring the old document back (R12). Only a new successful
+      // validation makes the client usable again.
+      if (err instanceof CimdInvalidError && row?.fetchedAt) {
+        await this.prisma.oAuthClient.update({ where: { id: clientId }, data: { fetchedAt: null } })
+        return undefined
+      }
+      // Only a temporary failure lets a recently validated document stand in, for a bounded time.
+      const fallback =
+        err instanceof CimdTransientError &&
+        row?.fetchedAt &&
+        Date.now() - row.fetchedAt.getTime() < CIMD_FALLBACK_MAX_MS
+      return fallback ? toClientInformation(row) : undefined
     }
   }
 
@@ -115,28 +114,17 @@ export class OAuthClientsStore implements OAuthRegisteredClientsStore {
     return { ...toClientInformation(row), client_id_issued_at: client.client_id_issued_at }
   }
 
-  // SSRF-conscious fetch of a Client ID Metadata Document: HTTPS only, public addresses only, no
-  // redirects, bounded time and size; the document must name itself and declare its redirect URIs.
+  // Fetch (SSRF-hardened, see cimd/) then validation: the document must name itself and declare
+  // HTTPS/loopback redirect URIs for a public client.
   private async fetchMetadataDocument(clientId: string): Promise<ClientRow> {
-    const url = new URL(clientId)
-    const addresses = isIP(url.hostname)
-      ? [{ address: url.hostname }]
-      : await lookup(url.hostname, { all: true })
-    if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) {
-      throw new Error('metadata host resolves to a non-public address')
+    const raw = await this.fetchJson(new URL(clientId))
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new CimdInvalidError('metadata document is not a JSON object')
     }
-    const res = await fetch(url, {
-      redirect: 'error',
-      signal: AbortSignal.timeout(CIMD_TIMEOUT_MS),
-      headers: { accept: 'application/json' },
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const body = await res.text()
-    if (body.length > CIMD_MAX_BYTES) throw new Error('metadata document too large')
-    const doc = JSON.parse(body) as Record<string, unknown>
-    if (doc.client_id !== clientId) throw new Error('client_id mismatch')
+    const doc = raw as Record<string, unknown>
+    if (doc.client_id !== clientId) throw new CimdInvalidError('client_id mismatch')
     if (typeof doc.client_name !== 'string' || !doc.client_name.trim()) {
-      throw new Error('client_name missing')
+      throw new CimdInvalidError('client_name missing')
     }
     const redirectUris = doc.redirect_uris
     if (
@@ -144,10 +132,11 @@ export class OAuthClientsStore implements OAuthRegisteredClientsStore {
       !redirectUris.length ||
       !redirectUris.every((u) => typeof u === 'string' && isAllowedRedirectUri(u))
     ) {
-      throw new Error('redirect_uris missing or not HTTPS/loopback')
+      throw new CimdInvalidError('redirect_uris missing or not HTTPS/loopback')
     }
     const method = (doc.token_endpoint_auth_method as string | undefined) ?? 'none'
-    if (method !== 'none') throw new Error(`unsupported token_endpoint_auth_method ${method}`)
+    if (method !== 'none')
+      throw new CimdInvalidError(`unsupported token_endpoint_auth_method ${method}`)
     const data = {
       source: 'cimd',
       name: doc.client_name.slice(0, 200),

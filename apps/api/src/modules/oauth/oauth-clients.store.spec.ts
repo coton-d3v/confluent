@@ -1,11 +1,13 @@
-import { lookup } from 'node:dns/promises'
+import { CimdInvalidError, CimdTransientError } from './cimd/cimd-fetcher'
 import {
   OAuthClientsStore,
   isAllowedRedirectUri,
   isMetadataDocumentClientId,
 } from './oauth-clients.store'
 
-jest.mock('node:dns/promises', () => ({ lookup: jest.fn() }))
+// The network part (pinning, size limit, address policy) is tested in cimd/; here, what the store
+// does with a fetched document or a failure.
+let fetchJson: jest.Mock
 
 const CLIENT_ID = 'https://claude.ai/oauth/mcp-oauth-client-metadata'
 
@@ -16,6 +18,11 @@ function store() {
       findUnique: jest.fn(({ where }: { where: { id: string } }) =>
         Promise.resolve(rows.get(where.id) ?? null),
       ),
+      update: jest.fn(({ where, data }: { where: { id: string }; data: object }) => {
+        const row = { ...rows.get(where.id), ...data }
+        rows.set(where.id, row)
+        return Promise.resolve(row)
+      }),
       upsert: jest.fn(
         ({ where, create, update }: { where: { id: string }; create: object; update: object }) => {
           const row = { ...(rows.get(where.id) ?? create), ...update, id: where.id }
@@ -25,16 +32,14 @@ function store() {
       ),
     },
   }
-  return { svc: new OAuthClientsStore(prisma as never), rows, prisma }
+  // Reads `fetchJson` at call time: tests switch the simulated answer after caching.
+  const current = (url: URL) => fetchJson(url) as Promise<unknown>
+  return { svc: new OAuthClientsStore(prisma as never, current), rows, prisma }
 }
 
-function serve(doc: unknown, status = 200) {
-  global.fetch = jest.fn().mockResolvedValue({
-    ok: status < 400,
-    status,
-    text: () => Promise.resolve(JSON.stringify(doc)),
-  }) as never
-}
+const serve = (doc: unknown) => (fetchJson = jest.fn().mockResolvedValue(doc))
+const fail = (err: Error) => (fetchJson = jest.fn().mockRejectedValue(err))
+const HOURS = 60 * 60 * 1000
 
 const validDoc = {
   client_id: CLIENT_ID,
@@ -59,21 +64,14 @@ describe('redirect / client_id rules', () => {
 })
 
 describe('OAuthClientsStore — Client ID Metadata Documents', () => {
-  beforeEach(() => {
-    ;(lookup as jest.Mock).mockResolvedValue([{ address: '160.79.104.10', family: 4 }])
-  })
-
   it('fetches, validates and caches a valid document', async () => {
     serve(validDoc)
     const { svc } = store()
     const client = await svc.getClient(CLIENT_ID)
     expect(client).toMatchObject({ client_id: CLIENT_ID, client_name: 'Claude' })
-    expect(global.fetch).toHaveBeenCalledWith(
-      new URL(CLIENT_ID),
-      expect.objectContaining({ redirect: 'error' }),
-    )
+    expect(fetchJson).toHaveBeenCalledWith(new URL(CLIENT_ID))
     await svc.getClient(CLIENT_ID)
-    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(fetchJson).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a document that does not name itself', async () => {
@@ -88,19 +86,52 @@ describe('OAuthClientsStore — Client ID Metadata Documents', () => {
     expect(await store().svc.getClient(CLIENT_ID)).toBeUndefined()
   })
 
-  it('never fetches a host that resolves to a private address (SSRF)', async () => {
-    ;(lookup as jest.Mock).mockResolvedValue([{ address: '10.0.0.5', family: 4 }])
+  // Code review R12: the cache only stands in for a temporary failure, and only for a while.
+  async function cachedThen(ageMs: number) {
     serve(validDoc)
-    expect(await store().svc.getClient(CLIENT_ID)).toBeUndefined()
-    expect(global.fetch).not.toHaveBeenCalled()
+    const s = store()
+    await s.svc.getClient(CLIENT_ID)
+    s.rows.get(CLIENT_ID)!.fetchedAt = new Date(Date.now() - ageMs)
+    return s.svc
+  }
+
+  it('keeps serving a recently validated document when the host is briefly down', async () => {
+    const svc = await cachedThen(2 * HOURS)
+    fail(new CimdTransientError('HTTP 503'))
+    expect(await svc.getClient(CLIENT_ID)).toMatchObject({ client_name: 'Claude' })
   })
 
-  it('keeps serving the last validated document when the host is briefly down', async () => {
+  it('stops serving it after the fallback period', async () => {
+    const svc = await cachedThen(25 * HOURS)
+    fail(new CimdTransientError('timeout'))
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+  })
+
+  it('never serves the cache once the document is withdrawn or invalid', async () => {
+    let svc = await cachedThen(2 * HOURS)
+    fail(new CimdInvalidError('HTTP 404'))
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+
+    svc = await cachedThen(2 * HOURS)
+    serve({ ...validDoc, client_id: 'https://other.example/meta' })
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+
+    svc = await cachedThen(2 * HOURS)
+    serve({ ...validDoc, redirect_uris: [] })
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+  })
+
+  // Recontrôle R12: a withdrawn document followed by an outage must not bring the old one back.
+  it('keeps refusing after an invalid document, even when the host then fails temporarily', async () => {
+    const svc = await cachedThen(2 * HOURS)
+    fail(new CimdInvalidError('HTTP 404'))
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+    fail(new CimdTransientError('HTTP 503'))
+    expect(await svc.getClient(CLIENT_ID)).toBeUndefined()
+    // Until a new successful validation.
     serve(validDoc)
-    const { svc, rows } = store()
-    await svc.getClient(CLIENT_ID)
-    rows.get(CLIENT_ID)!.fetchedAt = new Date(Date.now() - 2 * 60 * 60 * 1000)
-    serve({}, 503)
+    expect(await svc.getClient(CLIENT_ID)).toMatchObject({ client_name: 'Claude' })
+    fail(new CimdTransientError('HTTP 503'))
     expect(await svc.getClient(CLIENT_ID)).toMatchObject({ client_name: 'Claude' })
   })
 })
