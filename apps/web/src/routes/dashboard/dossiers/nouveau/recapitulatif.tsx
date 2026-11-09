@@ -4,6 +4,7 @@ import { missingRequiredAnswers } from '@confluent/shared'
 import { Button } from '@/components/ui/button'
 import { listAnswers } from '@/features/dossiers/answers.api'
 import { getDossier, submitDossier } from '@/features/dossiers/api'
+import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import { useAsync } from '@/lib/useAsync'
@@ -28,6 +29,9 @@ function FinalReview({ dossierId }: { dossierId: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const dossierQuery = useAsync(() => getDossier(dossierId), [dossierId])
   const answersQuery = useAsync(() => listAnswers(dossierId), [dossierId])
+  // Attachment questions are answered by their files (E03.11).
+  const documentsQuery = useDossierDocuments(dossierId)
+  const attachedFiles = useMemo(() => filenamesByField(documentsQuery.data), [documentsQuery.data])
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -42,18 +46,15 @@ function FinalReview({ dossierId }: { dossierId: string }) {
     [answersQuery.data],
   )
 
-  if (dossierQuery.isLoading || answersQuery.isLoading) {
+  if (dossierQuery.isLoading || answersQuery.isLoading || (documentsQuery.isLoading && !documentsQuery.data)) {
     return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
   }
   const dossier = dossierQuery.data
-  if (dossierQuery.error || answersQuery.error || !dossier || !questionnaire) {
+  if (dossierQuery.error || answersQuery.error || documentsQuery.error || !dossier || !questionnaire) {
     return <p className="pt-8 text-sm text-destructive">Impossible de charger le dossier.</p>
   }
 
-  // Attachments are not part of this page yet (E03.11, web): they are never reported missing here,
-  // the server check at submission is authoritative.
-  const attachmentIds = new Set(questionnaire.flat.filter((q) => q.fieldType === 'file').map((q) => q.id))
-  const missing = missingRequiredAnswers(questionnaire.flat, answers, attachmentIds)
+  const missing = missingRequiredAnswers(questionnaire.flat, answers, new Set(attachedFiles.keys()))
   const submitted = dossier.submittedAt !== null
 
   async function handleSubmit() {
@@ -66,6 +67,7 @@ function FinalReview({ dossierId }: { dossierId: string }) {
       // 422: answers changed elsewhere (another tab, an AI client); the refreshed list shows what is missing.
       setSubmitError((err as ApiError)?.message ?? 'La soumission a échoué. Réessayez.')
       answersQuery.refetch()
+      documentsQuery.refetch()
       setSubmitting(false)
     }
   }
@@ -93,8 +95,8 @@ function FinalReview({ dossierId }: { dossierId: string }) {
           <div role="status" className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
             <p className="font-medium text-foreground">
               {missing.length === 1
-                ? 'Une question obligatoire reste sans réponse :'
-                : `${missing.length} questions obligatoires restent sans réponse :`}
+                ? 'Une question obligatoire reste sans réponse ou sans document :'
+                : `${missing.length} questions obligatoires restent sans réponse ou sans document :`}
             </p>
             <ul className="mt-2 flex flex-col gap-1">
               {missing.map((q) => (
@@ -115,30 +117,33 @@ function FinalReview({ dossierId }: { dossierId: string }) {
             </h2>
             <dl className="mt-3 flex flex-col divide-y divide-border">
               {section.questions.map((q) => {
-                const value = answers[q.id] ?? ''
+                const isFile = q.fieldType === 'file'
+                const value = isFile ? (attachedFiles.get(q.id) ?? []).join('\n') : (answers[q.id] ?? '')
                 return (
                   <div key={q.id} className="flex flex-wrap items-start justify-between gap-4 py-3">
                     <div className="min-w-0 flex-1">
                       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{q.label}</dt>
                       <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium text-foreground">
                         {value.trim() ? (
-                          answerLabel(q, value)
+                          isFile ? value : answerLabel(q, value)
                         ) : (
                           <span className="text-muted-foreground">
-                            {q.required && q.fieldType !== 'file' ? 'Réponse obligatoire manquante' : '—'}
+                            {!q.required
+                              ? '—'
+                              : isFile
+                                ? 'Document obligatoire manquant'
+                                : 'Réponse obligatoire manquante'}
                           </span>
                         )}
                       </dd>
                     </div>
-                    {q.fieldType !== 'file' && (
-                      <Link
-                        to={questionPath(dossierId, q.id)}
-                        aria-label={`Modifier la réponse : ${q.label}`}
-                        className="min-h-11 shrink-0 px-2 text-xs text-muted-foreground hover:underline"
-                      >
-                        Modifier
-                      </Link>
-                    )}
+                    <Link
+                      to={questionPath(dossierId, q.id)}
+                      aria-label={`${isFile ? 'Modifier les fichiers' : 'Modifier la réponse'} : ${q.label}`}
+                      className="min-h-11 shrink-0 px-2 text-xs text-muted-foreground hover:underline"
+                    >
+                      Modifier
+                    </Link>
                   </div>
                 )
               })}

@@ -8,6 +8,8 @@ export interface SectionSummaryProps {
   sectionIndex: number
   sectionMetas: QuestionMeta[]
   answers: Record<string, string>
+  // Files answering each attachment question (E03.11).
+  attachedFiles?: ReadonlyMap<string, string[]>
   onEdit: (globalIndex: number) => void
   onValidate: () => void
 }
@@ -17,6 +19,7 @@ export function SectionSummary({
   sectionIndex,
   sectionMetas,
   answers,
+  attachedFiles,
   onEdit,
   onValidate,
 }: SectionSummaryProps) {
@@ -36,7 +39,8 @@ export function SectionSummary({
       </h2>
       <dl className="flex flex-col">
         {sectionMetas.map((q, i) => {
-          const answer = answers[q.id] ?? ''
+          const answer =
+            q.fieldType === 'file' ? (attachedFiles?.get(q.id) ?? []).join('\n') : (answers[q.id] ?? '')
           return (
             <div
               key={q.id}
@@ -51,7 +55,7 @@ export function SectionSummary({
                 </dt>
                 <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium text-foreground">
                   {answer.length > 0 ? (
-                    answerLabel(q, answer)
+                    q.fieldType === 'file' ? answer : answerLabel(q, answer)
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

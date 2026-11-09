@@ -18,8 +18,10 @@ import { AccessDeniedPage } from '@/routes/share/AccessDeniedPage'
 // The API already filters fields, answers and documents by the share's access level; this page only
 // explains to the financeur what the level leaves out.
 const ACCESS_LEVEL_NOTICE: Record<AccessLevel, string> = {
-  public: 'Accès public : seules les informations d’identité du projet sont partagées avec vous.',
-  partiel: 'Accès partiel : les données financières et les documents ne sont pas partagés avec vous.',
+  public:
+    'Accès public : seules les informations d’identité du projet, et leurs pièces jointes, sont partagées avec vous.',
+  partiel:
+    'Accès partiel : les données financières et les documents réservés à l’accès complet ne sont pas partagés avec vous.',
   complet: 'Accès complet : l’entrepreneur partage l’intégralité de son dossier.',
 }
 
@@ -53,7 +55,7 @@ export function SharedDossierPage({ data }: { data: FinanceurShareResponse }) {
           </p>
         </header>
         <SharedAnswers data={data} />
-        {data.documents && <SharedDocuments documents={data.documents} />}
+        <SharedDocuments data={data} />
       </main>
     </>
   )
@@ -87,6 +89,7 @@ function SharedAnswers({ data }: { data: FinanceurShareResponse }) {
     () => Object.fromEntries(data.answers.map((a) => [a.fieldId, a.value])),
     [data.answers],
   )
+  const filesByField = useMemo(() => attachmentsByField(data), [data])
 
   if (questionnaire.totalQuestions === 0) {
     return (
@@ -103,13 +106,19 @@ function SharedAnswers({ data }: { data: FinanceurShareResponse }) {
             {i + 1}. {section.title}
           </h2>
           <dl className="mt-4 flex flex-col gap-6">
-            {section.questions.map((q) => (
-              <DossierField
-                key={q.id}
-                label={q.label}
-                value={answerLabel(q, answersByFieldId[q.id] ?? '')}
-              />
-            ))}
+            {section.questions.map((q) =>
+              q.fieldType === 'file' ? (
+                <DossierField key={q.id} label={q.label} value="">
+                  <AttachedFiles documents={filesByField.get(q.id) ?? []} />
+                </DossierField>
+              ) : (
+                <DossierField
+                  key={q.id}
+                  label={q.label}
+                  value={answerLabel(q, answersByFieldId[q.id] ?? '')}
+                />
+              ),
+            )}
           </dl>
         </section>
       ))}
@@ -117,7 +126,38 @@ function SharedAnswers({ data }: { data: FinanceurShareResponse }) {
   )
 }
 
-function SharedDocuments({ documents }: { documents: DocumentGroup[] }) {
+// Files shown under the question they answer (E03.11); the API only sends those the level may read.
+function attachmentsByField(data: FinanceurShareResponse): Map<string, DocumentGroup[]> {
+  const fileFields = new Set(data.fields.filter((f) => f.fieldType === 'file').map((f) => f.id))
+  const byField = new Map<string, DocumentGroup[]>()
+  for (const doc of data.documents) {
+    if (doc.fieldId && fileFields.has(doc.fieldId)) {
+      byField.set(doc.fieldId, [...(byField.get(doc.fieldId) ?? []), doc])
+    }
+  }
+  return byField
+}
+
+function AttachedFiles({ documents }: { documents: DocumentGroup[] }) {
+  if (documents.length === 0) return <span className="text-muted-foreground">—</span>
+  return (
+    <ul role="list" className="flex flex-col gap-1">
+      {documents.map((doc) => (
+        <li key={doc.filename} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <span className="min-w-0 truncate">{doc.filename}</span>
+          <DocumentLink version={doc.current} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// The other documents of the dossier: those that answer no question shown on this page.
+function SharedDocuments({ data }: { data: FinanceurShareResponse }) {
+  const fileFields = new Set(data.fields.filter((f) => f.fieldType === 'file').map((f) => f.id))
+  const documents = data.documents.filter((d) => !d.fieldId || !fileFields.has(d.fieldId))
+  // Below `complet` these documents are not shared: say nothing rather than « Aucun document ».
+  if (documents.length === 0 && data.share.accessLevel !== 'complet') return null
   return (
     <section>
       <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">Documents</h2>
