@@ -1,7 +1,8 @@
-import type {
-  CreateDraftFieldInput,
-  FieldConstraints,
-  UpdateDraftFieldInput,
+import {
+  parseNumber,
+  type CreateDraftFieldInput,
+  type FieldConstraints,
+  type UpdateDraftFieldInput,
 } from '@confluent/shared'
 import type { FieldFormValues } from './components/FieldEditorSheet'
 
@@ -9,11 +10,12 @@ import type { FieldFormValues } from './components/FieldEditorSheet'
 const choicesOf = (v: FieldFormValues) =>
   v.fieldType === 'select' ? v.choices.map(({ key, label }) => ({ key, label })) : undefined
 
-const integer = (s: string) => (s === '' ? undefined : Number(s))
-const decimal = (s: string) => (s === '' ? undefined : Number(s.replace(',', '.')))
+const integer = (s: string) => (s.trim() === '' ? undefined : Number(s.trim()))
+// Same reading as an answer: « 3,5 » and « 3.5 » are the same number.
+const decimal = (s: string) => (s.trim() === '' ? undefined : (parseNumber(s) ?? undefined))
 
 // The limits of the field type only; `undefined` entries are dropped by JSON.
-function constraintsOf(v: FieldFormValues): FieldConstraints {
+export function constraintsOf(v: FieldFormValues): FieldConstraints {
   switch (v.fieldType) {
     case 'text':
     case 'textarea':

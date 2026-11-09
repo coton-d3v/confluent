@@ -1,5 +1,10 @@
 import type { QuestionnaireField, QuestionnaireSection } from '@prisma/client'
-import type { DraftProblem } from '@confluent/shared'
+import {
+  constraintsProblem,
+  fieldConstraintsSchema,
+  type DraftProblem,
+  type FieldType,
+} from '@confluent/shared'
 import { readChoices } from './questionnaire-structure'
 
 // What prevents a draft from being published (E03.03, E03.13). Empty list = publishable.
@@ -29,6 +34,25 @@ export function validateDraft(
         fieldId: field.id,
       })
     }
+    const constraintsIssue = storedConstraintsProblem(field)
+    if (constraintsIssue) {
+      problems.push({
+        code: 'INVALID_CONSTRAINTS',
+        message: `Les limites du champ « ${field.label} » sont impossibles : ${constraintsIssue}`,
+        sectionId: field.sectionId,
+        fieldId: field.id,
+      })
+    }
   }
   return problems
+}
+
+// Limits saved before a rule was tightened (code review R38, R19) are checked again before
+// publication: a published field must accept at least one answer.
+function storedConstraintsProblem(field: QuestionnaireField): string | null {
+  const raw = field.constraints
+  if (raw === null || raw === undefined) return null
+  const parsed = fieldConstraintsSchema.safeParse(raw)
+  if (!parsed.success) return parsed.error.issues[0]?.message ?? 'limites illisibles.'
+  return constraintsProblem(field.fieldType as FieldType, parsed.data)
 }

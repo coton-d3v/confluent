@@ -50,6 +50,32 @@ describe('validateAnswerValue', () => {
     expect(validateAnswerValue(limited(type, constraints), value)).toBe(expected)
   })
 
+  // Code review R19: the format alone is not enough, the day must exist in the calendar.
+  it.each([
+    ['2026-02-31', false],
+    ['2026-02-29', false],
+    ['2026-13-01', false],
+    ['2026-04-31', false],
+    ['2024-02-29', true],
+    ['2026-11-08', true],
+  ])('date %s is accepted: %p', (value, valid) => {
+    const result = validateAnswerValue(field('date'), value)
+    if (valid) expect(result).toBeNull()
+    else expect(result).toBe('Date attendue au format AAAA-MM-JJ.')
+  })
+
+  // Code review R39: no comparison on an infinite or silently rounded value.
+  it.each([
+    ['9'.repeat(400), { min: 0 }, 'Nombre trop long : 15 chiffres significatifs au plus.'],
+    ['12345678901234567', {}, 'Nombre trop long : 15 chiffres significatifs au plus.'],
+    ['-123456789012345', { min: -1e15 }, null],
+    ['0,000000000000001', { min: 0 }, null],
+    ['1500000,50000', { max: 2_000_000 }, null],
+    ['3,5', { max: 3 }, 'Valeur maximale : 3.'],
+  ])('number %p with limits %j → %p', (value, constraints, expected) => {
+    expect(validateAnswerValue(limited('number', constraints), value)).toBe(expected)
+  })
+
   it('ignores stored limits that do not fit the field type', () => {
     expect(validateAnswerValue(limited('email', { maxLength: 3 }), 'a@b.fr')).toBeNull()
     expect(validateAnswerValue(limited('number', { min: 'x' }), '5')).toBeNull()

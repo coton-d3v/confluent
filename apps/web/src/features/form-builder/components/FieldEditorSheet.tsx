@@ -10,7 +10,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   accessLevelSchema,
+  constraintsProblem,
   fieldTypeSchema,
+  MAX_NUMBER_DIGITS,
+  parseNumber,
   readConstraints,
   type FieldType,
   type QuestionnaireField,
@@ -31,38 +34,90 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { constraintsOf } from '../field-input'
 import { ACCESS_LEVEL_LABELS, FIELD_TYPE_LABELS } from '../labels'
 
-const fieldFormSchema = z.object({
-  sectionId: z.string().min(1),
-  label: z.string().trim().min(1, 'Le libellé est obligatoire.').max(500),
-  key: z.union([
-    z.literal(''),
-    z
-      .string()
-      .max(64)
-      .regex(/^[a-z][a-z0-9_]*$/, 'Minuscules, chiffres et « _ », en commençant par une lettre.'),
-  ]),
-  helpText: z.string().max(2000),
-  fieldType: fieldTypeSchema,
-  required: z.boolean(),
-  minAccessLevel: accessLevelSchema,
-  // Input limits (E03.05), as typed; empty = no limit. Only those of the field type are sent.
-  minLength: z.string().regex(/^\d*$/, 'Nombre entier attendu.'),
-  maxLength: z.string().regex(/^\d*$/, 'Nombre entier attendu.'),
-  min: z.string().regex(/^(-?\d+([.,]\d+)?)?$/, 'Nombre attendu.'),
-  max: z.string().regex(/^(-?\d+([.,]\d+)?)?$/, 'Nombre attendu.'),
-  integer: z.boolean(),
-  minDate: z.string(),
-  maxDate: z.string(),
-  // `key` is absent for a choice added here: the API derives it from the label.
-  choices: z.array(
-    z.object({
-      key: z.string().optional(),
-      label: z.string().trim().min(1, 'Libellé du choix obligatoire.').max(500),
-    }),
-  ),
-})
+const LENGTH_LIMIT = /^\d{1,5}$/
+const UPPER_LIMIT: Partial<Record<FieldType, 'maxLength' | 'max' | 'maxDate'>> = {
+  text: 'maxLength',
+  textarea: 'maxLength',
+  number: 'max',
+  date: 'maxDate',
+}
+
+// Only what the chosen type uses is checked (code review R36): choices or limits typed for another
+// type stay in the form, hidden and ignored, so that switching back restores them; they never
+// block saving. The limits are then checked with the same shared rule as the API.
+const fieldFormSchema = z
+  .object({
+    sectionId: z.string().min(1),
+    label: z.string().trim().min(1, 'Le libellé est obligatoire.').max(500),
+    key: z.union([
+      z.literal(''),
+      z
+        .string()
+        .max(64)
+        .regex(/^[a-z][a-z0-9_]*$/, 'Minuscules, chiffres et « _ », en commençant par une lettre.'),
+    ]),
+    helpText: z.string().max(2000),
+    fieldType: fieldTypeSchema,
+    required: z.boolean(),
+    minAccessLevel: accessLevelSchema,
+    // Input limits (E03.05), as typed; empty = no limit.
+    minLength: z.string(),
+    maxLength: z.string(),
+    min: z.string(),
+    max: z.string(),
+    integer: z.boolean(),
+    minDate: z.string(),
+    maxDate: z.string(),
+    // `key` is absent for a choice added here: the API derives it from the label.
+    choices: z.array(z.object({ key: z.string().optional(), label: z.string() })),
+  })
+  .superRefine((values, ctx) => {
+    const problem = (path: (string | number)[], message: string) =>
+      ctx.addIssue({ code: 'custom', path, message })
+    let valid = true
+    const check = (ok: boolean, path: (string | number)[], message: string) => {
+      if (ok) return
+      valid = false
+      problem(path, message)
+    }
+    switch (values.fieldType) {
+      case 'text':
+      case 'textarea':
+        for (const name of ['minLength', 'maxLength'] as const) {
+          const raw = values[name].trim()
+          check(
+            raw === '' || (LENGTH_LIMIT.test(raw) && Number(raw) >= 1 && Number(raw) <= 10_000),
+            [name],
+            'Nombre entier entre 1 et 10 000.',
+          )
+        }
+        break
+      case 'number':
+        for (const name of ['min', 'max'] as const) {
+          const raw = values[name].trim()
+          check(
+            raw === '' || parseNumber(raw) !== null,
+            [name],
+            `Nombre attendu (ex. 1200 ou 3,5), ${MAX_NUMBER_DIGITS} chiffres au plus.`,
+          )
+        }
+        break
+      case 'select':
+        values.choices.forEach((choice, index) => {
+          const label = choice.label.trim()
+          check(label !== '', ['choices', index, 'label'], 'Libellé du choix obligatoire.')
+          check(label.length <= 500, ['choices', index, 'label'], '500 caractères au plus.')
+        })
+        break
+    }
+    if (!valid) return
+    // Shown under the upper limit (a `root` error would not prevent submitting).
+    const limitsProblem = constraintsProblem(values.fieldType, constraintsOf(values))
+    if (limitsProblem) problem([UPPER_LIMIT[values.fieldType] ?? 'max'], limitsProblem)
+  })
 
 export type FieldFormValues = z.infer<typeof fieldFormSchema>
 
@@ -263,7 +318,7 @@ function FieldForm({
                     </p>
                   )}
                   {errors.choices?.[index]?.label && (
-                    <p className="text-xs text-destructive">
+                    <p role="alert" className="text-xs text-destructive">
                       {errors.choices[index]?.label?.message}
                     </p>
                   )}
@@ -338,7 +393,8 @@ function FormRow({
   )
 }
 
-// Limits that fit the chosen type; the API checks them again (consistency, min ≤ max).
+// Limits that fit the chosen type; the API checks them again (consistency, min ≤ max). Each type
+// has its own keyed block: React must not reuse an input of another type with its typed value.
 function LimitInputs({
   fieldType,
   register,
@@ -350,7 +406,7 @@ function LimitInputs({
 }) {
   if (fieldType === 'text' || fieldType === 'textarea') {
     return (
-      <fieldset className="grid gap-4 sm:grid-cols-2">
+      <fieldset key="text-limits" className="grid gap-4 sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
         <FormRow id="field-min-length" label="Caractères minimum" error={errors.minLength?.message}>
           <Input id="field-min-length" inputMode="numeric" {...register('minLength')} />
@@ -363,7 +419,7 @@ function LimitInputs({
   }
   if (fieldType === 'number') {
     return (
-      <fieldset className="grid gap-4 sm:grid-cols-2">
+      <fieldset key="number-limits" className="grid gap-4 sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
         <FormRow id="field-min" label="Minimum" error={errors.min?.message}>
           <Input id="field-min" inputMode="decimal" {...register('min')} />
@@ -380,12 +436,12 @@ function LimitInputs({
   }
   if (fieldType === 'date') {
     return (
-      <fieldset className="grid gap-4 sm:grid-cols-2">
+      <fieldset key="date-limits" className="grid gap-4 sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium">Limites de saisie (facultatif)</legend>
         <FormRow id="field-min-date" label="Au plus tôt">
           <Input id="field-min-date" type="date" {...register('minDate')} />
         </FormRow>
-        <FormRow id="field-max-date" label="Au plus tard">
+        <FormRow id="field-max-date" label="Au plus tard" error={errors.maxDate?.message}>
           <Input id="field-max-date" type="date" {...register('maxDate')} />
         </FormRow>
       </fieldset>

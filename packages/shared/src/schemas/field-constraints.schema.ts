@@ -1,10 +1,11 @@
 import { z } from 'zod'
+import { isCalendarDate } from '../rules/calendar.js'
 import type { FieldType } from './questionnaire.schema.js'
 
 // Input limits of a field (ROADMAP E03.05), stored in `questionnaire_fields.constraints`. Which
 // limits apply depends on the field type; every limit is optional.
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date attendue au format AAAA-MM-JJ.')
+const isoDate = z.string().refine(isCalendarDate, 'Date attendue au format AAAA-MM-JJ (date réelle).')
 
 export const textConstraintsSchema = z
   .object({
@@ -63,6 +64,15 @@ export function constraintsProblem(fieldType: FieldType, constraints: FieldConst
   }
   if (min !== undefined && max !== undefined && min > max) {
     return 'La valeur minimale dépasse la valeur maximale.'
+  }
+  // No answer could satisfy them (code review R38): e.g. an integer between 0.1 and 0.9.
+  if (
+    constraints.integer &&
+    typeof min === 'number' &&
+    typeof max === 'number' &&
+    Math.ceil(min) > Math.floor(max)
+  ) {
+    return 'Aucun nombre entier ne respecte ces limites.'
   }
   return null
 }

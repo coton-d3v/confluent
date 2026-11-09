@@ -40,7 +40,7 @@ export const formDetailSchema = formSummarySchema.extend({
 
 // Why a draft cannot be published yet; `sectionId`/`fieldId` point at what to fix.
 export const draftProblemSchema = z.object({
-  code: z.enum(['EMPTY_FORM', 'EMPTY_SECTION', 'SELECT_WITHOUT_CHOICES']),
+  code: z.enum(['EMPTY_FORM', 'EMPTY_SECTION', 'SELECT_WITHOUT_CHOICES', 'INVALID_CONSTRAINTS']),
   message: z.string(),
   sectionId: z.string().uuid().optional(),
   fieldId: z.string().uuid().optional(),

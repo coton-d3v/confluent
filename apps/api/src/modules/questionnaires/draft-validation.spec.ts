@@ -32,3 +32,34 @@ describe('validateDraft', () => {
     ])
   })
 })
+
+describe('validateDraft — stored limits (code review R38, R19)', () => {
+  const limited = (id: string, fieldType: string, constraints: object) =>
+    ({
+      id,
+      sectionId: 's1',
+      label: id,
+      fieldType,
+      choices: [],
+      constraints,
+    }) as unknown as QuestionnaireField
+
+  it('blocks publication of limits saved before they were checked and that no answer satisfies', () => {
+    const problems = validateDraft(
+      [section('s1')],
+      [
+        limited('Effectif', 'number', { min: 0.1, max: 0.9, integer: true }),
+        limited('Création', 'date', { min: '2026-99-99' }),
+        limited('Montant', 'number', { min: 0, integer: true }),
+      ],
+    )
+    expect(problems).toEqual([
+      expect.objectContaining({
+        code: 'INVALID_CONSTRAINTS',
+        fieldId: 'Effectif',
+        message: expect.stringContaining('Aucun nombre entier'),
+      }),
+      expect.objectContaining({ code: 'INVALID_CONSTRAINTS', fieldId: 'Création' }),
+    ])
+  })
+})
