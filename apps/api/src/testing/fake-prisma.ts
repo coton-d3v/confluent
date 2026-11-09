@@ -213,6 +213,8 @@ export function createFakePrisma() {
     onModuleInit: () => Promise.resolve(),
     // Row locks (`SELECT … FOR UPDATE`) have no effect in memory: concurrency is tested on PostgreSQL.
     $queryRaw: jest.fn(() => Promise.resolve([])),
+    // Table locks (`LOCK TABLE …`) likewise.
+    $executeRaw: jest.fn(() => Promise.resolve(0)),
     onModuleDestroy: () => Promise.resolve(),
     $transaction: jest.fn((arg: unknown) =>
       Array.isArray(arg)

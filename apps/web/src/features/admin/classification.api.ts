@@ -29,5 +29,9 @@ export const getCoverage = () => apiRequest<ClassificationCoverage>(`${BASE}/cov
 export const previewReclassification = () =>
   apiRequest<ReclassificationPreview>(`${BASE}/reclassification`)
 
-export const applyReclassification = () =>
-  apiRequest<ReclassificationPreview>(`${BASE}/reclassification`, { method: 'POST' })
+// Applies the rules of the preview identified by `rulesRevision` (409 if they changed since).
+export const applyReclassification = (rulesRevision: string) =>
+  apiRequest<ReclassificationPreview>(`${BASE}/reclassification`, {
+    method: 'POST',
+    body: JSON.stringify({ rulesRevision }),
+  })

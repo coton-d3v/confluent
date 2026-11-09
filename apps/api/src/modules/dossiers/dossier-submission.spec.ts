@@ -48,9 +48,11 @@ async function setup() {
     },
   })
   // Computed inside the submission's transaction and written with the submission date (R40).
-  const classify = jest.fn().mockResolvedValue({ sector: 'Biotech' })
+  const classify = jest
+    .fn()
+    .mockResolvedValue({ result: { sector: 'Biotech' }, sources: { sector: ['secteur'] } })
   const svc = new DossiersService(p as never, new QuestionnairesService(p as never), {
-    compute: classify,
+    evaluate: classify,
   } as unknown as ClassificationService)
   const fieldId = (key: string) =>
     [...fake.table('questionnaireField').values()].find((f) => f.key === key)!.id
@@ -79,7 +81,10 @@ describe('DossiersService.submit', () => {
     await answer('nom', 'Biosensio')
     const first = await svc.submit('d-1', 'u-1')
     expect(first.submittedAt).toBeInstanceOf(Date)
-    expect(first.sector).toBe('Biotech')
+    expect(first).toMatchObject({
+      sector: 'Biotech',
+      classificationSources: { sector: ['secteur'] },
+    })
     const firstDate = first.submittedAt!.getTime()
     await new Promise((r) => setTimeout(r, 5))
     const again = await svc.submit('d-1', 'u-1')

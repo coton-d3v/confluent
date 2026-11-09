@@ -46,7 +46,9 @@ describe('AnswersService', () => {
     const lock = jest.fn().mockResolvedValue([])
     const fieldsFindMany = jest.fn().mockResolvedValue(FIELDS)
     const dossierUpdate = jest.fn().mockResolvedValue(dossier)
-    const compute = jest.fn().mockResolvedValue({ sector: 'SaaS' })
+    const compute = jest
+      .fn()
+      .mockResolvedValue({ result: { sector: 'SaaS' }, sources: { sector: ['secteur'] } })
     const tx = {
       $queryRaw: lock,
       dossier: { findUnique: jest.fn().mockResolvedValue(dossier), update: dossierUpdate },
@@ -58,7 +60,7 @@ describe('AnswersService', () => {
       providers: [
         AnswersService,
         { provide: PrismaService, useValue: { $transaction: transaction } },
-        { provide: ClassificationService, useValue: { compute } },
+        { provide: ClassificationService, useValue: { evaluate: compute } },
       ],
     }).compile()
     return {
@@ -126,7 +128,10 @@ describe('AnswersService', () => {
     const { svc, compute, dossierUpdate, tx } = await build({ submittedAt: new Date() })
     await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Biosensio SAS' }])
     expect(compute).toHaveBeenCalledWith('d-1', tx)
-    expect(dossierUpdate).toHaveBeenCalledWith({ where: { id: 'd-1' }, data: { sector: 'SaaS' } })
+    expect(dossierUpdate).toHaveBeenCalledWith({
+      where: { id: 'd-1' },
+      data: { sector: 'SaaS', classificationSources: { sector: ['secteur'] } },
+    })
   })
 
   it('judges by the stored state, not by a copy read before the submission (R40)', async () => {

@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger'
 import type { ClassificationRule } from '@prisma/client'
 import {
+  applyReclassificationSchema,
   createClassificationRuleSchema,
   updateClassificationRuleSchema,
   type ClassificationCoverage,
@@ -34,6 +35,7 @@ import { ReclassificationService } from '../classification/reclassification.serv
 
 class CreateRuleDto extends createZodDto(createClassificationRuleSchema) {}
 class UpdateRuleDto extends createZodDto(updateClassificationRuleSchema) {}
+class ApplyReclassificationDto extends createZodDto(applyReclassificationSchema) {}
 
 // Classification taxonomy and rules (ROADMAP E03.12).
 @ApiTags('Admin · Classification')
@@ -110,9 +112,17 @@ export class AdminClassificationController {
   @ApiOperation({
     summary: 'Reclasser les dossiers soumis',
     description:
-      'Applique les règles actuelles ; chaque dossier modifié est tracé avec ses valeurs avant/après.',
+      'Applique les règles de l’aperçu désigné par `rulesRevision` ; chaque dossier modifié est ' +
+      'tracé avec les valeurs avant/après effectivement écrites. `409` si les règles ont changé ' +
+      'depuis l’aperçu : rien n’est écrit.',
   })
-  apply(@CurrentUser() user: AuthenticatedUser): Promise<ReclassificationPreview> {
-    return this.reclassification.apply(user.id)
+  @ApiConflictResponse({
+    description: 'Règles modifiées depuis l’aperçu (`CLASSIFICATION_RULES_CHANGED`).',
+  })
+  apply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ApplyReclassificationDto,
+  ): Promise<ReclassificationPreview> {
+    return this.reclassification.apply(user.id, body.rulesRevision)
   }
 }

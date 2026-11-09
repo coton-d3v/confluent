@@ -4,7 +4,10 @@ import type { Dossier } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
-import { ClassificationService } from '../classification/classification.service'
+import {
+  ClassificationService,
+  storedClassification,
+} from '../classification/classification.service'
 import { lockDossier } from './dossier-lock'
 import {
   fieldVisibleAt,
@@ -147,14 +150,11 @@ export class DossiersService {
   }
 
   private async derivedDataContext(dossier: Dossier): Promise<DerivedDataContext> {
-    const [fields, rules] = await Promise.all([
-      this.prisma.questionnaireField.findMany({
-        where: { versionId: dossier.questionnaireVersionId },
-        select: { key: true, minAccessLevel: true },
-      }),
-      this.prisma.classificationRule.findMany({ select: { dimension: true, fieldKey: true } }),
-    ])
-    return { fieldLevels: new Map(fields.map((f) => [f.key, f.minAccessLevel])), rules }
+    const fields = await this.prisma.questionnaireField.findMany({
+      where: { versionId: dossier.questionnaireVersionId },
+      select: { key: true, minAccessLevel: true },
+    })
+    return { fieldLevels: new Map(fields.map((f) => [f.key, f.minAccessLevel])) }
   }
 
   async update(params: UpdateDossierParams): Promise<Dossier> {
@@ -195,10 +195,13 @@ export class DossiersService {
           details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
         })
       }
-      const classification = await this.classification.compute(dossierId, tx)
+      const classification = await this.classification.evaluate(dossierId, tx)
       return tx.dossier.update({
         where: { id: dossierId },
-        data: { ...classification, submittedAt: dossier.submittedAt ?? new Date() },
+        data: {
+          ...(classification ? storedClassification(classification) : {}),
+          submittedAt: dossier.submittedAt ?? new Date(),
+        },
       })
     })
   }

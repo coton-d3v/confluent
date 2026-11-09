@@ -1,9 +1,12 @@
-import { Injectable } from '@nestjs/common'
+import { ConflictException, Injectable } from '@nestjs/common'
+import type { ClassificationRule, Prisma } from '@prisma/client'
 import type { ClassificationResult, ReclassificationPreview } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
+import { lockDossier } from '../dossiers/dossier-lock'
+import { rulesRevision } from './classification-sources'
 import { classificationChanges } from './classification.rules'
-import { ClassificationService } from './classification.service'
+import { ClassificationService, storedClassification } from './classification.service'
 
 const COLUMNS = {
   sector: true,
@@ -17,8 +20,12 @@ const COLUMNS = {
   preCreation: true,
 } as const
 
+type Changed = ReclassificationPreview['dossiers']
+
 // Submitted dossiers are classified once, at submission; changing the rules never rewrites them
-// silently (E03.12). An administrator previews what the current rules would change, then applies it.
+// silently (E03.12). An administrator previews what the current rules would change, then applies
+// exactly that set of rules (code review R44): the preview carries the rules' revision, the
+// application refuses another one, and the trace holds the values actually written.
 @Injectable()
 export class ReclassificationService {
   constructor(
@@ -28,34 +35,78 @@ export class ReclassificationService {
   ) {}
 
   async preview(): Promise<ReclassificationPreview> {
-    const dossiers = await this.prisma.dossier.findMany({
-      where: { submittedAt: { not: null } },
-      select: { id: true, name: true, ...COLUMNS },
-      orderBy: { submittedAt: 'asc' },
-    })
-    const changed: ReclassificationPreview['dossiers'] = []
+    const rules = await this.prisma.classificationRule.findMany()
+    const dossiers = await this.submittedDossiers(this.prisma)
+    const changed: Changed = []
     for (const dossier of dossiers) {
-      const next = await this.classification.compute(dossier.id)
+      const next = await this.classification.evaluate(dossier.id, this.prisma, rules)
       if (!next) continue
-      const changes = classificationChanges(currentOf(dossier), next)
+      const changes = classificationChanges(currentOf(dossier), next.result)
       if (changes.length > 0) changed.push({ dossierId: dossier.id, name: dossier.name, changes })
     }
-    return { checked: dossiers.length, dossiers: changed }
+    return { checked: dossiers.length, dossiers: changed, rulesRevision: rulesRevision(rules) }
   }
 
-  // Recomputes and stores, then traces each changed dossier with its before/after values.
-  async apply(actorId: string): Promise<ReclassificationPreview> {
-    const preview = await this.preview()
-    for (const { dossierId, changes } of preview.dossiers) {
-      await this.classification.classify(dossierId)
+  // In one transaction: the rules are held against changes (SHARE lock: rule edits wait for the
+  // end), each dossier is held while it is recomputed and written, so a concurrent answer change
+  // is either included or applied after.
+  async apply(actorId: string, expectedRevision: string): Promise<ReclassificationPreview> {
+    const applied = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`LOCK TABLE "classification_rules" IN SHARE MODE`
+        const rules = await tx.classificationRule.findMany()
+        const revision = rulesRevision(rules)
+        if (revision !== expectedRevision) {
+          throw new ConflictException({
+            code: 'CLASSIFICATION_RULES_CHANGED',
+            message: 'Les règles ont changé depuis l’aperçu : vérifiez à nouveau leur effet.',
+          })
+        }
+        const dossiers = await this.submittedDossiers(tx)
+        const changed: Changed = []
+        for (const { id } of dossiers) {
+          const change = await this.reclassify(tx, id, rules)
+          if (change) changed.push(change)
+        }
+        return { checked: dossiers.length, dossiers: changed, rulesRevision: revision }
+      },
+      { timeout: 60_000 },
+    )
+    for (const { dossierId, changes } of applied.dossiers) {
       await this.audit.record({
         actionType: 'dossier_classified',
         actorId,
         dossierId,
-        metadata: { reason: 'classification_rules_updated', changes },
+        metadata: {
+          reason: 'classification_rules_updated',
+          rulesRevision: applied.rulesRevision,
+          changes,
+        },
       })
     }
-    return preview
+    return applied
+  }
+
+  private async reclassify(
+    tx: Prisma.TransactionClient,
+    dossierId: string,
+    rules: ReadonlyArray<ClassificationRule>,
+  ): Promise<Changed[number] | null> {
+    const current = await lockDossier(tx, dossierId)
+    const next = await this.classification.evaluate(dossierId, tx, rules)
+    if (!next) return null
+    const changes = classificationChanges(currentOf(current), next.result)
+    if (changes.length === 0) return null
+    await tx.dossier.update({ where: { id: dossierId }, data: storedClassification(next) })
+    return { dossierId, name: current.name, changes }
+  }
+
+  private submittedDossiers(db: Prisma.TransactionClient) {
+    return db.dossier.findMany({
+      where: { submittedAt: { not: null } },
+      select: { id: true, name: true, ...COLUMNS },
+      orderBy: { submittedAt: 'asc' },
+    })
   }
 }
 

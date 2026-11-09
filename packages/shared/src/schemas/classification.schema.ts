@@ -161,7 +161,11 @@ export const reclassificationChangeSchema = z.object({
 export const reclassificationPreviewSchema = z.object({
   checked: z.number().int(),
   dossiers: z.array(reclassificationChangeSchema),
+  // Identifies the rules the preview was computed with; applying requires the same (R44).
+  rulesRevision: z.string(),
 })
+
+export const applyReclassificationSchema = z.object({ rulesRevision: z.string().min(1).max(64) })
 
 export type ClassificationRule = z.infer<typeof classificationRuleSchema>
 export type CreateClassificationRuleInput = z.infer<typeof createClassificationRuleSchema>
@@ -171,3 +175,4 @@ export type ClassificationCoverage = z.infer<typeof classificationCoverageSchema
 export type ClassificationResult = z.infer<typeof classificationResultSchema>
 export type ReclassificationChange = z.infer<typeof reclassificationChangeSchema>
 export type ReclassificationPreview = z.infer<typeof reclassificationPreviewSchema>
+export type ApplyReclassificationInput = z.infer<typeof applyReclassificationSchema>

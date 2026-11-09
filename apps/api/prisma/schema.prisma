@@ -225,6 +225,9 @@ model Dossier {
   axe3Origine            Int?      @map("axe3_origine")
   deeptechScore          Int?      @map("deeptech_score")
   preCreation            Boolean?  @map("pre_creation")
+  // Field keys each classification column was computed from, recorded with the values (code
+  // review R31): what a share may see is judged on them, not on the rules as they are now.
+  classificationSources  Json?     @map("classification_sources")
   submittedAt            DateTime? @map("submitted_at")
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
