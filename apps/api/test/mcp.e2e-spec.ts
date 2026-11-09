@@ -239,6 +239,65 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     await c.close()
   })
 
+  // E03.11: an attachment field is answered by a document, never by a value; get_dossier lists its
+  // documents and reports it missing like the submission check does.
+  it('describes an attachment field by its documents and counts it in missingRequired', async () => {
+    await fake.prisma.questionnaireField.create({
+      data: {
+        id: 'f-kbis',
+        versionId: 'v-2',
+        sectionId: 's-identite',
+        key: 'kbis',
+        label: 'Extrait Kbis',
+        fieldType: 'file',
+        required: true,
+        orderIndex: 1,
+      },
+    })
+    const c = await client(await connect('u-1', ['dossiers:read', 'dossiers:write']))
+    const kbisOf = (described: Record<string, unknown>) =>
+      (described.sections as Array<{ fields: Array<Record<string, unknown>> }>)
+        .flatMap((sec) => sec.fields)
+        .find((f) => f.fieldId === 'f-kbis')
+    const missingLabels = (described: Record<string, unknown>) =>
+      (described.missingRequired as Array<{ label: string }>).map((m) => m.label)
+
+    const before = json(
+      await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+    )
+    expect(kbisOf(before)).toMatchObject({ type: 'file', required: true, documents: [] })
+    expect(kbisOf(before)).not.toHaveProperty('answer')
+    expect(missingLabels(before)).toContain('Extrait Kbis')
+
+    const written = await c.callTool({
+      name: 'update_answers',
+      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-kbis', value: 'kbis.pdf' }] },
+    })
+    expect(written.isError).toBe(true)
+    expect((written.content as Array<{ text: string }>)[0].text).toContain('déposez le fichier')
+
+    await fake.prisma.document.create({
+      data: {
+        dossierId: '11111111-1111-4111-8111-111111111111',
+        filename: 'kbis.pdf',
+        version: 1,
+        storageKey: 'dossiers/x/lost',
+        mimetype: 'application/pdf',
+        size: 12,
+        fieldId: 'f-kbis',
+      },
+    })
+    const after = json(
+      await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+    )
+    expect(kbisOf(after)).toMatchObject({
+      documents: [{ filename: 'kbis.pdf', version: 1, availability: 'missing', size: 12 }],
+    })
+    expect(JSON.stringify(after)).not.toContain('memory://')
+    expect(missingLabels(after)).not.toContain('Extrait Kbis')
+    await c.close()
+  })
+
   it('refuses invalid values and fields of another questionnaire version, saving nothing', async () => {
     const c = await client(await connect('u-1', ['dossiers:write']))
     const bad = await c.callTool({

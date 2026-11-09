@@ -9,6 +9,7 @@ import {
   storedClassification,
 } from '../classification/classification.service'
 import { lockDossier } from './dossier-lock'
+import { attachedFieldIds } from '../documents/attached-fields'
 import {
   fieldVisibleAt,
   grantedLevel,
@@ -180,13 +181,15 @@ export class DossiersService {
     const { id: dossierId } = await this.getByIdForUser(id, userId)
     return this.prisma.$transaction(async (tx) => {
       const dossier = await lockDossier(tx, dossierId)
-      const [structure, answers] = await Promise.all([
+      const [structure, answers, attached] = await Promise.all([
         this.questionnaires.getVersion(dossier.questionnaireVersionId),
         tx.dossierAnswer.findMany({ where: { dossierId } }),
+        attachedFieldIds(tx, dossierId),
       ])
       const missing = missingRequiredAnswers(
         structure?.fields ?? [],
         Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
+        attached,
       )
       if (missing.length > 0) {
         throw new UnprocessableEntityException({

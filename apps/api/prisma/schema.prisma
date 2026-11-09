@@ -202,8 +202,9 @@ model QuestionnaireField {
   minAccessLevel String     @default("complet") @map("min_access_level")
 
   version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  section QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  answers DossierAnswer[]
+  section   QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  answers   DossierAnswer[]
+  documents Document[]
 
   @@unique([versionId, key])
   @@index([versionId, orderIndex])
@@ -252,12 +253,17 @@ model Document {
   storageKey String   @map("storage_key")
   size       Int
   version    Int      @default(1)
+  // Attachment field of the dossier's form this file answers (E03.11), null for a document added
+  // from the Documents tab. The field's read level then applies to the file.
+  fieldId    String?  @map("field_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  dossier Dossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossier Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  field   QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
 
-  @@unique([dossierId, filename, version])
+  @@unique([dossierId, fieldId, filename, version])
   @@index([dossierId])
+  @@index([fieldId])
   @@map("documents")
 }
 

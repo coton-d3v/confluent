@@ -83,7 +83,7 @@ describe('validateAnswerValue', () => {
 
   it('always accepts an empty string (clearing an answer) and refuses file fields', () => {
     expect(validateAnswerValue(field('number'), '')).toBeNull()
-    expect(validateAnswerValue(field('file'), 'x')).toContain('dépôt de documents')
+    expect(validateAnswerValue(field('file'), 'x')).toContain('déposez le fichier')
   })
 
   it('caps the length', () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  BadRequestException,
   HttpException,
   Inject,
   Injectable,
@@ -8,13 +9,17 @@ import {
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
-import { Prisma, type Document } from '@prisma/client'
+import type { Document } from '@prisma/client'
 import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
   MAX_DOCUMENT_BYTES,
+  grantsAccess,
+  type AccessLevel,
   type DocumentAvailability,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { lockDossier } from '../dossiers/dossier-lock'
+import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt } from '../dossiers/financeur-access'
 import { detectDocumentType } from './document-types'
 import {
   MAX_SIGNED_URL_SECONDS,
@@ -25,7 +30,6 @@ import {
 } from './storage/storage.adapter'
 
 export const MAX_UPLOAD_BYTES = MAX_DOCUMENT_BYTES
-const MAX_VERSION_ATTEMPTS = 5
 // Storage checks of one listing run a few at a time, not one request per version at once.
 const LISTING_CONCURRENCY = 8
 
@@ -50,10 +54,13 @@ export interface DocumentVersionView {
   createdAt: Date
   mimetype: string
   size: number
+  fieldId: string | null
 }
 
 export interface DocumentGroup {
   filename: string
+  // The question the document answers (every version answers the same one, R48).
+  fieldId: string | null
   current: DocumentVersionView
   versions: DocumentVersionView[]
 }
@@ -69,7 +76,14 @@ export class DocumentsService {
 
   // The type announced by the browser is ignored: the stored and served type is the one recognised
   // in the content, and only accepted formats are stored.
-  async upload(params: { dossierId: string; filename: string; buffer: Buffer }): Promise<Document> {
+  // `fieldId` attaches the file to an attachment field of the dossier's form (E03.11); it is checked
+  // before anything is stored.
+  async upload(params: {
+    dossierId: string
+    filename: string
+    buffer: Buffer
+    fieldId?: string | null
+  }): Promise<Document> {
     // Normally enforced earlier by the multipart limit; kept for callers other than the controller.
     if (params.buffer.byteLength > MAX_UPLOAD_BYTES) {
       throw new PayloadTooLargeException({
@@ -85,51 +99,61 @@ export class DocumentsService {
         message: `Format non accepté. Formats acceptés : ${ACCEPTED_DOCUMENT_FORMATS_LABEL}.`,
       })
     }
+    const fieldId = params.fieldId
+      ? await this.attachmentField(params.dossierId, params.fieldId)
+      : null
     // Opaque key: the client-supplied name can neither escape the dossier prefix nor overwrite
     // another version's object.
     const storageKey = `dossiers/${params.dossierId}/${randomUUID()}`
     await this.store(storageKey, params.buffer, mimetype)
     try {
-      // Two uploads of the same name can race for the same version: the unique index
-      // (dossier, filename, version) makes the loser retry with the next number.
-      for (let attempt = 1; ; attempt++) {
-        const previous = await this.prisma.document.findFirst({
-          where: { dossierId: params.dossierId, filename },
+      // A document is versioned per question it answers (R48). Numbers are assigned under the
+      // dossier's row lock, like every write that depends on the dossier's state (R40): two uploads
+      // of the same name never get the same version, attached or not (the unique index cannot
+      // protect files without a question, whose field id is NULL).
+      return await this.prisma.$transaction(async (tx) => {
+        await lockDossier(tx, params.dossierId)
+        const previous = await tx.document.findFirst({
+          where: { dossierId: params.dossierId, fieldId, filename },
           orderBy: { version: 'desc' },
           select: { version: true },
         })
-        try {
-          return await this.prisma.document.create({
-            data: {
-              dossierId: params.dossierId,
-              filename,
-              mimetype,
-              storageKey,
-              size: params.buffer.byteLength,
-              version: (previous?.version ?? 0) + 1,
-            },
-          })
-        } catch (err) {
-          const conflict =
-            err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
-          if (!conflict || attempt >= MAX_VERSION_ATTEMPTS) throw err
-        }
-      }
+        return tx.document.create({
+          data: {
+            dossierId: params.dossierId,
+            filename,
+            mimetype,
+            storageKey,
+            size: params.buffer.byteLength,
+            version: (previous?.version ?? 0) + 1,
+            fieldId,
+          },
+        })
+      })
     } catch (err) {
       await this.storage.delete(storageKey).catch(() => undefined)
       throw err
     }
   }
 
-  async listForDossier(dossierId: string): Promise<DocumentGroup[]> {
-    const rows = await this.prisma.document.findMany({
-      where: { dossierId },
-      orderBy: [{ filename: 'asc' }, { version: 'desc' }],
-    })
+  // The versions `level` may read (E03.11): a file attached to a field follows that field's read
+  // level, any other file requires DOCUMENTS_MIN_LEVEL. Hidden versions are neither listed nor
+  // signed; a group whose versions are all hidden is left out.
+  async listForDossier(dossierId: string, level: AccessLevel): Promise<DocumentGroup[]> {
+    const rows = (
+      await this.prisma.document.findMany({
+        where: { dossierId },
+        orderBy: [{ filename: 'asc' }, { version: 'desc' }],
+        include: { field: { select: { minAccessLevel: true } } },
+      })
+    ).filter((row) =>
+      row.field ? fieldVisibleAt(row.field, level) : grantsAccess(level, DOCUMENTS_MIN_LEVEL),
+    )
     const downloads = await mapWithConcurrency(rows, LISTING_CONCURRENCY, (row) =>
       this.download(row.storageKey, row.filename),
     )
-    const byName = new Map<string, DocumentVersionView[]>()
+    // A document is a file name answering one question (or none): grouped and versioned apart (R48).
+    const byDocument = new Map<string, { filename: string; versions: DocumentVersionView[] }>()
     rows.forEach((row, i) => {
       const view: DocumentVersionView = {
         version: row.version,
@@ -137,16 +161,40 @@ export class DocumentsService {
         createdAt: row.createdAt,
         mimetype: row.mimetype,
         size: row.size,
+        fieldId: row.fieldId,
       }
-      const bucket = byName.get(row.filename) ?? []
-      bucket.push(view)
-      byName.set(row.filename, bucket)
+      const key = `${row.fieldId ?? ''}/${row.filename}`
+      const document = byDocument.get(key) ?? { filename: row.filename, versions: [] }
+      document.versions.push(view)
+      byDocument.set(key, document)
     })
-    return [...byName.entries()].map(([filename, versions]) => ({
+    return [...byDocument.values()].map(({ filename, versions }) => ({
       filename,
+      fieldId: versions[0].fieldId,
       current: versions[0],
       versions,
     }))
+  }
+
+  // A document may only answer an attachment field of the dossier's own form version.
+  private async attachmentField(dossierId: string, fieldId: string): Promise<string> {
+    const dossier = await this.prisma.dossier.findUnique({
+      where: { id: dossierId },
+      select: { questionnaireVersionId: true },
+    })
+    const field = dossier
+      ? await this.prisma.questionnaireField.findFirst({
+          where: { id: fieldId, versionId: dossier.questionnaireVersionId, fieldType: 'file' },
+          select: { id: true },
+        })
+      : null
+    if (!field) {
+      throw new BadRequestException({
+        code: 'INVALID_DOCUMENT_FIELD',
+        message: 'Ce champ n’attend pas de document dans ce dossier.',
+      })
+    }
+    return field.id
   }
 
   private async store(key: string, buffer: Buffer, mimetype: string): Promise<void> {

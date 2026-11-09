@@ -264,7 +264,7 @@ describe('ShareLinksService', () => {
       return { res, mocks }
     }
 
-    it('public: identity answers + public classification only, no documents', async () => {
+    it('public: identity answers + public classification only, documents read at that level', async () => {
       const { res, mocks } = await resolve('public')
       expect(res.share.accessLevel).toBe('public')
       expect(res.fields.map((f) => f.id)).toEqual(['f-name'])
@@ -277,15 +277,16 @@ describe('ShareLinksService', () => {
         'public',
       )
       expect(res.dossier).toMatchObject({ sector: 'biotech', axe2Financier: null })
-      expect(res.documents).toBeNull()
-      expect(mocks.documents.listForDossier).not.toHaveBeenCalled()
+      // Documents are filtered by DocumentsService at the level of this link (E03.11).
+      expect(mocks.documents.listForDossier).toHaveBeenCalledWith('d-1', 'public')
+      expect(res.documents).toEqual(docs)
     })
 
-    it('partiel: everything but financial data, no documents', async () => {
-      const { res } = await resolve('partiel')
+    it('partiel: everything but financial data, documents read at that level', async () => {
+      const { res, mocks } = await resolve('partiel')
       expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name', 'f-origine'])
       expect(res.dossier).toMatchObject({ axe1Projet: 3, axe2Financier: null })
-      expect(res.documents).toBeNull()
+      expect(mocks.documents.listForDossier).toHaveBeenCalledWith('d-1', 'partiel')
     })
 
     it('complet: all answers, all classification, documents', async () => {

@@ -117,6 +117,123 @@ describe('Document upload (e2e)', () => {
     ])
   })
 
+  describe('attachment fields (E03.11)', () => {
+    const upload = (fieldId: string | null, filename = 'kbis.pdf') => {
+      const req = request(app.getHttpServer())
+        .post('/v1/dossiers/d-1/documents')
+        .set('Authorization', `Bearer ${jwt}`)
+      if (fieldId !== null) req.field('fieldId', fieldId)
+      return req.attach('file', Buffer.from('%PDF-1.4 test'), filename)
+    }
+
+    beforeEach(async () => {
+      const p = fake.prisma
+      const field = (id: string, versionId: string, fieldType: string, minAccessLevel: string) =>
+        p.questionnaireField.create({
+          data: {
+            id,
+            versionId,
+            sectionId: 's-1',
+            key: id,
+            label: id,
+            fieldType,
+            orderIndex: 0,
+            minAccessLevel,
+          },
+        })
+      await field('f-kbis', 'v-1', 'file', 'partiel')
+      await field('f-name', 'v-1', 'text', 'public')
+      await field('f-other-version', 'v-0', 'file', 'public')
+    })
+
+    it('attaches an upload to an attachment field of the dossier version', async () => {
+      const res = await upload('f-kbis').expect(201)
+      expect(res.body).toMatchObject({ filename: 'kbis.pdf', version: 1, fieldId: 'f-kbis' })
+      const list = await request(app.getHttpServer())
+        .get('/v1/dossiers/d-1/documents')
+        .set('Authorization', `Bearer ${jwt}`)
+        .expect(200)
+      expect(list.body).toEqual([
+        expect.objectContaining({
+          filename: 'kbis.pdf',
+          fieldId: 'f-kbis',
+          current: expect.objectContaining({ fieldId: 'f-kbis' }),
+        }),
+      ])
+    })
+
+    // Code review R48: the same file name sent for two questions answers each of them.
+    it('keeps a file of the same name under each question it was sent for, both as version 1', async () => {
+      await fake.prisma.questionnaireField.create({
+        data: {
+          id: 'f-statuts',
+          versionId: 'v-1',
+          sectionId: 's-1',
+          key: 'statuts',
+          label: 'statuts',
+          fieldType: 'file',
+          orderIndex: 1,
+          minAccessLevel: 'complet',
+        },
+      })
+      const first = await upload('f-kbis', 'scan.pdf').expect(201)
+      const second = await upload('f-statuts', 'scan.pdf').expect(201)
+      expect([first.body.version, second.body.version]).toEqual([1, 1])
+      const list = await request(app.getHttpServer())
+        .get('/v1/dossiers/d-1/documents')
+        .set('Authorization', `Bearer ${jwt}`)
+        .expect(200)
+      expect(
+        list.body.map((g: { fieldId: string; filename: string }) => [g.fieldId, g.filename]),
+      ).toEqual([
+        ['f-kbis', 'scan.pdf'],
+        ['f-statuts', 'scan.pdf'],
+      ])
+    })
+
+    it.each([
+      ['a field that is not an attachment', 'f-name'],
+      ['an attachment field of another version', 'f-other-version'],
+      ['an unknown field', 'f-nope'],
+    ])('refuses %s with 400 and stores nothing', async (_case, fieldId) => {
+      const res = await upload(fieldId)
+      expect(res.status).toBe(400)
+      expect(res.body.error.message).toMatch(/n’attend pas de document/)
+      expect(fake.table('document').size).toBe(0)
+    })
+
+    it('lists to a financeur only the files their share level may read, instead of refusing', async () => {
+      await upload('f-kbis').expect(201)
+      await upload(null, 'annexe.pdf').expect(201)
+      await fake.prisma.user.create({
+        data: {
+          id: 'u-fin',
+          email: 'bob@invest.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await fake.prisma.shareLink.create({
+        data: {
+          dossierId: 'd-1',
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'partiel',
+          token: 't',
+        },
+      })
+      const financeurJwt = await new JwtService().signAsync(
+        { sub: 'u-fin', email: 'bob@invest.fr', role: 'financeur' },
+        { secret: process.env.JWT_SECRET },
+      )
+      const res = await request(app.getHttpServer())
+        .get('/v1/dossiers/d-1/documents')
+        .set('Authorization', `Bearer ${financeurJwt}`)
+        .expect(200)
+      expect(res.body.map((g: { filename: string }) => g.filename)).toEqual(['kbis.pdf'])
+    })
+  })
+
   it('keeps an accented file name as typed (browsers send it in UTF-8)', async () => {
     const res = await request(app.getHttpServer())
       .post('/v1/dossiers/d-1/documents')

@@ -9,6 +9,8 @@ import { AnswersService } from '../answers/answers.service'
 import { InvalidAnswersException } from '../answers/invalid-answers.exception'
 import { AuditService } from '../audit/audit.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import { attachedFieldIds } from '../documents/attached-fields'
+import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { fieldVisibleAt } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
@@ -53,6 +55,7 @@ export class McpToolsFactory {
     private readonly dossiers: DossiersService,
     private readonly answers: AnswersService,
     private readonly questionnaires: QuestionnairesService,
+    private readonly documents: DocumentsService,
     private readonly audit: AuditService,
   ) {}
 
@@ -127,8 +130,9 @@ export class McpToolsFactory {
           'Questions du dossier (version de questionnaire du dossier), groupées par section, avec ' +
           'pour chacune fieldId, type, choix possibles (clé et libellé), limites de saisie, ' +
           'obligatoire, et réponse ' +
-          'actuelle (clé du choix pour une liste, avec son libellé) ; plus la liste des ' +
-          'champs obligatoires sans réponse. Utilisez les fieldId pour update_answers.',
+          'actuelle (clé du choix pour une liste, avec son libellé) ; pour un champ de type « file », ' +
+          'les documents déposés (nom, version, disponibilité) au lieu d’une réponse ; plus la liste des ' +
+          'champs obligatoires sans réponse ni document. Utilisez les fieldId pour update_answers.',
         inputSchema: { dossier: dossierRef },
         annotations: { readOnlyHint: true },
       },
@@ -147,7 +151,8 @@ export class McpToolsFactory {
           'Enregistre une ou plusieurs réponses dans un dossier dont vous êtes propriétaire. ' +
           'Chaque réponse cible un fieldId de get_dossier. Valeurs : texte libre ; nombre ("1200" ou ' +
           '"3,5") ; date "AAAA-MM-JJ" ; case à cocher "true"/"false" ; liste : la clé d’un des ' +
-          'choix (son libellé exact est aussi accepté). Une chaîne vide efface la réponse. Rien n’est enregistré si une valeur est invalide.',
+          'choix (son libellé exact est aussi accepté). Une chaîne vide efface la réponse. Un champ ' +
+          '« file » attend un document déposé dans le dossier, pas une valeur. Rien n’est enregistré si une valeur est invalide.',
         inputSchema: {
           dossier: dossierRef,
           answers: z
@@ -259,11 +264,15 @@ export class McpToolsFactory {
     const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
     const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
     const visible = new Set(fields.map((f) => f.id))
+    const [answerRows, documents, attached] = await Promise.all([
+      this.answers.listForDossier(dossier.id),
+      this.documents.listForDossier(dossier.id, accessLevel),
+      attachedFieldIds(this.prisma, dossier.id),
+    ])
     const answers = new Map(
-      (await this.answers.listForDossier(dossier.id))
-        .filter((a) => visible.has(a.fieldId))
-        .map((a) => [a.fieldId, a.value]),
+      answerRows.filter((a) => visible.has(a.fieldId)).map((a) => [a.fieldId, a.value]),
     )
+    const filesByField = documentsByField(documents)
     // Sections in their defined order, each with its visible fields (already ordered).
     const sections = (structure?.sections ?? [])
       .map((section) => ({
@@ -278,7 +287,9 @@ export class McpToolsFactory {
             ...limitsOf(f),
             type: f.fieldType,
             required: f.required,
-            ...describeChoices(f, answers.get(f.id) ?? null),
+            ...(f.fieldType === 'file'
+              ? { documents: filesByField.get(f.id) ?? [] }
+              : describeChoices(f, answers.get(f.id) ?? null)),
           })),
       }))
       .filter((section) => section.fields.length > 0)
@@ -301,13 +312,36 @@ export class McpToolsFactory {
       },
       canEdit: isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write),
       sections,
-      // Same rule as the submission check (shared): attachments are not answers yet.
-      missingRequired: missingRequiredAnswers(fields, Object.fromEntries(answers)).map((f) => ({
-        fieldId: f.id,
-        label: f.label,
-      })),
+      // Same rule as the submission check (shared): an attachment field needs a document.
+      missingRequired: missingRequiredAnswers(fields, Object.fromEntries(answers), attached).map(
+        (f) => ({
+          fieldId: f.id,
+          label: f.label,
+        }),
+      ),
     }
   }
+}
+
+// Documents answering each attachment field, as the level may read them. No download URL here:
+// reading the files through MCP is E04.03.
+function documentsByField(groups: DocumentGroup[]) {
+  const byField = new Map<
+    string,
+    Array<{ filename: string; version: number; availability: string; size: number }>
+  >()
+  for (const group of groups) {
+    if (!group.fieldId) continue
+    const list = byField.get(group.fieldId) ?? []
+    list.push({
+      filename: group.filename,
+      version: group.current.version,
+      availability: group.current.availability,
+      size: group.current.size,
+    })
+    byField.set(group.fieldId, list)
+  }
+  return byField
 }
 
 // A list field exposes its choices; its answer is a choice key, given with the label it displays.

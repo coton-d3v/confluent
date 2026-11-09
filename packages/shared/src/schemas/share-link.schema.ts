@@ -33,7 +33,7 @@ export const createShareLinkSchema = z.object({
 })
 
 // What a financeur sees through a share link, already filtered server-side by `share.accessLevel`:
-// `fields`/`answers` only contain fields the level may read, `documents` is null below `complet`.
+// `fields`/`answers` only contain fields the level may read, `documents` only lists the versions the level may read (an attachment follows its field, any other document requires `complet`).
 export const financeurShareResponseSchema = z.object({
   dossier: dossierSchema.pick({
     id: true,
@@ -57,7 +57,7 @@ export const financeurShareResponseSchema = z.object({
   sections: z.array(questionnaireSectionSchema),
   fields: z.array(questionnaireFieldSchema),
   answers: z.array(z.object({ fieldId: z.string().uuid(), value: z.string() })),
-  documents: z.array(documentGroupSchema).nullable(),
+  documents: z.array(documentGroupSchema),
 })
 
 export type ShareLinkStatus = z.infer<typeof shareLinkStatusSchema>
