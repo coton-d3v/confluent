@@ -20,6 +20,8 @@ export interface QuestionnaireStepProps {
   onAdvance: (cleaned: string) => void
   onBack: () => void
   canGoBack: boolean
+  // The answer is being saved before moving on: nothing can be changed meanwhile (R22).
+  busy?: boolean
   returnToSummary?: { onReturn: () => void }
 }
 
@@ -49,6 +51,7 @@ export function QuestionnaireStep({
   onAdvance,
   onBack,
   canGoBack,
+  busy = false,
   returnToSummary,
 }: QuestionnaireStepProps) {
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +65,7 @@ export function QuestionnaireStep({
 
   // The same rules as the API (shared package): an answer the API would refuse never leaves here.
   function submit(answer: string) {
+    if (busy) return
     if (answer === '' && question.required) {
       setError('Cette question est obligatoire.')
       return
@@ -78,6 +82,7 @@ export function QuestionnaireStep({
   }
 
   function handleChange(next: string) {
+    if (busy) return
     setError(null)
     onChange(next)
   }
@@ -115,7 +120,12 @@ export function QuestionnaireStep({
   const maxLength = readConstraints(question.fieldType, question.constraints).maxLength ?? ANSWER_MAX_LENGTH
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="mx-auto flex max-w-xl flex-col gap-6 pt-8">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      aria-busy={busy}
+      className="mx-auto flex max-w-xl flex-col gap-6 pt-8"
+    >
       <div className="text-xs text-muted-foreground">{indicatorText}</div>
 
       <h1
@@ -143,6 +153,7 @@ export function QuestionnaireStep({
               role="radio"
               aria-checked={value === choice.key}
               onClick={() => handleChoice(choice.key)}
+              disabled={busy}
               className={cn(
                 'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
                 'hover:border-foreground/40 hover:bg-muted/50',
@@ -163,6 +174,7 @@ export function QuestionnaireStep({
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          readOnly={busy}
           aria-labelledby={headingId}
           aria-describedby={describedBy}
           aria-invalid={error ? 'true' : undefined}
@@ -175,6 +187,7 @@ export function QuestionnaireStep({
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          readOnly={busy}
           aria-labelledby={headingId}
           aria-describedby={describedBy}
           aria-invalid={error ? 'true' : undefined}
@@ -213,7 +226,7 @@ export function QuestionnaireStep({
               type="submit"
               size="lg"
               className="h-11 px-4"
-              disabled={question.required && cleaned.length === 0}
+              disabled={busy || (question.required && cleaned.length === 0)}
             >
               OK <span aria-hidden="true">→</span>
             </Button>
@@ -223,7 +236,14 @@ export function QuestionnaireStep({
           </>
         )}
         {(question.fieldType === 'file' || (!question.required && cleaned.length === 0)) && (
-          <Button type="button" variant="outline" size="lg" className="h-11 px-4" onClick={() => onAdvance('')}>
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="h-11 px-4"
+            disabled={busy}
+            onClick={() => onAdvance('')}
+          >
             {question.fieldType === 'file' ? 'Continuer' : 'Passer'} <span aria-hidden="true">→</span>
           </Button>
         )}
