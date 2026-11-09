@@ -76,6 +76,56 @@ export async function apiRequest<T>(
   return (await res.json()) as T
 }
 
+export interface UploadOptions {
+  // Share of the request body already sent, from 0 to 1.
+  onProgress?: (fraction: number) => void
+  signal?: AbortSignal
+}
+
+// Same contract as `apiRequest` (session, refresh replayed only for the same account, ApiError), for
+// a multipart upload whose progress the page shows: `fetch` does not report upload progress.
+export async function apiUpload<T>(path: string, body: FormData, opts: UploadOptions = {}): Promise<T> {
+  const account = getAuthState().user?.id ?? null
+  let res = await sendUpload(path, body, opts)
+  if (res.status === 401 && account !== null) {
+    const refreshed = await refreshSession()
+    if (refreshed && getAuthState().user?.id === account) {
+      opts.onProgress?.(0)
+      res = await sendUpload(path, body, opts)
+    }
+  }
+  if (!res.ok) throw await parseError(res)
+  return (await res.json()) as T
+}
+
+function sendUpload(path: string, body: FormData, opts: UploadOptions): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE_URL}${path}`)
+    xhr.withCredentials = true
+    const { accessToken } = getAuthState()
+    if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) opts.onProgress?.(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      const headers = new Headers()
+      const retryAfter = xhr.getResponseHeader('Retry-After')
+      if (retryAfter) headers.set('Retry-After', retryAfter)
+      // A 204 cannot carry a body in a Response.
+      resolve(new Response(xhr.status === 204 ? null : xhr.responseText, { status: xhr.status, headers }))
+    }
+    // No answer: same as a failed `fetch` (network error), the upload may be retried.
+    xhr.onerror = () => reject(new TypeError('Network request failed'))
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
+    if (opts.signal) {
+      if (opts.signal.aborted) return xhr.abort()
+      opts.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    }
+    xhr.send(body)
+  })
+}
+
 // Refresh tokens are single-use server-side (rotation). Concurrent 401s — or the boot loader racing a
 // request — must share ONE refresh call: a second call with the same cookie would be refused and log
 // the user out.

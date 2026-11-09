@@ -5,6 +5,7 @@ import {
   TECH_TAG_LABELS,
   type AccessLevel,
   type DocumentGroup,
+  type DocumentVersion,
   type FinanceurShareResponse,
 } from '@confluent/shared'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
@@ -132,7 +133,7 @@ function SharedDocuments({ documents }: { documents: DocumentGroup[] }) {
                   Version {doc.current.version} · {formatSize(doc.current.size)}
                 </p>
               </div>
-              <DocumentLink url={doc.current.url} />
+              <DocumentLink version={doc.current} />
             </li>
           ))}
         </ul>
@@ -141,24 +142,21 @@ function SharedDocuments({ documents }: { documents: DocumentGroup[] }) {
   )
 }
 
-// `null`: the stored file could not be reached (in-memory storage after an API restart).
-// `memory://`: until real storage lands (story 12.7), the file exists but a browser cannot open it.
-function DocumentLink({ url }: { url: string | null }) {
-  if (url === null) {
-    return <span className="shrink-0 text-xs text-muted-foreground">Fichier indisponible</span>
-  }
-  if (!/^https?:\/\//.test(url)) {
-    return <span className="shrink-0 text-xs text-muted-foreground">Téléchargement bientôt disponible</span>
+function DocumentLink({ version }: { version: DocumentVersion }) {
+  if (version.availability === 'available' && version.url) {
+    return (
+      <a
+        href={version.url}
+        className="shrink-0 text-sm font-medium text-foreground underline underline-offset-4"
+      >
+        Télécharger
+      </a>
+    )
   }
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="shrink-0 text-sm font-medium text-foreground underline underline-offset-4"
-    >
-      Ouvrir
-    </a>
+    <span className="shrink-0 text-xs text-muted-foreground">
+      {version.availability === 'missing' ? 'Fichier à redéposer par le porteur' : 'Momentanément indisponible'}
+    </span>
   )
 }
 
