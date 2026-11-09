@@ -35,7 +35,7 @@ export default function AdminFormEditorRoute() {
 
 function FormEditor({ formId }: { formId: string }) {
   const navigate = useNavigate()
-  const { data, error, busy, run } = useFormEditor(formId)
+  const { data, error, stale, busy, run, refresh } = useFormEditor(formId)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const [nameRequest, setNameRequest] = useState<NameRequest | null>(null)
   const [fieldRequest, setFieldRequest] = useState<FieldEditorRequest | null>(null)
@@ -123,6 +123,17 @@ function FormEditor({ formId }: { formId: string }) {
         {' / '}
         <span className="text-foreground">{detail.name}</span>
       </nav>
+      {stale && (
+        <div
+          role="alert"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm"
+        >
+          <span>L’affichage n’est peut-être plus à jour : la dernière lecture a échoué.</span>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void refresh()}>
+            Actualiser
+          </Button>
+        </div>
+      )}
 
       <header className="mt-4 flex flex-col gap-3">
         <InlineTextEdit

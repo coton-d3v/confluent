@@ -1,4 +1,5 @@
 import { readConstraints } from '../schemas/field-constraints.schema.js'
+import { isCalendarDate } from './calendar.js'
 import type { Choice, FieldType } from '../schemas/questionnaire.schema.js'
 
 // Answer rules shared by the API (authoritative) and the site (immediate feedback), so that both
@@ -14,12 +15,22 @@ export const ANSWER_MAX_LENGTH = 10_000
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const NUMBER = /^-?\d+([.,]\d+)?$/
-const DATE = /^\d{4}-\d{2}-\d{2}$/
+// Beyond 15 significant digits a double rounds silently: such a value is refused rather than
+// compared to limits in an uncontrolled way (code review R39).
+export const MAX_NUMBER_DIGITS = 15
 
-// "3,5" and "3.5" are the same number.
+// "3,5" and "3.5" are the same number. Null for anything else, including what would not be a finite,
+// exactly representable decimal (e.g. 400 digits → Infinity).
 export function parseNumber(value: string): number | null {
   const trimmed = value.trim()
-  return NUMBER.test(trimmed) ? Number(trimmed.replace(',', '.')) : null
+  if (!NUMBER.test(trimmed) || significantDigits(trimmed) > MAX_NUMBER_DIGITS) return null
+  const n = Number(trimmed.replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+function significantDigits(number: string): number {
+  const [int, frac = ''] = number.replace(/^-/, '').split(/[.,]/)
+  return `${int}${frac.replace(/0+$/, '')}`.replace(/^0+/, '').length
 }
 
 // French typography, identical in every runtime (no dependency on the ICU data available):
@@ -53,7 +64,11 @@ export function validateAnswerValue(field: AnswerField, value: string): string |
       return EMAIL.test(value.trim()) ? null : 'Adresse email invalide.'
     case 'number': {
       const n = parseNumber(value)
-      if (n === null) return 'Nombre attendu (ex. 1200 ou 3,5).'
+      if (n === null) {
+        return NUMBER.test(value.trim())
+          ? `Nombre trop long : ${MAX_NUMBER_DIGITS} chiffres significatifs au plus.`
+          : 'Nombre attendu (ex. 1200 ou 3,5).'
+      }
       if (constraints.integer && !Number.isInteger(n)) return 'Nombre entier attendu.'
       if (typeof constraints.min === 'number' && n < constraints.min) {
         return `Valeur minimale : ${formatNumber(constraints.min)}.`
@@ -64,7 +79,7 @@ export function validateAnswerValue(field: AnswerField, value: string): string |
       return null
     }
     case 'date': {
-      if (!DATE.test(value) || Number.isNaN(Date.parse(value))) {
+      if (!isCalendarDate(value)) {
         return 'Date attendue au format AAAA-MM-JJ.'
       }
       if (typeof constraints.min === 'string' && value < constraints.min) {

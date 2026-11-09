@@ -25,18 +25,26 @@ export function errorMessage(err: unknown, fallback = 'L’opération a échoué
 }
 
 // State of the form editor. `run` performs one change, then reloads from the API, which stays the
-// only source of truth (keys, positions, problems); actions are disabled while `busy`.
+// only source of truth (keys, positions, problems); actions are disabled while `busy`. A change and
+// the reload that follows are told apart (code review R37): a saved change whose reload fails is
+// reported as saved with an out-of-date screen (`stale`), never as a plain success, and `refresh`
+// retries the reading only, without sending the change again.
 export function useFormEditor(formId: string) {
   const [data, setData] = useState<FormEditorData | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [stale, setStale] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const reload = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     try {
       setData(await loadEditor(formId))
       setError(null)
+      setStale(false)
+      return true
     } catch (err) {
       setError(err)
+      setStale(true)
+      return false
     }
   }, [formId])
 
@@ -66,14 +74,27 @@ export function useFormEditor(formId: string) {
       } catch (err) {
         toast.error(errorMessage(err))
       }
-      // Confirm only once the screen shows the result.
-      await reload()
+      // Confirm only once the screen shows the result; a failed change is reloaded too, so that a
+      // « modifié entre-temps » shows what changed.
+      const refreshed = await refresh()
       setBusy(false)
-      if (ok && success) toast.success(success)
+      if (ok && success) {
+        if (refreshed) toast.success(success)
+        else toast.warning(`${success} L’affichage n’a pas pu être actualisé.`)
+      } else if (ok && !refreshed) {
+        toast.warning('Modification enregistrée, mais l’affichage n’a pas pu être actualisé.')
+      }
       return ok
     },
-    [reload],
+    [refresh],
   )
 
-  return { data, error, busy, run }
+  const retryRefresh = useCallback(async () => {
+    setBusy(true)
+    const refreshed = await refresh()
+    setBusy(false)
+    if (!refreshed) toast.error('L’affichage n’a toujours pas pu être actualisé.')
+  }, [refresh])
+
+  return { data, error, stale, busy, run, refresh: retryRefresh }
 }
