@@ -32,6 +32,11 @@ export const TOOL_SCOPES: Record<string, string> = {
   update_answers: OAUTH_SCOPES.write,
 }
 
+// The dossier a tool call is about, once the caller's access to it is established.
+interface ToolTrace {
+  dossierId: string | null
+}
+
 class ToolError extends Error {}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -128,8 +133,8 @@ export class McpToolsFactory {
         annotations: { readOnlyHint: true },
       },
       ({ dossier }) =>
-        run('get_dossier', dossier, async () => {
-          const { row, accessLevel } = await this.resolve(caller.user, dossier)
+        run('get_dossier', dossier, async (trace) => {
+          const { row, accessLevel } = await this.resolve(caller.user, dossier, trace)
           return this.describeDossier(row, accessLevel, caller)
         }),
     )
@@ -158,11 +163,11 @@ export class McpToolsFactory {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       },
       ({ dossier, answers }) =>
-        run('update_answers', dossier, async () => {
+        run('update_answers', dossier, async (trace) => {
           if (!expandScopes(caller.scopes).has(OAUTH_SCOPES.write)) {
             throw new ToolError('Permission « dossiers:write » non accordée à cette application.')
           }
-          const { row } = await this.resolve(caller.user, dossier)
+          const { row } = await this.resolve(caller.user, dossier, trace)
           if (row.userId !== caller.user.id) {
             throw new ToolError('Seul le propriétaire du dossier peut modifier ses réponses.')
           }
@@ -175,7 +180,10 @@ export class McpToolsFactory {
                 err.errors.map((e) => `- ${e.label ?? e.fieldId} : ${e.message}`).join('\n'),
             )
           }
-          const after = await this.describeDossier(row, 'complet', caller)
+          // Described as it is after the write (answers and derived classification, R18).
+          const updated = await this.prisma.dossier.findUnique({ where: { id: row.id } })
+          if (!updated) throw new NotFoundException()
+          const after = await this.describeDossier(updated, 'complet', caller)
           return {
             dossier: { id: row.id, slug: row.slug },
             saved: answers.length,
@@ -192,13 +200,12 @@ export class McpToolsFactory {
     return async (
       tool: string,
       target: string | null,
-      fn: () => Promise<Record<string, unknown>>,
+      fn: (trace: ToolTrace) => Promise<Record<string, unknown>>,
     ): Promise<CallToolResult> => {
       let result: 'ok' | 'error' = 'ok'
-      let dossierId: string | null = null
+      const trace: ToolTrace = { dossierId: null }
       try {
-        const data = await fn()
-        dossierId = (data as { dossier?: { id?: string } }).dossier?.id ?? null
+        const data = await fn(trace)
         return {
           content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
           structuredContent: data,
@@ -217,7 +224,7 @@ export class McpToolsFactory {
         await this.audit.record({
           actionType: 'mcp_tool_called',
           actorId: caller.user.id,
-          dossierId: dossierId && UUID.test(dossierId) ? dossierId : null,
+          dossierId: trace.dossierId,
           metadata: {
             tool,
             target,
@@ -231,7 +238,9 @@ export class McpToolsFactory {
     }
   }
 
-  private async resolve(user: AuthenticatedUser, ref: string) {
+  // Once access is granted, the dossier is noted in `trace`: the call is journaled with it even if
+  // it fails afterwards (code review R20). A dossier the caller may not access is never noted.
+  private async resolve(user: AuthenticatedUser, ref: string, trace: ToolTrace) {
     let id = ref
     if (!UUID.test(ref)) {
       const bySlug = await this.prisma.dossier.findUnique({
@@ -242,6 +251,7 @@ export class McpToolsFactory {
       id = bySlug.id
     }
     const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(id, user)
+    trace.dossierId = dossier.id
     return { row: dossier, accessLevel }
   }
 
