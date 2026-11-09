@@ -179,7 +179,9 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const tools = await c.listTools()
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
       'get_dossier',
+      'get_form',
       'list_dossiers',
+      'list_forms',
       'update_answers',
       'whoami',
     ])
@@ -296,6 +298,248 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     expect(JSON.stringify(after)).not.toContain('memory://')
     expect(missingLabels(after)).not.toContain('Extrait Kbis')
     await c.close()
+  })
+
+  describe('form definitions, permissions and completion (E04.01)', () => {
+    const DOSSIER = '11111111-1111-4111-8111-111111111111'
+    type Field = Record<string, unknown> & { fieldId: string }
+    const fieldsOf = (described: Record<string, unknown>) =>
+      (described.sections as Array<{ fields: Field[] }>).flatMap((sec) => sec.fields)
+
+    beforeEach(async () => {
+      const p = fake.prisma
+      await p.user.create({
+        data: {
+          id: 'u-admin',
+          email: 'admin@confluent.dev',
+          role: 'admin',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await p.user.create({
+        data: {
+          id: 'u-fin',
+          email: 'bob@invest.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await p.questionnaire.create({
+        data: {
+          id: 'form-1',
+          slug: 'profil-entreprise',
+          name: "Profil de l'entreprise",
+          usage: 'dossier',
+        },
+      })
+      await p.questionnaire.create({
+        data: { id: 'form-2', slug: 'brouillon-rh', name: 'Formulaire RH', usage: null },
+      })
+      for (const id of ['v-1', 'v-2']) {
+        await p.questionnaireVersion.update({ where: { id }, data: { questionnaireId: 'form-1' } })
+      }
+      await p.questionnaireVersion.create({
+        data: { id: 'v-3', questionnaireId: 'form-1', version: 3, status: 'draft' },
+      })
+      await p.questionnaireVersion.create({
+        data: { id: 'v-rh', questionnaireId: 'form-2', version: 1, status: 'draft' },
+      })
+      await p.questionnaireSection.create({
+        data: { id: 's-rh', versionId: 'v-rh', key: 'equipe', title: 'Équipe', orderIndex: 0 },
+      })
+      await p.questionnaireField.create({
+        data: {
+          id: 'f-rh',
+          versionId: 'v-rh',
+          sectionId: 's-rh',
+          key: 'poste',
+          label: 'Poste recherché',
+          fieldType: 'select',
+          choices: [],
+          required: true,
+          orderIndex: 0,
+        },
+      })
+      await p.questionnaireField.update({
+        where: { id: 'f-name' },
+        data: { minAccessLevel: 'public' },
+      })
+      await p.shareLink.create({
+        data: {
+          dossierId: DOSSIER,
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'public',
+          token: 't-pub',
+        },
+      })
+    })
+
+    it('get_dossier tells which form version is asked, what each field expects, and what is missing', async () => {
+      const c = await client(await connect('u-1', ['dossiers:write']))
+      const before = json(
+        await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(before.form).toEqual({
+        id: 'form-1',
+        name: "Profil de l'entreprise",
+        version: 2,
+        versionStatus: 'published',
+        latestPublishedVersion: 2,
+      })
+      expect(before.permissions).toMatchObject({
+        accessLevel: 'complet',
+        hiddenFields: 0,
+        canEditAnswers: true,
+        canSubmit: false,
+        canUploadDocuments: false,
+        inSiteOnly: expect.stringContaining('soumission'),
+      })
+      expect(before.completion).toMatchObject({
+        state: 'incomplet',
+        requiredTotal: 2,
+        requiredAnswered: 0,
+        sections: [
+          { title: 'Identité du projet', requiredTotal: 1, requiredAnswered: 0 },
+          { title: 'Stade financier', requiredTotal: 1, requiredAnswered: 0 },
+        ],
+      })
+      const name = fieldsOf(before).find((f) => f.fieldId === 'f-name')
+      expect(name).toMatchObject({
+        type: 'text',
+        valueFormat: 'Texte sur une ligne.',
+        limits: '80 caractères maximum.',
+        constraints: { maxLength: 80 },
+        answered: false,
+        readLevel: 'public',
+      })
+      expect(fieldsOf(before).find((f) => f.fieldId === 'f-stage')).toMatchObject({
+        valueFormat: expect.stringContaining('Clé d’un des choix'),
+        choices: expect.arrayContaining([
+          { key: 'fonds_propres_uniquement', label: 'Fonds propres uniquement' },
+        ]),
+        readLevel: 'complet',
+      })
+
+      await c.callTool({
+        name: 'update_answers',
+        arguments: {
+          dossier: 'biosensio',
+          answers: [
+            { fieldId: 'f-name', value: 'Biosensio' },
+            { fieldId: 'f-stage', value: 'fonds_propres_uniquement' },
+          ],
+        },
+      })
+      const after = json(
+        await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(after.completion).toMatchObject({ state: 'pret_a_soumettre', requiredAnswered: 2 })
+      expect(fieldsOf(after).every((f) => f.answered)).toBe(true)
+      await c.close()
+    })
+
+    it('says why a dossier is read-only: missing write permission, or a share limited to its level', async () => {
+      const ro = await client(await connect('u-1', ['dossiers:read']))
+      const own = json(
+        await ro.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(own.permissions).toMatchObject({
+        canEditAnswers: false,
+        whyReadOnly: expect.stringContaining('dossiers:write'),
+      })
+      await ro.close()
+
+      const fin = await client(await connect('u-fin', ['dossiers:read']))
+      const shared = json(
+        await fin.callTool({ name: 'get_dossier', arguments: { dossier: DOSSIER } }),
+      )
+      expect(shared.permissions).toMatchObject({
+        accessLevel: 'public',
+        hiddenFields: 1,
+        canEditAnswers: false,
+        whyReadOnly: expect.stringContaining('partagé'),
+      })
+      expect(shared.permissions).not.toHaveProperty('inSiteOnly')
+      // Who may read each answer is the owner's business, not the reader's.
+      expect(fieldsOf(shared).map((f) => f.fieldId)).toEqual(['f-name'])
+      expect(fieldsOf(shared)[0]).not.toHaveProperty('readLevel')
+      const refused = await fin.callTool({ name: 'get_form', arguments: {} })
+      expect(refused.isError).toBe(true)
+      await fin.close()
+    })
+
+    it('get_form: a project owner reads the published form of new dossiers, nothing else', async () => {
+      const c = await client(await connect('u-1', ['dossiers:read']))
+      const form = json(await c.callTool({ name: 'get_form', arguments: {} }))
+      expect(form.form).toMatchObject({
+        id: 'form-1',
+        usage: 'dossier',
+        publishedVersion: 2,
+        draftVersion: null,
+      })
+      expect(form.version).toMatchObject({ version: 2, status: 'published' })
+      expect(form.summary).toEqual({ sections: 2, fields: 2, required: 2 })
+      expect(form).not.toHaveProperty('problems')
+      expect(fieldsOf(form).map((f) => f.key)).toEqual(['nom_du_projet', 'stade_financement'])
+
+      // The draft (v3) and the archived v1 exist: refused with the same answer, nothing revealed.
+      for (const args of [{ version: 'brouillon' }, { version: 1 }]) {
+        const res = await c.callTool({ name: 'get_form', arguments: args })
+        expect(res.isError).toBe(true)
+        expect((res.content as Array<{ text: string }>)[0].text).toBe(
+          'Seule la version publiée est lisible.',
+        )
+      }
+      // Without any draft, the answer is the same: it never tells whether a draft exists.
+      await fake.prisma.questionnaireVersion.update({
+        where: { id: 'v-3' },
+        data: { status: 'archived' },
+      })
+      const noDraft = await c.callTool({ name: 'get_form', arguments: { version: 'brouillon' } })
+      expect((noDraft.content as Array<{ text: string }>)[0].text).toBe(
+        'Seule la version publiée est lisible.',
+      )
+      const other = await c.callTool({ name: 'get_form', arguments: { form: 'brouillon-rh' } })
+      expect((other.content as Array<{ text: string }>)[0].text).toContain('introuvable')
+      const listed = await c.callTool({ name: 'list_forms', arguments: {} })
+      expect(listed.isError).toBe(true)
+      expect((listed.content as Array<{ text: string }>)[0].text).toContain('administrateurs')
+      await c.close()
+    })
+
+    it('get_form / list_forms: an administrator reads every form, version and draft with its problems', async () => {
+      const c = await client(await connect('u-admin', ['dossiers:read']))
+      const list = json(await c.callTool({ name: 'list_forms', arguments: {} }))
+      expect(list.forms).toEqual([
+        expect.objectContaining({
+          slug: 'profil-entreprise',
+          usage: 'dossier',
+          versions: [
+            expect.objectContaining({ version: 3, status: 'draft' }),
+            expect.objectContaining({ version: 2, status: 'published' }),
+            expect.objectContaining({ version: 1, status: 'archived' }),
+          ],
+        }),
+        expect.objectContaining({ slug: 'brouillon-rh', usage: null }),
+      ])
+      const draft = json(
+        await c.callTool({ name: 'get_form', arguments: { form: 'brouillon-rh' } }),
+      )
+      expect(draft.version).toMatchObject({ version: 1, status: 'draft', note: expect.any(String) })
+      expect(draft.problems).toEqual([
+        expect.objectContaining({ field: 'Poste recherché', message: expect.any(String) }),
+      ])
+      const archived = json(
+        await c.callTool({
+          name: 'get_form',
+          arguments: { form: 'profil-entreprise', version: 1 },
+        }),
+      )
+      expect(archived.version).toMatchObject({ version: 1, status: 'archived' })
+      expect(fieldsOf(archived).map((f) => f.key)).toEqual(['ancien'])
+      await c.close()
+    })
   })
 
   it('refuses invalid values and fields of another questionnaire version, saving nothing', async () => {

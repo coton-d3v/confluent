@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { describeConstraints, missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
-import type { Dossier, QuestionnaireField } from '@prisma/client'
+import { missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
+import type { Dossier, QuestionnaireField, QuestionnaireVersion } from '@prisma/client'
 import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService } from '../answers/answers.service'
@@ -14,8 +14,16 @@ import { DocumentsService, type DocumentGroup } from '../documents/documents.ser
 import { DossiersService } from '../dossiers/dossiers.service'
 import { fieldVisibleAt } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
-import { QuestionnairesService } from '../questionnaires/questionnaires.service'
+import { FormDraftsService } from '../questionnaires/form-drafts.service'
+import { FormsService } from '../questionnaires/forms.service'
+import { DOSSIER_FORM, QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { readChoices } from '../questionnaires/questionnaire-structure'
+import {
+  describeCompletion,
+  describeField,
+  groupBySection,
+  isFieldAnswered,
+} from './form-description'
 
 // Who is calling: always derived from the OAuth access token, never from tool arguments (E01.06).
 export interface McpCaller {
@@ -31,6 +39,8 @@ export const TOOL_SCOPES: Record<string, string> = {
   whoami: OAUTH_SCOPES.read,
   list_dossiers: OAUTH_SCOPES.read,
   get_dossier: OAUTH_SCOPES.read,
+  get_form: OAUTH_SCOPES.read,
+  list_forms: OAUTH_SCOPES.read,
   update_answers: OAUTH_SCOPES.write,
 }
 
@@ -55,6 +65,8 @@ export class McpToolsFactory {
     private readonly dossiers: DossiersService,
     private readonly answers: AnswersService,
     private readonly questionnaires: QuestionnairesService,
+    private readonly forms: FormsService,
+    private readonly formDrafts: FormDraftsService,
     private readonly documents: DocumentsService,
     private readonly audit: AuditService,
   ) {}
@@ -66,9 +78,11 @@ export class McpToolsFactory {
       {
         instructions:
           'Confluent héberge les dossiers de financement d’entreprises innovantes. Commencez par ' +
-          'list_dossiers, puis get_dossier pour lire les questions (avec leur fieldId, type, choix ' +
-          'possibles et réponse actuelle) et voir ce qui manque. update_answers enregistre des réponses ; ' +
-          'n’inventez jamais une réponse : demandez-la à l’utilisateur.',
+          'list_dossiers, puis get_dossier pour lire les questions (fieldId, type, format attendu, ' +
+          'contraintes, choix possibles, réponse actuelle), vos permissions et l’état de complétion. ' +
+          'get_form décrit un formulaire sans dossier (celui des nouveaux dossiers par défaut). ' +
+          'update_answers enregistre des réponses ; n’inventez jamais une réponse : demandez-la à ' +
+          'l’utilisateur.',
       },
     )
     const run = this.runner(caller)
@@ -127,12 +141,14 @@ export class McpToolsFactory {
       {
         title: 'Lire un dossier',
         description:
-          'Questions du dossier (version de questionnaire du dossier), groupées par section, avec ' +
-          'pour chacune fieldId, type, choix possibles (clé et libellé), limites de saisie, ' +
-          'obligatoire, et réponse ' +
-          'actuelle (clé du choix pour une liste, avec son libellé) ; pour un champ de type « file », ' +
-          'les documents déposés (nom, version, disponibilité) au lieu d’une réponse ; plus la liste des ' +
-          'champs obligatoires sans réponse ni document. Utilisez les fieldId pour update_answers.',
+          'Questions du dossier (version de formulaire du dossier), groupées par section, avec ' +
+          'pour chacune fieldId, type, format attendu, contraintes (en clair et en valeurs), choix ' +
+          'possibles (clé et libellé), obligatoire, si elle est remplie, et réponse actuelle (clé du ' +
+          'choix pour une liste, avec son libellé) ; pour un champ « file », les documents déposés ' +
+          '(nom, version, disponibilité) au lieu d’une réponse. Indique aussi le formulaire et sa ' +
+          'version, vos permissions (niveau d’accès, modification possible ou non et pourquoi) et ' +
+          'l’état de complétion (global et par section), avec les champs obligatoires manquants. ' +
+          'Utilisez les fieldId pour update_answers.',
         inputSchema: { dossier: dossierRef },
         annotations: { readOnlyHint: true },
       },
@@ -140,6 +156,68 @@ export class McpToolsFactory {
         run('get_dossier', dossier, async (trace) => {
           const { row, accessLevel } = await this.resolve(caller.user, dossier, trace)
           return this.describeDossier(row, accessLevel, caller)
+        }),
+    )
+
+    server.registerTool(
+      'get_form',
+      {
+        title: 'Lire un formulaire',
+        description:
+          'Définition d’un formulaire, sans réponses : sections et questions avec fieldId, clé, ' +
+          'type, format attendu, contraintes, choix, obligatoire et qui peut lire la réponse via un ' +
+          'partage. Par défaut, la version publiée du formulaire des nouveaux dossiers. Porteurs de ' +
+          'projet : ce formulaire uniquement. Administrateurs : tout formulaire et toute version, ' +
+          'brouillon compris (avec les problèmes qui empêchent de le publier).',
+        inputSchema: {
+          form: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'UUID ou slug du formulaire (administrateurs) ; par défaut celui des nouveaux dossiers.',
+            ),
+          version: z
+            .union([z.number().int().positive(), z.literal('brouillon')])
+            .optional()
+            .describe(
+              'Numéro de version, ou "brouillon" (administrateurs) ; par défaut la version publiée.',
+            ),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      ({ form, version }) =>
+        run('get_form', form ?? null, async () => this.describeForm(caller, form, version)),
+    )
+
+    server.registerTool(
+      'list_forms',
+      {
+        title: 'Lister les formulaires',
+        description:
+          'Administrateurs : tous les formulaires, leur usage (formulaire des nouveaux dossiers ou ' +
+          'non affecté), s’ils sont archivés, et leurs versions (brouillon, publiée, archivées).',
+        annotations: { readOnlyHint: true },
+      },
+      () =>
+        run('list_forms', null, async () => {
+          requireAdmin(caller)
+          const forms = await this.forms.list()
+          const details = await Promise.all(forms.map((f) => this.forms.get(f.id)))
+          return {
+            forms: details.map((f) => ({
+              id: f.id,
+              slug: f.slug,
+              name: f.name,
+              usage: f.usage,
+              archived: f.archivedAt !== null,
+              versions: f.versions.map((v) => ({
+                version: v.version,
+                status: v.status,
+                publishedAt: v.publishedAt,
+              })),
+            })),
+          }
         }),
     )
 
@@ -262,39 +340,29 @@ export class McpToolsFactory {
 
   private async describeDossier(dossier: Dossier, accessLevel: AccessLevel, caller: McpCaller) {
     const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
-    const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
+    const allFields = structure?.fields ?? []
+    const fields = allFields.filter((f) => fieldVisibleAt(f, accessLevel))
     const visible = new Set(fields.map((f) => f.id))
-    const [answerRows, documents, attached] = await Promise.all([
+    const [answerRows, documents, attached, form] = await Promise.all([
       this.answers.listForDossier(dossier.id),
       this.documents.listForDossier(dossier.id, accessLevel),
       attachedFieldIds(this.prisma, dossier.id),
+      structure ? this.describeFormOf(structure.version) : null,
     ])
     const answers = new Map(
       answerRows.filter((a) => visible.has(a.fieldId)).map((a) => [a.fieldId, a.value]),
     )
     const filesByField = documentsByField(documents)
-    // Sections in their defined order, each with its visible fields (already ordered).
-    const sections = (structure?.sections ?? [])
-      .map((section) => ({
-        title: section.title,
-        fields: fields
-          .filter((f) => f.sectionId === section.id)
-          .map((f) => ({
-            fieldId: f.id,
-            key: f.key,
-            label: f.label,
-            ...(f.helpText ? { help: f.helpText } : {}),
-            ...limitsOf(f),
-            type: f.fieldType,
-            required: f.required,
-            ...(f.fieldType === 'file'
-              ? { documents: filesByField.get(f.id) ?? [] }
-              : describeChoices(f, answers.get(f.id) ?? null)),
-          })),
-      }))
-      .filter((section) => section.fields.length > 0)
-    const projected = await this.dossiers.projectForLevel(dossier, accessLevel)
     const isOwner = dossier.userId === caller.user.id
+    const canEdit = isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write)
+    const sections = groupBySection(structure?.sections ?? [], fields, (f) => ({
+      ...describeField(f, { withReadLevel: isOwner }),
+      answered: isFieldAnswered(f, answers, attached),
+      ...(f.fieldType === 'file'
+        ? { documents: filesByField.get(f.id) ?? [] }
+        : describeAnswer(f, answers.get(f.id) ?? null)),
+    }))
+    const projected = await this.dossiers.projectForLevel(dossier, accessLevel)
     return {
       dossier: {
         id: dossier.id,
@@ -310,7 +378,37 @@ export class McpToolsFactory {
           tagTechnologique: projected.tagTechnologique,
         },
       },
-      canEdit: isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write),
+      // The form version the dossier was created with: its answers always follow it (E03.08).
+      form,
+      permissions: {
+        accessLevel,
+        // Questions this share level does not show: the dossier is only partly visible.
+        hiddenFields: allFields.length - fields.length,
+        canEditAnswers: canEdit,
+        ...(canEdit
+          ? {}
+          : {
+              whyReadOnly: isOwner
+                ? 'Permission « dossiers:write » non accordée à cette application.'
+                : 'Dossier partagé avec vous : lecture seule, limitée au niveau de votre partage.',
+            }),
+        canUploadDocuments: false,
+        canSubmit: false,
+        ...(isOwner
+          ? {
+              inSiteOnly:
+                'Le dépôt de documents et la soumission du dossier se font pour l’instant dans le site Confluent.',
+            }
+          : {}),
+      },
+      completion: describeCompletion(
+        structure?.sections ?? [],
+        fields,
+        answers,
+        attached,
+        dossier.submittedAt,
+      ),
+      canEdit,
       sections,
       // Same rule as the submission check (shared): an attachment field needs a document.
       missingRequired: missingRequiredAnswers(fields, Object.fromEntries(answers), attached).map(
@@ -319,6 +417,119 @@ export class McpToolsFactory {
           label: f.label,
         }),
       ),
+    }
+  }
+
+  // E04.01: the definition of a form version. Project owners read the published form of new dossiers
+  // (what they will be asked); administrators read any form and version, draft included.
+  private async describeForm(
+    caller: McpCaller,
+    formRef: string | undefined,
+    versionRef: number | 'brouillon' | undefined,
+  ) {
+    const isAdmin = caller.user.role === 'admin'
+    if (!isAdmin && caller.user.role !== 'entrepreneur') {
+      throw new ToolError(
+        'Les définitions de formulaires sont réservées aux porteurs de projet et aux administrateurs.',
+      )
+    }
+    const form = await this.prisma.questionnaire.findFirst({
+      where: formRef
+        ? UUID.test(formRef)
+          ? { id: formRef }
+          : { slug: formRef }
+        : { usage: DOSSIER_FORM.usage },
+    })
+    const readable = form && (isAdmin || (form.usage === DOSSIER_FORM.usage && !form.archivedAt))
+    if (!readable) {
+      throw new ToolError(
+        isAdmin
+          ? 'Formulaire introuvable. Utilisez list_forms.'
+          : 'Formulaire introuvable : seul le formulaire des nouveaux dossiers est lisible.',
+      )
+    }
+    // Whether a draft exists is the administrators' business: refused before looking.
+    if (!isAdmin && versionRef === 'brouillon') {
+      throw new ToolError('Seule la version publiée est lisible.')
+    }
+    const versions = await this.prisma.questionnaireVersion.findMany({
+      where: { questionnaireId: form.id },
+      orderBy: { version: 'desc' },
+    })
+    const published = versions.find((v) => v.status === 'published')
+    const draft = versions.find((v) => v.status === 'draft')
+    const target =
+      versionRef === 'brouillon'
+        ? draft
+        : versionRef !== undefined
+          ? versions.find((v) => v.version === versionRef)
+          : (published ?? (isAdmin ? draft : undefined))
+    if (!target) {
+      throw new ToolError(
+        versionRef === 'brouillon'
+          ? 'Ce formulaire n’a pas de brouillon en cours.'
+          : 'Version introuvable pour ce formulaire.',
+      )
+    }
+    if (!isAdmin && target.status !== 'published') {
+      throw new ToolError('Seule la version publiée est lisible.')
+    }
+    const view = await this.formDrafts.getVersion(form.id, target.id)
+    const labels = new Map(view.fields.map((f) => [f.id, f.label]))
+    return {
+      form: {
+        id: form.id,
+        slug: form.slug,
+        name: form.name,
+        usage: form.usage,
+        archived: form.archivedAt !== null,
+        publishedVersion: published?.version ?? null,
+        draftVersion: isAdmin ? (draft?.version ?? null) : null,
+      },
+      version: {
+        version: target.version,
+        status: target.status,
+        publishedAt: target.publishedAt,
+        ...(target.status === 'draft'
+          ? {
+              note: 'Brouillon : modifiable, aucun dossier ne l’utilise tant qu’il n’est pas publié.',
+            }
+          : {}),
+      },
+      summary: {
+        sections: view.sections.length,
+        fields: view.fields.length,
+        required: view.fields.filter((f) => f.required).length,
+      },
+      sections: groupBySection(view.sections, view.fields, (f) =>
+        describeField(f, { withReadLevel: true }),
+      ),
+      // What prevents publishing a draft (same checks as the builder).
+      ...(target.status === 'draft'
+        ? {
+            problems: view.problems.map((p) => ({
+              message: p.message,
+              ...(p.fieldId ? { field: labels.get(p.fieldId) ?? p.fieldId } : {}),
+            })),
+          }
+        : {}),
+    }
+  }
+
+  // Which form and version, and whether a newer version of that form has been published since.
+  private async describeFormOf(version: QuestionnaireVersion) {
+    const [form, published] = await Promise.all([
+      this.prisma.questionnaire.findUnique({ where: { id: version.questionnaireId } }),
+      this.prisma.questionnaireVersion.findFirst({
+        where: { questionnaireId: version.questionnaireId, status: 'published' },
+      }),
+    ])
+    return {
+      id: version.questionnaireId,
+      name: form?.name ?? null,
+      version: version.version,
+      versionStatus: version.status,
+      latestPublishedVersion: published?.version ?? null,
     }
   }
 }
@@ -344,16 +555,15 @@ function documentsByField(groups: DocumentGroup[]) {
   return byField
 }
 
-// A list field exposes its choices; its answer is a choice key, given with the label it displays.
-function describeChoices(field: QuestionnaireField, answer: string | null) {
-  const choices = readChoices(field.choices)
-  if (field.fieldType !== 'select' || choices.length === 0) return { answer }
-  const answerLabel = choices.find((c) => c.key === answer)?.label
-  return { choices, answer, ...(answerLabel ? { answerLabel } : {}) }
+function requireAdmin(caller: McpCaller): void {
+  if (caller.user.role !== 'admin') {
+    throw new ToolError('Réservé aux administrateurs de Confluent.')
+  }
 }
 
-// Input limits set in the form builder (E03.05), in words, so that an agent respects them.
-function limitsOf(field: QuestionnaireField) {
-  const limits = describeConstraints(field)
-  return limits ? { limits } : {}
+// The current answer; for a list, the choice key with the label it displays.
+function describeAnswer(field: QuestionnaireField, answer: string | null) {
+  if (field.fieldType !== 'select') return { answer }
+  const answerLabel = readChoices(field.choices).find((c) => c.key === answer)?.label
+  return { answer, ...(answerLabel ? { answerLabel } : {}) }
 }

@@ -36,7 +36,9 @@ ChatGPT demande confirmation pour les outils d'écriture. Si la connexion échou
 |---|---|---|
 | `whoami` | lecture | Compte connecté, rôle, permissions accordées |
 | `list_dossiers` | lecture | Vos dossiers (et pour un financeur, ceux qui vous sont partagés) |
-| `get_dossier` | lecture | Questions du dossier par section, réponses actuelles, champs obligatoires manquants |
+| `get_dossier` | lecture | Formulaire et version du dossier ; questions par section avec format attendu, contraintes, choix, réponse actuelle (documents pour une pièce jointe) ; permissions (niveau d'accès, modification possible ou non et pourquoi) ; complétion globale et par section ; champs obligatoires manquants |
+| `get_form` | lecture | Définition d'un formulaire sans réponses : celui des nouveaux dossiers pour un porteur de projet ; tout formulaire et toute version, brouillon compris avec ses problèmes de publication, pour un administrateur. Refusé aux financeurs |
+| `list_forms` | lecture | Administrateurs : formulaires, usage, archivage et versions |
 | `update_answers` | écriture | Enregistre des réponses (propriétaire uniquement ; valeurs vérifiées, rien n'est écrit si une valeur est invalide) |
 
 Chaque appel est inscrit au journal (utilisateur, application, outil, cible, résultat).
