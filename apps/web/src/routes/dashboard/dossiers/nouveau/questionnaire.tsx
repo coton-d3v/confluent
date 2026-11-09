@@ -18,6 +18,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { useAsync } from '@/lib/useAsync'
 import { isAnswered } from '@confluent/shared'
+import { FieldDocuments } from '@/features/documents/components/FieldDocuments'
+import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { SaveStatusIndicator } from '@/features/questionnaire/components/SaveStatusIndicator'
 import { useAnswerAutosave } from '@/features/questionnaire/useAnswerAutosave'
 
@@ -131,6 +133,15 @@ function QuestionnaireWizard({
   // A transition (advance after saving) is in progress: the step is read-only until it ends, so
   // nothing typed meanwhile can be overwritten by the answers captured before the save (R22).
   const [transitioning, setTransitioning] = useState(false)
+  // Attachment questions (E03.11): the dossier's files, and whether one is still being sent.
+  const documents = useDossierDocuments(dossierId)
+  const attachedFiles = useMemo(() => filenamesByField(documents.data), [documents.data])
+  const [uploading, setUploading] = useState(false)
+  // Read by the document-wide ↑ shortcut (R49): no keyboard transition either while a file is sent.
+  const uploadingRef = useRef(false)
+  useEffect(() => {
+    uploadingRef.current = uploading
+  }, [uploading])
   const [retrying, setRetrying] = useState(false)
 
   async function retrySave() {
@@ -180,6 +191,7 @@ function QuestionnaireWizard({
       if (e.isComposing) return
       if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
       if (editingRef.current) return
+      if (uploadingRef.current) return
       const target = e.target as HTMLElement | null
       if (
         target?.tagName === 'INPUT' ||
@@ -322,6 +334,7 @@ function QuestionnaireWizard({
             sectionIndex={currentQuestion.sectionIndex}
             sectionMetas={sectionMetas}
             answers={answers}
+            attachedFiles={attachedFiles}
             onEdit={handleEditFromSummary}
             onValidate={handleValidateSection}
           />
@@ -341,6 +354,25 @@ function QuestionnaireWizard({
                 : backToRecap
                   ? { onReturn: () => navigate(recapPath(dossierId)) }
                   : undefined
+            }
+            attachment={
+              currentQuestion.fieldType === 'file'
+                ? {
+                    render: (aria) => (
+                      <FieldDocuments
+                        key={currentQuestion.id}
+                        dossierId={dossierId}
+                        fieldId={currentQuestion.id}
+                        documents={documents}
+                        labelledBy={aria.labelledBy}
+                        describedBy={aria.describedBy}
+                        onUploadingChange={setUploading}
+                      />
+                    ),
+                    count: attachedFiles.get(currentQuestion.id)?.length ?? 0,
+                    uploading,
+                  }
+                : undefined
             }
           />
         )}

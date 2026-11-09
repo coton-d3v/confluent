@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ANSWER_MAX_LENGTH,
   describeConstraints,
@@ -23,6 +23,13 @@ export interface QuestionnaireStepProps {
   // The answer is being saved before moving on: nothing can be changed meanwhile (R22).
   busy?: boolean
   returnToSummary?: { onReturn: () => void }
+  // Attachment question (E03.11): the upload area, and what it holds. A required attachment needs a
+  // file to go on; nobody leaves the step while a file is being sent.
+  attachment?: {
+    render: (aria: { labelledBy: string; describedBy?: string }) => ReactNode
+    count: number
+    uploading: boolean
+  }
 }
 
 const CHECKBOX_CHOICES: Choice[] = [
@@ -53,8 +60,11 @@ export function QuestionnaireStep({
   canGoBack,
   busy = false,
   returnToSummary,
+  attachment,
 }: QuestionnaireStepProps) {
-  const [error, setError] = useState<string | null>(null)
+  const [rawError, setError] = useState<string | null>(null)
+  // « Déposez au moins un fichier » no longer applies once a file answers the question.
+  const error = question.fieldType === 'file' && (attachment?.count ?? 0) > 0 ? null : rawError
   const choices = choicesOf(question)
   const multiline = question.fieldType === 'textarea'
   const cleaned = stripNonPrintable(value, { multiline }).trim()
@@ -81,6 +91,16 @@ export function QuestionnaireStep({
     onAdvance(answer)
   }
 
+  function continueAfterAttachment() {
+    if (busy || attachment?.uploading) return
+    if (question.required && (attachment?.count ?? 0) === 0) {
+      setError('Déposez au moins un fichier pour continuer.')
+      return
+    }
+    setError(null)
+    onAdvance('')
+  }
+
   function handleChange(next: string) {
     if (busy) return
     setError(null)
@@ -89,7 +109,8 @@ export function QuestionnaireStep({
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    submit(cleaned)
+    if (question.fieldType === 'file') continueAfterAttachment()
+    else submit(cleaned)
   }
 
   function handleChoice(key: string) {
@@ -141,9 +162,13 @@ export function QuestionnaireStep({
       {question.hint && <p className="text-sm text-muted-foreground">{question.hint}</p>}
 
       {question.fieldType === 'file' ? (
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Ce document se dépose depuis l’onglet « Documents » de votre dossier.
-        </p>
+        attachment ? (
+          attachment.render({ labelledBy: headingId, describedBy: error ? errorId : undefined })
+        ) : (
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Ce document se dépose depuis l’onglet « Documents » de votre dossier.
+          </p>
+        )
       ) : choices.length > 0 ? (
         <div role="radiogroup" aria-labelledby={headingId} aria-describedby={describedBy} className="flex flex-col gap-2">
           {choices.map((choice) => (
@@ -213,7 +238,8 @@ export function QuestionnaireStep({
         <button
           type="button"
           onClick={returnToSummary.onReturn}
-          className="self-start min-h-11 text-xs text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+          disabled={attachment?.uploading}
+          className="self-start min-h-11 disabled:opacity-50 text-xs text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
         >
           <span aria-hidden="true">←</span> Retour au récapitulatif
         </button>
@@ -252,7 +278,19 @@ export function QuestionnaireStep({
             Effacer la réponse <span aria-hidden="true">→</span>
           </Button>
         )}
-        {(question.fieldType === 'file' || (!question.required && cleaned.length === 0)) && (
+        {question.fieldType === 'file' && (
+          <Button
+            type="button"
+            size="lg"
+            className="h-11 px-4"
+            disabled={busy || attachment?.uploading}
+            onClick={continueAfterAttachment}
+          >
+            {(attachment?.count ?? 0) === 0 && !question.required ? 'Passer' : 'Continuer'}{' '}
+            <span aria-hidden="true">→</span>
+          </Button>
+        )}
+        {question.fieldType !== 'file' && !question.required && cleaned.length === 0 && (
           <Button
             type="button"
             variant="outline"
@@ -261,7 +299,7 @@ export function QuestionnaireStep({
             disabled={busy}
             onClick={() => onAdvance('')}
           >
-            {question.fieldType === 'file' ? 'Continuer' : 'Passer'} <span aria-hidden="true">→</span>
+            Passer <span aria-hidden="true">→</span>
           </Button>
         )}
       </div>
@@ -273,7 +311,7 @@ export function QuestionnaireStep({
           size="icon-sm"
           className="h-11 w-11 md:h-7 md:w-7"
           onClick={onBack}
-          disabled={!canGoBack}
+          disabled={!canGoBack || attachment?.uploading}
           aria-label="Question précédente"
         >
           ‹

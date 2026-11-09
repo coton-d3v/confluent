@@ -17,6 +17,7 @@ import {
 import { AccessListRow } from '@/components/confluent/AccessListRow'
 import { DossierField } from '@/components/confluent/DossierField'
 import { answerLabel } from '@/features/questionnaire/answer-label'
+import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { MetricCard } from '@/components/confluent/MetricCard'
 import { RevokeAccessDialog } from '@/components/confluent/RevokeAccessDialog'
 import { SharePanel } from '@/components/confluent/SharePanel'
@@ -116,6 +117,8 @@ function DossierView({
 
   const dossierQuery = useAsync(() => getDossier(dossierId), [dossierId])
   const answersQuery = useAsync(() => listAnswers(dossierId), [dossierId])
+  // Attachment questions show the files that answer them (E03.11).
+  const documentsQuery = useDossierDocuments(dossierId)
   const sharesQuery = useAsync(
     () => isOwner ? listShares(dossierId) : Promise.resolve([]),
     [dossierId, isOwner],
@@ -209,6 +212,10 @@ function DossierView({
   for (const row of answersQuery.data ?? []) {
     answersByFieldId[row.fieldId] = row.value
   }
+  const attachedFiles = filenamesByField(documentsQuery.data)
+  const attachmentLabels = new Map(
+    (questionnaire?.flat ?? []).filter((q) => q.fieldType === 'file').map((q) => [q.id, q.label]),
+  )
 
   const isContentReady = !dossierQuery.isLoading && !answersQuery.isLoading
 
@@ -329,7 +336,11 @@ function DossierView({
                         <DossierField
                           key={q.id}
                           label={q.label}
-                          value={answerLabel(q, answersByFieldId[q.id] ?? '')}
+                          value={
+                            q.fieldType === 'file'
+                              ? (attachedFiles.get(q.id) ?? []).join('\n')
+                              : answerLabel(q, answersByFieldId[q.id] ?? '')
+                          }
                         />
                       ))}
                     </dl>
@@ -345,7 +356,7 @@ function DossierView({
         </TabsContent>
 
         <TabsContent value={TAB_VALUES.documents}>
-          <DocumentsPanel dossierId={dossierId} canUpload={isOwner} />
+          <DocumentsPanel dossierId={dossierId} canUpload={isOwner} fieldLabels={attachmentLabels} />
         </TabsContent>
 
         <TabsContent value={TAB_VALUES.analytics}>

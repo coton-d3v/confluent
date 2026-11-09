@@ -3,6 +3,7 @@ import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
   MAX_DOCUMENT_BYTES,
 } from '@confluent/shared'
+import type { DocumentVersion } from '@confluent/shared'
 import type { ApiError } from '@/lib/api-client'
 
 export const ACCEPT_ATTRIBUTE = ACCEPTED_DOCUMENT_EXTENSIONS.map((ext) => `.${ext}`).join(',')
@@ -24,6 +25,8 @@ export function fileProblem(file: File): string | null {
 export function uploadErrorMessage(err: unknown, filename: string): string {
   const e = err as Partial<ApiError> | undefined
   switch (e?.status) {
+    case 400:
+      return e.message ?? `« ${filename} » n’a pas été enregistré.`
     case 413:
       return `« ${filename} » dépasse 20 Mo.`
     case 415:
@@ -44,4 +47,13 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`
   return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`
+}
+
+export function describeVersion(v: DocumentVersion): string {
+  const date = new Date(v.createdAt).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  return `Version ${v.version} · ${formatSize(v.size)} · déposée le ${date}`
 }
