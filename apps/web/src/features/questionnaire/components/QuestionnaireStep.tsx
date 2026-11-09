@@ -235,6 +235,23 @@ export function QuestionnaireStep({
             </span>
           </>
         )}
+        {/* An optional list or yes/no question already answered can be emptied again (R26):
+            the empty answer is saved, like a cleared text. */}
+        {choices.length > 0 && !question.required && cleaned.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="h-11 px-4"
+            disabled={busy}
+            onClick={() => {
+              setError(null)
+              onAdvance('')
+            }}
+          >
+            Effacer la réponse <span aria-hidden="true">→</span>
+          </Button>
+        )}
         {(question.fieldType === 'file' || (!question.required && cleaned.length === 0)) && (
           <Button
             type="button"

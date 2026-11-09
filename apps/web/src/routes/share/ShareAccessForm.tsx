@@ -21,7 +21,7 @@ export function ShareAccessForm({ token }: { token: string }) {
     try {
       await requestShareAccess(token, email.trim())
       // The sign-in link opens in another tab (mail client): come back to this dossier afterwards.
-      rememberReturnTo(`/share/${encodeURIComponent(token)}/dossier`)
+      rememberReturnTo(`/share/${encodeURIComponent(token)}`)
       setState('sent')
     } catch (err) {
       setState((err as ApiError | undefined)?.status === 403 ? 'denied' : 'error')

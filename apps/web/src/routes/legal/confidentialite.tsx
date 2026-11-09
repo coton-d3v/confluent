@@ -36,6 +36,11 @@ export default function ConfidentialiteRoute() {
             Journal d&apos;activité : connexions, consultations d&apos;un dossier partagé (date,
             adresse IP, navigateur), actions des administrateurs sur votre dossier.
           </li>
+          <li>
+            Applications d&apos;IA connectées : nom de l&apos;application, permissions accordées,
+            dates d&apos;autorisation et de dernière utilisation, et journal de ses appels (outil
+            utilisé, dossier concerné, résultat).
+          </li>
         </ul>
       </LegalSection>
 
@@ -47,19 +52,56 @@ export default function ConfidentialiteRoute() {
             traçabilité et prévention des abus).
           </li>
           <li>Vous envoyer les emails nécessaires au service : lien de connexion, invitations.</li>
+          <li>
+            Transmettre vos dossiers aux applications d&apos;IA que vous connectez vous-même, à
+            votre demande et dans les limites que vous accordez (exécution du service).
+          </li>
         </ul>
       </LegalSection>
 
       <LegalSection title="Qui peut y accéder">
         <p>
-          Uniquement les personnes à qui vous avez donné accès, et les administrateurs de la
-          plateforme. Chaque intervention d&apos;un administrateur sur votre dossier est
-          enregistrée et visible par vous.
+          Uniquement les personnes à qui vous avez donné accès, les applications d&apos;IA que vous
+          avez autorisées (voir ci-dessous), et les administrateurs de la plateforme. Chaque
+          intervention d&apos;un administrateur sur votre dossier est enregistrée et visible par
+          vous.
         </p>
         <p>
           Nos sous-traitants techniques : l&apos;hébergeur ({LEGAL_INFO.host.name}), le service
           d&apos;envoi d&apos;emails Brevo (France) et le service de stockage des documents.
         </p>
+      </LegalSection>
+
+      <LegalSection title="Applications d’IA connectées">
+        <p>
+          Vous pouvez connecter une application d&apos;intelligence artificielle (par exemple Claude
+          ou ChatGPT) à votre compte. Rien ne lui est transmis sans votre consentement explicite,
+          donné sur un écran de Confluent qui indique l&apos;application et les permissions
+          demandées.
+        </p>
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          <li>
+            Ce qui lui est transmis : votre profil (email, prénom, nom, rôle), la liste des dossiers
+            auxquels vous avez accès, leurs questions et réponses, et leur classification. Pour un
+            dossier qui vous est partagé, seulement ce que le niveau du partage vous permet de voir.
+            Les documents déposés ne lui sont pas transmis.
+          </li>
+          <li>
+            Ce qu&apos;elle peut faire : lire seulement, ou lire et modifier les réponses de vos
+            propres dossiers, selon votre choix. L&apos;autorisation dure au plus 90 jours.
+          </li>
+          <li>
+            L&apos;application est éditée par un tiers, qui traite les informations reçues selon ses
+            propres conditions et peut les héberger hors de France ou de l&apos;Union européenne.
+            Ce n&apos;est pas un sous-traitant de Confluent : c&apos;est vous qui choisissez de lui
+            transmettre vos données.
+          </li>
+          <li>
+            Vous pouvez révoquer une application à tout moment depuis la page « Applications IA ».
+            La révocation arrête immédiatement tout nouvel accès ; elle ne supprime pas ce que
+            l&apos;application a déjà reçu, qui reste soumis aux conditions de son éditeur.
+          </li>
+        </ul>
       </LegalSection>
 
       <LegalSection title="Durée de conservation">
