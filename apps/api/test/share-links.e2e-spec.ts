@@ -189,8 +189,30 @@ describe('ShareLinksController (e2e)', () => {
     dossierFindUnique.mockResolvedValue(dossierRow)
   }
 
-  it('GET /v1/shares/:token — public: identity only, no documents + audit written', async () => {
+  // E03.11: a file attached to a field follows that field's level; any other file needs `complet`.
+  const documentRows = [
+    { field: 'f-name', level: 'public', filename: 'kbis.pdf' },
+    { field: 'f-origine', level: 'partiel', filename: 'brevet.pdf' },
+    { field: 'f-fin', level: 'complet', filename: 'previsionnel.xlsx' },
+    { field: null, level: null, filename: 'annexe.pdf' },
+  ].map((d, i) => ({
+    id: `doc-${i}`,
+    dossierId: 'd-1',
+    filename: d.filename,
+    version: 1,
+    storageKey: `dossiers/d-1/k-${i}`,
+    mimetype: 'application/pdf',
+    size: 10,
+    createdAt: new Date('2026-11-01'),
+    fieldId: d.field,
+    field: d.level ? { minAccessLevel: d.level } : null,
+  }))
+  const listedFiles = (body: { documents: Array<{ filename: string }> }) =>
+    body.documents.map((d) => d.filename).sort()
+
+  it('GET /v1/shares/:token — public: identity only, documents of public fields only + audit written', async () => {
     activeLink('public')
+    documentFindMany.mockResolvedValue(documentRows)
     const res = await request(app.getHttpServer())
       .get('/v1/shares/abc')
       .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
@@ -206,8 +228,8 @@ describe('ShareLinksController (e2e)', () => {
     expect(res.body.answers).toEqual([{ fieldId: 'f-name', value: 'Biosensio' }])
     expect(res.body.dossier).toMatchObject({ id: 'd-1', name: 'Biosensio', sector: 'biotech' })
     expect(res.body.dossier).toMatchObject({ axe1Projet: null, axe2Financier: null })
-    expect(res.body.documents).toBeNull()
-    expect(documentFindMany).not.toHaveBeenCalled()
+    expect(listedFiles(res.body)).toEqual(['kbis.pdf'])
+    expect(res.body.documents[0]).toMatchObject({ fieldId: 'f-name' })
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: 'share_link_viewed',
@@ -233,8 +255,9 @@ describe('ShareLinksController (e2e)', () => {
     expect(res.body.dossier.tagTechnologique).toBeNull()
   })
 
-  it('GET /v1/shares/:token — partiel: no financial answer, no documents', async () => {
+  it('GET /v1/shares/:token — partiel: no financial answer, documents of visible fields only', async () => {
     activeLink('partiel')
+    documentFindMany.mockResolvedValue(documentRows)
     const res = await request(app.getHttpServer())
       .get('/v1/shares/abc')
       .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
@@ -245,7 +268,22 @@ describe('ShareLinksController (e2e)', () => {
       'f-origine',
     ])
     expect(res.body.dossier).toMatchObject({ axe1Projet: 3, axe2Financier: null })
-    expect(res.body.documents).toBeNull()
+    expect(listedFiles(res.body)).toEqual(['brevet.pdf', 'kbis.pdf'])
+  })
+
+  it('GET /v1/shares/:token — complet: every document, attached or not', async () => {
+    activeLink('complet')
+    documentFindMany.mockResolvedValue(documentRows)
+    const res = await request(app.getHttpServer())
+      .get('/v1/shares/abc')
+      .set('Authorization', `Bearer ${await jwtFor(users[0])}`)
+      .expect(200)
+    expect(listedFiles(res.body)).toEqual([
+      'annexe.pdf',
+      'brevet.pdf',
+      'kbis.pdf',
+      'previsionnel.xlsx',
+    ])
   })
 
   it('GET /v1/shares/:token — complet: everything + documents', async () => {

@@ -1,6 +1,5 @@
 import { Test } from '@nestjs/testing'
 import { HttpException, PayloadTooLargeException } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
 import { DocumentsService, sanitizeFilename } from './documents.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
@@ -24,8 +23,19 @@ function fakeStorage(overrides: Partial<Record<keyof StorageAdapter, jest.Mock>>
   } satisfies StorageAdapter
 }
 
+// The version is chosen inside a transaction holding the dossier's row lock (`$queryRaw`).
 function creatingPrisma(previous: { version: number } | null = null) {
-  return {
+  const prisma: {
+    $queryRaw: jest.Mock
+    $transaction: jest.Mock
+    dossier: { findUnique: jest.Mock }
+    document: { findFirst: jest.Mock; create: jest.Mock; findMany: jest.Mock }
+  } = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma)),
+    dossier: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'd-1', questionnaireVersionId: 'v-1' }),
+    },
     document: {
       findFirst: jest.fn().mockResolvedValue(previous),
       create: jest.fn(({ data }: { data: object }) =>
@@ -34,6 +44,7 @@ function creatingPrisma(previous: { version: number } | null = null) {
       findMany: jest.fn(),
     },
   }
+  return prisma
 }
 
 async function build(storage: StorageAdapter, prisma: Record<string, unknown>) {
@@ -47,7 +58,12 @@ async function build(storage: StorageAdapter, prisma: Record<string, unknown>) {
   return mod.get(DocumentsService)
 }
 
-const row = (filename: string, version: number, storageKey: string) => ({
+const row = (
+  filename: string,
+  version: number,
+  storageKey: string,
+  field: { id: string; minAccessLevel: string } | null = null,
+) => ({
   id: `${filename}-${version}`,
   filename,
   version,
@@ -55,6 +71,8 @@ const row = (filename: string, version: number, storageKey: string) => ({
   mimetype: 'application/pdf',
   size: 10,
   createdAt: new Date(`2026-01-0${version}`),
+  fieldId: field?.id ?? null,
+  field: field ? { minAccessLevel: field.minAccessLevel } : null,
 })
 
 describe('DocumentsService.upload', () => {
@@ -155,22 +173,20 @@ describe('DocumentsService.upload', () => {
     expect(doc).toMatchObject({ filename: 'passwd.txt', version: 1, storageKey: key })
   })
 
-  it('retries with the next version when a concurrent upload took the same one', async () => {
-    const conflict = new Prisma.PrismaClientKnownRequestError('unique', {
-      code: 'P2002',
-      clientVersion: 'test',
-    })
-    const prisma = creatingPrisma()
-    prisma.document.findFirst
-      .mockResolvedValueOnce({ version: 1 })
-      .mockResolvedValueOnce({ version: 2 })
-    prisma.document.create.mockRejectedValueOnce(conflict)
-    const storage = fakeStorage()
-    const svc = await build(storage, prisma)
+  // R48: numbered per question (or none), under the dossier's lock (concurrency: test:pg).
+  it('numbers versions per question and file name, after locking the dossier', async () => {
+    const prisma = creatingPrisma({ version: 1 })
+    const svc = await build(fakeStorage(), prisma)
 
     const doc = await svc.upload({ dossierId: 'd-1', filename: 'bp.pdf', buffer: PDF })
-    expect(doc.version).toBe(3)
-    expect(storage.delete).not.toHaveBeenCalled()
+
+    expect(doc.version).toBe(2)
+    expect(prisma.document.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { dossierId: 'd-1', fieldId: null, filename: 'bp.pdf' } }),
+    )
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.document.findFirst.mock.invocationCallOrder[0],
+    )
   })
 
   it('deletes the stored object when the database write ultimately fails', async () => {
@@ -196,7 +212,7 @@ describe('DocumentsService.listForDossier', () => {
     const storage = fakeStorage()
     const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
 
-    const groups = await svc.listForDossier('d-1')
+    const groups = await svc.listForDossier('d-1', 'complet')
 
     const pitch = groups.find((g) => g.filename === 'pitch.pdf')!
     expect(groups).toHaveLength(2)
@@ -228,12 +244,144 @@ describe('DocumentsService.listForDossier', () => {
     const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
 
     const byName = Object.fromEntries(
-      (await svc.listForDossier('d-1')).map((g) => [g.filename, g.current]),
+      (await svc.listForDossier('d-1', 'complet')).map((g) => [g.filename, g.current]),
     )
 
     expect(byName['deck.pdf']).toMatchObject({ availability: 'available', url: 'memory://k-ok' })
     expect(byName['pitch.pdf']).toMatchObject({ availability: 'missing', url: null })
     expect(byName['bp.pdf']).toMatchObject({ availability: 'unavailable', url: null })
+  })
+})
+
+describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
+  const publicField = { id: 'f-public', minAccessLevel: 'public' }
+  const partialField = { id: 'f-partial', minAccessLevel: 'partiel' }
+  const fullField = { id: 'f-full', minAccessLevel: 'complet' }
+  const oddField = { id: 'f-odd', minAccessLevel: 'unexpected' }
+  const rows = [
+    row('kbis.pdf', 1, 'k-kbis', publicField),
+    row('bilan.pdf', 1, 'k-bilan', partialField),
+    row('prev.pdf', 1, 'k-prev', fullField),
+    row('odd.pdf', 1, 'k-odd', oddField),
+    row('annexe.pdf', 1, 'k-annexe'),
+  ]
+  const names = async (level: 'public' | 'partiel' | 'complet') => {
+    const storage = fakeStorage()
+    const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
+    const groups = await svc.listForDossier('d-1', level)
+    return { names: groups.map((g) => g.filename).sort(), storage, groups }
+  }
+
+  it('shows an attachment at its field level and other documents only at complet', async () => {
+    expect((await names('public')).names).toEqual(['kbis.pdf'])
+    expect((await names('partiel')).names).toEqual(['bilan.pdf', 'kbis.pdf'])
+    expect((await names('complet')).names).toEqual([
+      'annexe.pdf',
+      'bilan.pdf',
+      'kbis.pdf',
+      'odd.pdf',
+      'prev.pdf',
+    ])
+  })
+
+  it('never signs a URL for a hidden version', async () => {
+    const { storage } = await names('public')
+    expect(storage.getSignedUrl).toHaveBeenCalledTimes(1)
+    expect(storage.getSignedUrl).toHaveBeenCalledWith('k-kbis', expect.anything())
+  })
+
+  it('gives each document the question it answers', async () => {
+    const { groups } = await names('complet')
+    expect(groups.find((g) => g.filename === 'bilan.pdf')).toMatchObject({
+      fieldId: 'f-partial',
+      current: { fieldId: 'f-partial' },
+    })
+    expect(groups.find((g) => g.filename === 'annexe.pdf')?.fieldId).toBeNull()
+  })
+
+  // Code review R48: two questions answered by files of the same name each keep their own file.
+  it('keeps files of the same name answering two questions apart, each with its own versions', async () => {
+    const svc = await build(fakeStorage(), {
+      document: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            row('kbis.pdf', 1, 'k-a', publicField),
+            row('kbis.pdf', 1, 'k-b', partialField),
+            row('kbis.pdf', 2, 'k-c'),
+            row('kbis.pdf', 1, 'k-d'),
+          ]),
+      },
+    })
+    const groups = await svc.listForDossier('d-1', 'complet')
+    expect(groups.map((g) => [g.fieldId, g.filename, g.versions.map((v) => v.version)])).toEqual([
+      ['f-public', 'kbis.pdf', [1]],
+      ['f-partial', 'kbis.pdf', [1]],
+      [null, 'kbis.pdf', [2, 1]],
+    ])
+  })
+
+  it('hides a document of the same name answering a question the level may not read', async () => {
+    const mixed = [
+      row('statuts.pdf', 1, 'k-s-full', fullField),
+      row('statuts.pdf', 1, 'k-s-public', publicField),
+    ]
+    const storage = fakeStorage()
+    const svc = await build(storage, {
+      document: { findMany: jest.fn().mockResolvedValue(mixed) },
+    })
+    const groups = await svc.listForDossier('d-1', 'public')
+    expect(groups.map((g) => g.fieldId)).toEqual(['f-public'])
+    expect(storage.getSignedUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DocumentsService.upload — attachment field (E03.11)', () => {
+  function attachingPrisma(field: { id: string } | null) {
+    return {
+      ...creatingPrisma(),
+      dossier: {
+        findUnique: jest.fn().mockResolvedValue({ questionnaireVersionId: 'v-1' }),
+      },
+      questionnaireField: { findFirst: jest.fn().mockResolvedValue(field) },
+    }
+  }
+
+  it('attaches the document to an attachment field of the dossier version', async () => {
+    const prisma = attachingPrisma({ id: 'f-kbis' })
+    const svc = await build(fakeStorage(), prisma)
+
+    const doc = await svc.upload({
+      dossierId: 'd-1',
+      filename: 'kbis.pdf',
+      buffer: PDF,
+      fieldId: 'f-kbis',
+    })
+
+    expect(doc.fieldId).toBe('f-kbis')
+    expect(prisma.questionnaireField.findFirst).toHaveBeenCalledWith({
+      where: { id: 'f-kbis', versionId: 'v-1', fieldType: 'file' },
+      select: { id: true },
+    })
+  })
+
+  it('refuses a field that is not an attachment field of this dossier, before storing anything', async () => {
+    const storage = fakeStorage()
+    const prisma = attachingPrisma(null)
+    const svc = await build(storage, prisma)
+
+    await expect(
+      svc.upload({ dossierId: 'd-1', filename: 'kbis.pdf', buffer: PDF, fieldId: 'f-other' }),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(storage.upload).not.toHaveBeenCalled()
+    expect(prisma.document.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps a document uploaded without field unattached', async () => {
+    const prisma = creatingPrisma()
+    const svc = await build(fakeStorage(), prisma)
+    const doc = await svc.upload({ dossierId: 'd-1', filename: 'annexe.pdf', buffer: PDF })
+    expect(doc.fieldId).toBeNull()
   })
 })
 

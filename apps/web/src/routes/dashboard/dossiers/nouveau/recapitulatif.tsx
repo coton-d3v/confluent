@@ -50,7 +50,10 @@ function FinalReview({ dossierId }: { dossierId: string }) {
     return <p className="pt-8 text-sm text-destructive">Impossible de charger le dossier.</p>
   }
 
-  const missing = missingRequiredAnswers(questionnaire.flat, answers)
+  // Attachments are not part of this page yet (E03.11, web): they are never reported missing here,
+  // the server check at submission is authoritative.
+  const attachmentIds = new Set(questionnaire.flat.filter((q) => q.fieldType === 'file').map((q) => q.id))
+  const missing = missingRequiredAnswers(questionnaire.flat, answers, attachmentIds)
   const submitted = dossier.submittedAt !== null
 
   async function handleSubmit() {

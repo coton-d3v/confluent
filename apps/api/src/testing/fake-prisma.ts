@@ -208,6 +208,14 @@ export function createFakePrisma() {
       : {}),
   })
 
+  // Document with the read level of the field it answers (E03.11).
+  includes.document = (row, include) => ({
+    ...row,
+    ...(include.field
+      ? { field: row.fieldId ? get('questionnaireField', row.fieldId) : null }
+      : {}),
+  })
+
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),
@@ -251,7 +259,7 @@ export function createFakePrisma() {
       position: 0,
       updatedAt: new Date(),
     })),
-    document: model('document'),
+    document: model('document', () => ({ fieldId: null })),
   }
   self.prisma = prisma
   return { prisma, tables, table }

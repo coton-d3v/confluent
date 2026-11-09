@@ -58,27 +58,45 @@ async function setup() {
     [...fake.table('questionnaireField').values()].find((f) => f.key === key)!.id
   const answer = (key: string, value: string) =>
     p.dossierAnswer.create({ data: { dossierId: 'd-1', fieldId: fieldId(key), value } })
-  return { fake, svc, classify, answer }
+  const attach = (key: string | null, filename = 'kbis.pdf') =>
+    p.document.create({
+      data: { dossierId: 'd-1', filename, fieldId: key ? fieldId(key) : null, version: 1 },
+    })
+  return { fake, svc, classify, answer, attach }
 }
 
 describe('DossiersService.submit', () => {
-  it('refuses a dossier with an unanswered required question, listing it; attachments are not counted', async () => {
+  it('refuses a dossier with an unanswered required question or a required attachment without document', async () => {
     const { svc, classify, answer, fake } = await setup()
     await answer('nom', '   ')
     const attempt = svc.submit('d-1', 'u-1')
     await expect(attempt).rejects.toBeInstanceOf(UnprocessableEntityException)
     await attempt.catch((err: UnprocessableEntityException) => {
       expect(err.getResponse()).toMatchObject({
-        details: [expect.objectContaining({ label: 'Nom' })],
+        details: [
+          expect.objectContaining({ label: 'Nom' }),
+          expect.objectContaining({ label: 'Kbis' }),
+        ],
       })
     })
     expect(classify).not.toHaveBeenCalled()
     expect(fake.table('dossier').get('d-1')?.submittedAt).toBeNull()
   })
 
-  it('submits a complete dossier, and keeps the first submission date when submitted again', async () => {
-    const { svc, classify, answer } = await setup()
+  it('does not count a document that answers no field, or another field (E03.11)', async () => {
+    const { svc, answer, attach } = await setup()
     await answer('nom', 'Biosensio')
+    await attach(null, 'kbis.pdf')
+    await attach('site', 'capture.png')
+    await expect(svc.submit('d-1', 'u-1')).rejects.toMatchObject({
+      response: { details: [expect.objectContaining({ label: 'Kbis' })] },
+    })
+  })
+
+  it('submits a complete dossier, and keeps the first submission date when submitted again', async () => {
+    const { svc, classify, answer, attach } = await setup()
+    await answer('nom', 'Biosensio')
+    await attach('kbis')
     const first = await svc.submit('d-1', 'u-1')
     expect(first.submittedAt).toBeInstanceOf(Date)
     expect(first).toMatchObject({

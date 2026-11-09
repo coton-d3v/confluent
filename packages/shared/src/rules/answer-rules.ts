@@ -97,7 +97,7 @@ export function validateAnswerValue(field: AnswerField, value: string): string |
         ? null
         : `Choix attendu parmi : ${field.choices.map((c) => `"${c.key}" (${c.label})`).join(', ')}.`
     case 'file':
-      return 'Ce champ attend un document : utilisez le dépôt de documents.'
+      return 'Ce champ attend un document, pas une réponse écrite : déposez le fichier pour ce champ.'
   }
 }
 
@@ -121,10 +121,19 @@ export function describeConstraints(
 
 export const isAnswered = (value: string | undefined): boolean => (value ?? '').trim() !== ''
 
-// Required questions still without an answer, in the given order (E03.10). Attachments are left out
-// until documents are part of the filling journey (E03.11).
+// Required questions still without an answer, in the given order (E03.10). An attachment field is
+// answered by a document attached to it (E03.11), never by an answer value: `attachedFieldIds` lists
+// the fields that have at least one document.
 export function missingRequiredAnswers<
   F extends { id: string; required: boolean; fieldType: FieldType },
->(fields: readonly F[], answers: Readonly<Record<string, string>>): F[] {
-  return fields.filter((f) => f.required && f.fieldType !== 'file' && !isAnswered(answers[f.id]))
+>(
+  fields: readonly F[],
+  answers: Readonly<Record<string, string>>,
+  attachedFieldIds: ReadonlySet<string>,
+): F[] {
+  return fields.filter(
+    (f) =>
+      f.required &&
+      (f.fieldType === 'file' ? !attachedFieldIds.has(f.id) : !isAnswered(answers[f.id])),
+  )
 }

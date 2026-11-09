@@ -39,10 +39,15 @@ export const documentVersionSchema = z.object({
   createdAt: z.string().datetime(),
   mimetype: z.string(),
   size: z.number().int().nonnegative(),
+  // Attachment field of the form this version answers (E03.11); null for the Documents tab.
+  fieldId: z.string().uuid().nullable(),
 })
 
+// A document is a file name answering one attachment question (or none), with its versions: the
+// same name sent for two questions makes two documents (code review R48).
 export const documentGroupSchema = z.object({
   filename: z.string(),
+  fieldId: z.string().uuid().nullable(),
   current: documentVersionSchema,
   versions: z.array(documentVersionSchema),
 })
@@ -53,6 +58,7 @@ export const uploadedDocumentSchema = z.object({
   version: z.number().int().positive(),
   mimetype: z.string(),
   size: z.number().int().nonnegative(),
+  fieldId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
 })
 

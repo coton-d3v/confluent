@@ -8,13 +8,13 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { Inject } from '@nestjs/common'
-import { grantsAccess, type AccessLevel } from '@confluent/shared'
+import type { AccessLevel } from '@confluent/shared'
 import type { QuestionnaireField, QuestionnaireSection } from '@prisma/client'
 import { AuthService } from '../auth/auth.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
-import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt, grantedLevel } from '../dossiers/financeur-access'
+import { fieldVisibleAt, grantedLevel } from '../dossiers/financeur-access'
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -38,8 +38,9 @@ export interface FinanceurShareResponse {
   sections: QuestionnaireSection[]
   fields: QuestionnaireField[]
   answers: Array<{ fieldId: string; value: string }>
-  // null when the level does not grant documents (below `complet`).
-  documents: DocumentGroup[] | null
+  // Only the versions the level may read: an attachment follows its field's level, any other
+  // document requires `complet` (E03.11).
+  documents: DocumentGroup[]
 }
 
 @Injectable()
@@ -116,9 +117,7 @@ export class ShareLinksService {
       ),
       fields,
       answers: answers.filter((a) => visibleIds.has(a.fieldId)),
-      documents: grantsAccess(accessLevel, DOCUMENTS_MIN_LEVEL)
-        ? await this.documents.listForDossier(dossier.id)
-        : null,
+      documents: await this.documents.listForDossier(dossier.id, accessLevel),
     }
   }
 
