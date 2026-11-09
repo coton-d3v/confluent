@@ -9,6 +9,7 @@ import basicAuth from 'express-basic-auth'
 import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
+import { corsOptions } from './common/http/cors'
 import { mountOAuthServer } from './modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './modules/mcp/mcp.http'
 import type { AppConfig } from './config/config.schema'
@@ -27,7 +28,7 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('v1', { exclude: ['/'] })
   app.useGlobalPipes(new ZodValidationPipe())
   app.useGlobalFilters(new GlobalExceptionFilter())
-  app.enableCors({ origin: config.get('FRONTEND_URL', { infer: true }), credentials: true })
+  app.enableCors(corsOptions(config.get('FRONTEND_URL', { infer: true })))
 
   const nodeEnv = config.get('NODE_ENV', { infer: true })
   const swaggerEnabled = config.get('SWAGGER_ENABLED', { infer: true })

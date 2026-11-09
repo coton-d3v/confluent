@@ -45,7 +45,9 @@ export default function MentionsLegalesRoute() {
       <LegalSection title="Hébergement">
         <p>
           Le site et les données sont hébergés par {host.name}, {host.address}. Les données sont
-          stockées en {host.location}.
+          stockées en {host.location}. Les informations que vous choisissez de transmettre à une
+          application d&apos;IA connectée sont ensuite traitées par son éditeur, selon ses propres
+          conditions (voir la politique de confidentialité).
         </p>
       </LegalSection>
 

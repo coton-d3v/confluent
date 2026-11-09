@@ -8,9 +8,26 @@ export interface ApiError {
   message: string
   status: number
   details?: unknown
+  // Seconds to wait before trying again, from a `Retry-After` header (429, 503).
+  retryAfter?: number
+}
+
+function retryAfterOf(res: Response): number | undefined {
+  const raw = res.headers.get('Retry-After')
+  if (!raw) return undefined
+  const seconds = /^\d+$/.test(raw.trim()) ? Number(raw) : (Date.parse(raw) - Date.now()) / 1000
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined
+}
+
+// The request may succeed if repeated later: no answer (network), overload or server failure.
+// Refusals (4xx other than 429) are final.
+export function isTemporaryFailure(err: unknown): boolean {
+  const status = (err as ApiError | undefined)?.status
+  return typeof status !== 'number' || status === 429 || status >= 500
 }
 
 async function parseError(res: Response): Promise<ApiError> {
+  const retryAfter = retryAfterOf(res)
   try {
     const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } }
     return {
@@ -18,9 +35,10 @@ async function parseError(res: Response): Promise<ApiError> {
       message: body.error?.message ?? res.statusText,
       details: body.error?.details,
       status: res.status,
+      retryAfter,
     }
   } catch {
-    return { code: `HTTP_${res.status}`, message: res.statusText, status: res.status }
+    return { code: `HTTP_${res.status}`, message: res.statusText, status: res.status, retryAfter }
   }
 }
 

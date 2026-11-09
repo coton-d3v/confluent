@@ -10,11 +10,9 @@ import {
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { DossierField } from '@/components/confluent/DossierField'
 import { Badge } from '@/components/ui/badge'
-import { useSharedDossier } from '@/features/share-access/useSharedDossier'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import { AccessDeniedPage } from '@/routes/share/AccessDeniedPage'
-import { RecipientMismatchPage } from '@/routes/share/RecipientMismatchPage'
 
 // The API already filters fields, answers and documents by the share's access level; this page only
 // explains to the financeur what the level leaves out.
@@ -27,28 +25,14 @@ const ACCESS_LEVEL_NOTICE: Record<AccessLevel, string> = {
 const ancrageLabel = (value: string) =>
   CLASSIFICATION_DIMENSIONS.ancrage_cvl.values.find((v) => v.value === value)?.label ?? value
 
+// Former address of the shared dossier: the share link itself now shows it, read once (R04).
 export default function ShareDossierRoute() {
   const { token } = useParams<{ token: string }>()
   if (!token) return <AccessDeniedPage />
-  return <ShareDossierView token={token} />
+  return <Navigate to={`/share/${encodeURIComponent(token)}`} replace />
 }
 
-function ShareDossierView({ token }: { token: string }) {
-  const state = useSharedDossier(token)
-  if (state.status === 'anonymous') {
-    return <Navigate to={`/share/${encodeURIComponent(token)}`} replace />
-  }
-  if (state.status === 'mismatch') return <RecipientMismatchPage email={state.email} />
-  if (state.status === 'denied') return <AccessDeniedPage />
-  if (state.status === 'loading') {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
-        <p className="text-sm text-muted-foreground">Chargement du dossier…</p>
-      </main>
-    )
-  }
-  const { data } = state
-
+export function SharedDossierPage({ data }: { data: FinanceurShareResponse }) {
   return (
     <>
       <title>{data.dossier.name} · Confluent</title>

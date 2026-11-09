@@ -1,9 +1,24 @@
 import type { FinanceurShareResponse } from '@confluent/shared'
+import { getAuthState, sessionGeneration } from '@/features/auth/auth-store'
 import { apiRequest, publicApiRequest, type ApiError } from '@/lib/api-client'
+
+// Each reading of a share is recorded as a view (`share_link_viewed`): identical requests in flight
+// at the same time — React StrictMode mounts effects twice — share one call (code review R04).
+// Only within one session (code review R47): a read started for account A is never handed to B, nor
+// to a later sign-in, which must each be checked by the API for themselves.
+const inFlight = new Map<string, Promise<FinanceurShareResponse>>()
 
 // Requires the recipient's session (E02.08): the API refuses another account.
 export function getSharedDossier(token: string): Promise<FinanceurShareResponse> {
-  return apiRequest<FinanceurShareResponse>(`/v1/shares/${encodeURIComponent(token)}`)
+  const key = `${sessionGeneration()}:${getAuthState().user?.id ?? ''}:${token}`
+  let request = inFlight.get(key)
+  if (!request) {
+    request = apiRequest<FinanceurShareResponse>(`/v1/shares/${encodeURIComponent(token)}`).finally(
+      () => inFlight.delete(key),
+    )
+    inFlight.set(key, request)
+  }
+  return request
 }
 
 // Sends a sign-in link if `email` is the recipient's address; same answer either way.
