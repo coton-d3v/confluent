@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import type { ClassificationResult } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { readChoices } from '../questionnaires/questionnaire-structure'
@@ -17,14 +18,16 @@ export class ClassificationService {
   constructor(private readonly prisma: PrismaService) {}
 
   // What the current rules give for a dossier, without writing anything; null if it does not exist.
-  async compute(dossierId: string): Promise<ClassificationResult | null> {
-    const [dossier, rules] = await Promise.all([
-      this.prisma.dossier.findUnique({
-        where: { id: dossierId },
-        include: { questionnaireVersion: { include: { fields: true } }, answers: true },
-      }),
-      this.prisma.classificationRule.findMany(),
-    ])
+  // `db`: the transaction of a caller holding the dossier (submission, R40), else the client.
+  async compute(
+    dossierId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<ClassificationResult | null> {
+    const dossier = await db.dossier.findUnique({
+      where: { id: dossierId },
+      include: { questionnaireVersion: { include: { fields: true } }, answers: true },
+    })
+    const rules = await db.classificationRule.findMany()
     if (!dossier) return null
 
     // Answers by field key, never by label: labels are editable in the builder.

@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { ClassificationService } from '../classification/classification.service'
+import { lockDossier } from './dossier-lock'
 import {
   fieldVisibleAt,
   grantedLevel,
@@ -172,28 +173,33 @@ export class DossiersService {
   }
 
   // Verified on the server (E03.10): every required question of the dossier's version is answered.
-  // Submitting again refreshes the classification but keeps the first submission date.
+  // Submitting again refreshes the classification but keeps the first submission date. Check,
+  // classification and submission happen under the dossier's lock, so a save in progress is either
+  // seen complete or waits for the submission (code review R40).
   async submit(id: string, userId: string): Promise<Dossier> {
-    const dossier = await this.getByIdForUser(id, userId)
-    const [structure, answers] = await Promise.all([
-      this.questionnaires.getVersion(dossier.questionnaireVersionId),
-      this.prisma.dossierAnswer.findMany({ where: { dossierId: dossier.id } }),
-    ])
-    const missing = missingRequiredAnswers(
-      structure?.fields ?? [],
-      Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
-    )
-    if (missing.length > 0) {
-      throw new UnprocessableEntityException({
-        code: 'DOSSIER_INCOMPLETE',
-        message: `${missing.length} réponse(s) obligatoire(s) manquante(s).`,
-        details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
+    const { id: dossierId } = await this.getByIdForUser(id, userId)
+    return this.prisma.$transaction(async (tx) => {
+      const dossier = await lockDossier(tx, dossierId)
+      const [structure, answers] = await Promise.all([
+        this.questionnaires.getVersion(dossier.questionnaireVersionId),
+        tx.dossierAnswer.findMany({ where: { dossierId } }),
+      ])
+      const missing = missingRequiredAnswers(
+        structure?.fields ?? [],
+        Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
+      )
+      if (missing.length > 0) {
+        throw new UnprocessableEntityException({
+          code: 'DOSSIER_INCOMPLETE',
+          message: `${missing.length} réponse(s) obligatoire(s) manquante(s).`,
+          details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
+        })
+      }
+      const classification = await this.classification.compute(dossierId, tx)
+      return tx.dossier.update({
+        where: { id: dossierId },
+        data: { ...classification, submittedAt: dossier.submittedAt ?? new Date() },
       })
-    }
-    await this.classification.classify(dossier.id)
-    return this.prisma.dossier.update({
-      where: { id: dossier.id },
-      data: { submittedAt: dossier.submittedAt ?? new Date() },
     })
   }
 

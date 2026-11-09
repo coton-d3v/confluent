@@ -11,6 +11,7 @@ import { mountOAuthServer } from './../src/modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './../src/modules/mcp/mcp.http'
 import { hashToken } from './../src/modules/oauth/oauth.constants'
 import { createFakePrisma } from '../src/testing/fake-prisma'
+import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
 
 const FUTURE = new Date(Date.now() + 3600_000)
 
@@ -259,6 +260,51 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     await c.close()
   })
 
+  // Code review R18: on a submitted dossier, an answer changed through MCP updates the derived
+  // classification at once, and the tool answers with the dossier as it is after the write.
+  it('reclassifies a submitted dossier after an MCP change, and describes it after the write', async () => {
+    const p = fake.prisma
+    for (const rule of DEFAULT_CLASSIFICATION_RULES)
+      await p.classificationRule.create({ data: rule })
+    await p.questionnaireField.create({
+      data: {
+        id: 'f-sector',
+        versionId: 'v-2',
+        sectionId: 's-identite',
+        key: 'secteur',
+        label: 'Secteur',
+        fieldType: 'text',
+        required: false,
+        orderIndex: 1,
+        minAccessLevel: 'public',
+      },
+    })
+    const id = '11111111-1111-4111-8111-111111111111'
+    for (const [fieldId, value] of [
+      ['f-name', 'Biosensio'],
+      ['f-stage', 'fonds_propres_uniquement'],
+      ['f-sector', 'Biotech'],
+    ]) {
+      await p.dossierAnswer.create({ data: { dossierId: id, fieldId, value } })
+    }
+    await p.dossier.update({ where: { id }, data: { submittedAt: new Date(), sector: 'Biotech' } })
+
+    const c = await client(await connect('u-1', ['dossiers:write']))
+    const res = await c.callTool({
+      name: 'update_answers',
+      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-sector', value: 'SaaS' }] },
+    })
+    expect(res.isError).toBeFalsy()
+    expect(fake.table('dossier').get(id)).toMatchObject({ sector: 'SaaS', axe2Financier: 2 })
+    const read = json(
+      await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+    )
+    expect((read.dossier as { classification: { sector: string } }).classification.sector).toBe(
+      'SaaS',
+    )
+    await c.close()
+  })
+
   it('never exposes another user’s dossier', async () => {
     const c = await client(await connect('u-1', ['dossiers:write']))
     const res = await c.callTool({ name: 'get_dossier', arguments: { dossier: 'autre' } })
@@ -308,6 +354,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       (l) => l.actionType === 'mcp_tool_called',
     )
     expect(logs.map((l) => (l.metadata as { result: string }).result)).toEqual(['ok', 'error'])
+    // Someone else's dossier: the call is journaled without attaching it to that dossier.
+    expect(logs[1].dossierId).toBeNull()
     expect(logs[0]).toMatchObject({
       actorId: 'u-1',
       dossierId: '11111111-1111-4111-8111-111111111111',
@@ -317,6 +365,27 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         clientName: 'Claude',
       }),
     })
+    await c.close()
+  })
+
+  // Code review R20: a failed call on a dossier the caller may access is in that dossier's journal.
+  it('journals a failed write on an accessible dossier with that dossier', async () => {
+    const c = await client(await connect('u-1', ['dossiers:write']))
+    await c.callTool({
+      name: 'update_answers',
+      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-stage', value: 'Série Z' }] },
+    })
+    await c.callTool({
+      name: 'update_answers',
+      arguments: { dossier: 'autre', answers: [{ fieldId: 'f-stage', value: 'Série Z' }] },
+    })
+    const logs = [...fake.table('auditLog').values()].filter(
+      (l) => l.actionType === 'mcp_tool_called',
+    )
+    expect(logs.map((l) => [l.dossierId, (l.metadata as { result: string }).result])).toEqual([
+      ['11111111-1111-4111-8111-111111111111', 'error'],
+      [null, 'error'],
+    ])
     await c.close()
   })
 
