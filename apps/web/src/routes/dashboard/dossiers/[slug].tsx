@@ -30,9 +30,11 @@ import { useAsync } from '@/lib/useAsync'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import type { ApiError } from '@/lib/api-client'
 import { useCurrentUser } from '@/features/current-user/context'
+import { DocumentsPanel } from '@/features/documents/components/DocumentsPanel'
 
 const TAB_VALUES = {
   content: 'content',
+  documents: 'documents',
   analytics: 'analytics',
 } as const
 
@@ -133,17 +135,18 @@ function DossierView({
   )
 
   const displayName = dossierQuery.data?.name ?? fallbackName
+  const requestedTab = searchParams.get('tab')
   const activeTab: TabValue =
-    searchParams.get('tab') === TAB_VALUES.analytics
-      ? TAB_VALUES.analytics
+    requestedTab === TAB_VALUES.analytics || requestedTab === TAB_VALUES.documents
+      ? requestedTab
       : TAB_VALUES.content
 
   function handleTabChange(value: unknown) {
     if (typeof value !== 'string') return
     setSearchParams(
       (prev) => {
-        if (value === TAB_VALUES.analytics) {
-          prev.set('tab', TAB_VALUES.analytics)
+        if (value === TAB_VALUES.analytics || value === TAB_VALUES.documents) {
+          prev.set('tab', value)
         } else {
           prev.delete('tab')
         }
@@ -299,6 +302,7 @@ function DossierView({
       <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
         <TabsList>
           <TabsTrigger value={TAB_VALUES.content}>Contenu</TabsTrigger>
+          <TabsTrigger value={TAB_VALUES.documents}>Documents</TabsTrigger>
           {isOwner && (
             <TabsTrigger value={TAB_VALUES.analytics}>
               Accès &amp; analytics
@@ -338,6 +342,10 @@ function DossierView({
               Ce dossier n&apos;a pas encore de contenu renseigné.
             </p>
           )}
+        </TabsContent>
+
+        <TabsContent value={TAB_VALUES.documents}>
+          <DocumentsPanel dossierId={dossierId} canUpload={isOwner} />
         </TabsContent>
 
         <TabsContent value={TAB_VALUES.analytics}>
