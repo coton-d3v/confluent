@@ -119,7 +119,17 @@ describe('ClassificationService.classify', () => {
       preCreation: true,
     }
     expect(await svc.classify('d-1')).toEqual(expected)
-    expect(update).toHaveBeenCalledWith({ where: { id: 'd-1' }, data: expected })
+    // Stored with the field keys each column was computed from (code review R31).
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'd-1' },
+      data: {
+        ...expected,
+        classificationSources: expect.objectContaining({
+          sector: expect.arrayContaining([expect.any(String)]),
+          axe2Financier: ['stade_financement'],
+        }),
+      },
+    })
   })
 
   it('keeps classifying when field and choice labels are renamed (lookup by key, not label)', async () => {
@@ -206,7 +216,10 @@ describe('ClassificationService.classify', () => {
     const { prisma, update } = buildPrisma(dossierWith(V2_FIELDS, {}))
     const svc = await instantiate(prisma)
     expect(await svc.classify('d-1')).toEqual(EMPTY)
-    expect(update).toHaveBeenCalledWith({ where: { id: 'd-1' }, data: EMPTY })
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'd-1' },
+      data: { ...EMPTY, classificationSources: expect.any(Object) },
+    })
   })
 
   it('returns nulls if the dossier does not exist (and does not update)', async () => {

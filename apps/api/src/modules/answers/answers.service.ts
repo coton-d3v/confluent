@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import type { Dossier, DossierAnswer, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ClassificationService } from '../classification/classification.service'
+import {
+  ClassificationService,
+  storedClassification,
+} from '../classification/classification.service'
 import { lockDossier } from '../dossiers/dossier-lock'
 import { normalizeAnswers, submittedDossierErrors, validateAnswers } from './answer-validation'
 import { InvalidAnswersException } from './invalid-answers.exception'
@@ -47,9 +50,13 @@ export class AnswersService {
       // the path of the change (site, admin, MCP — code review R18). A draft is classified when
       // submitted.
       if (current.submittedAt) {
-        const classification = await this.classification.compute(current.id, tx)
-        if (classification)
-          await tx.dossier.update({ where: { id: current.id }, data: classification })
+        const classification = await this.classification.evaluate(current.id, tx)
+        if (classification) {
+          await tx.dossier.update({
+            where: { id: current.id },
+            data: storedClassification(classification),
+          })
+        }
       }
       return saved
     })

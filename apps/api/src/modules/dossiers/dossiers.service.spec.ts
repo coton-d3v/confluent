@@ -126,6 +126,12 @@ describe('DossiersService', () => {
         sector: 'biotech',
         axe1Projet: 3,
         axe2Financier: 4,
+        // Recorded when the dossier was classified (code review R31).
+        classificationSources: {
+          sector: ['secteur'],
+          axe1Projet: ['stade_projet'],
+          axe2Financier: ['stade_financement'],
+        },
         user: { email: 'owner@example.com', firstName: 'Sophie', lastName: null },
         shareLinks: [{ accessLevel: 'public' }, { accessLevel: 'partiel' }],
       },

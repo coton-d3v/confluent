@@ -99,8 +99,16 @@ describe('/v1/admin/classification (e2e)', () => {
   it('serves coverage and an empty reclassification preview, to administrators only', async () => {
     await call('get', '/coverage').expect(200)
     const preview = await call('get', '/reclassification').expect(200)
-    expect(preview.body).toEqual({ checked: 0, dossiers: [] })
-    await call('post', '/reclassification').expect(200)
+    expect(preview.body).toEqual({ checked: 0, dossiers: [], rulesRevision: expect.any(String) })
+    // Applying names the rules of the preview (code review R44).
+    await call('post', '/reclassification').send({}).expect(400)
+    await call('post', '/reclassification')
+      .send({ rulesRevision: 'autre-revision' })
+      .expect(409)
+      .expect((res) => expect(res.body.error.message).toContain('Les règles ont changé'))
+    await call('post', '/reclassification')
+      .send({ rulesRevision: preview.body.rulesRevision })
+      .expect(200)
     await call('get', '/rules', entrepreneur).expect(403)
   })
 })

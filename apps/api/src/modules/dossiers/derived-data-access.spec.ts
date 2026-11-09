@@ -1,5 +1,6 @@
 import type { Dossier } from '@prisma/client'
 import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
+import { classificationSources } from '../classification/classification-sources'
 import { projectDossierForLevel, type DerivedDataContext } from './financeur-access'
 
 // Code review R31: classification columns stored on the dossier must not reveal a field that the
@@ -32,16 +33,21 @@ const DIMENSIONS_OF: Record<string, string[]> = {
 }
 const SOURCE_KEYS = [...new Set(DEFAULT_CLASSIFICATION_RULES.map((r) => r.fieldKey))]
 
+// The levels of the version's fields; the dossier carries the sources recorded when it was
+// classified, here with the default rules and a version holding every source field (unless given).
 const context = (levels: Record<string, string>): DerivedDataContext => ({
   fieldLevels: new Map(Object.entries(levels)),
-  rules: DEFAULT_CLASSIFICATION_RULES,
+})
+const recorded = (keys: Iterable<string> = SOURCE_KEYS) => ({
+  ...dossier,
+  classificationSources: classificationSources(DEFAULT_CLASSIFICATION_RULES, new Set(keys)),
 })
 const allAt = (level: string) => Object.fromEntries(SOURCE_KEYS.map((k) => [k, level]))
 
 describe('derived data of a dossier by share level (R31)', () => {
   it.each(SOURCE_KEYS)('a restricted « %s » field hides every column derived from it', (key) => {
     const projected = projectDossierForLevel(
-      dossier,
+      recorded(),
       'partiel',
       context({ ...allAt('public'), [key]: 'complet' }),
     )
@@ -55,20 +61,47 @@ describe('derived data of a dossier by share level (R31)', () => {
   })
 
   it('keeps the fixed floors on top of the sources (financial axis only for a full share)', () => {
-    const projected = projectDossierForLevel(dossier, 'partiel', context(allAt('public')))
+    const projected = projectDossierForLevel(recorded(), 'partiel', context(allAt('public')))
     expect(projected).toMatchObject({ sector: 'biotech', axe1Projet: 3, axe2Financier: null })
   })
 
   it('hides a column whose sources are absent from the dossier version (closed by default)', () => {
     const projected = projectDossierForLevel(
-      dossier,
+      recorded(['secteur_activite']),
       'public',
       context({ secteur_activite: 'public' }),
     )
     expect(projected).toMatchObject({ sector: 'biotech', ancrageCvl: null, tagTechnologique: null })
   })
 
-  it('shows everything to a full share', () => {
-    expect(projectDossierForLevel(dossier, 'complet', context(allAt('complet')))).toEqual(dossier)
+  it('shows every value to a full share, never the provenance itself', () => {
+    const full = recorded()
+    expect(projectDossierForLevel(full, 'complet', context(allAt('complet')))).toEqual({
+      ...full,
+      classificationSources: null,
+    })
+  })
+
+  // Recontrôle R31: the value was computed from a confidential field; the rules are later changed
+  // to read a public one, without reclassifying. The stored value must stay hidden.
+  it('judges a stored value on the fields it was computed from, not on the current rules', () => {
+    const classified = {
+      ...dossier,
+      classificationSources: { sector: ['secteur_prive'] },
+    } as unknown as Dossier
+    const levels = context({ secteur_prive: 'complet', secteur_public: 'public' })
+    expect(projectDossierForLevel(classified, 'public', levels).sector).toBeNull()
+    expect(projectDossierForLevel(classified, 'complet', levels).sector).toBe('biotech')
+  })
+
+  it('hides every derived column when no provenance was recorded, or an unreadable one', () => {
+    for (const classificationSources of [null, 'x', { sector: 'secteur' }]) {
+      const projected = projectDossierForLevel(
+        { ...dossier, classificationSources } as unknown as Dossier,
+        'complet',
+        context(allAt('public')),
+      )
+      for (const column of COLUMNS) expect(projected[column]).toBeNull()
+    }
   })
 })

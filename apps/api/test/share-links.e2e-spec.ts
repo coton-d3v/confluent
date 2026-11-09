@@ -11,6 +11,7 @@ import { AuditService } from './../src/modules/audit/audit.service'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
+import { classificationSources } from '../src/modules/classification/classification-sources'
 
 describe('ShareLinksController (e2e)', () => {
   let app: INestApplication<App>
@@ -112,6 +113,11 @@ describe('ShareLinksController (e2e)', () => {
     axe3Origine: 3,
     deeptechScore: 3,
     preCreation: false,
+    // Recorded when it was classified (code review R31): the version's fields read by the rules.
+    classificationSources: classificationSources(
+      DEFAULT_CLASSIFICATION_RULES,
+      new Set(['nom', 'secteur', 'stade_projet', 'origine_projet', 'stade_financement']),
+    ),
     questionnaireVersionId: 'v-2',
     answers: [
       { fieldId: 'f-name', value: 'Biosensio' },

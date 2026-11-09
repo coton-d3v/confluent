@@ -148,13 +148,58 @@ describe('ClassificationRulesService', () => {
           changes: [{ column: 'axe2Financier', from: 4, to: 5 }],
         },
       ],
+      rulesRevision: expect.any(String),
     })
     expect(fake.table('dossier').get('d-1')?.axe2Financier).toBe(4)
 
-    await reclassification.apply('admin-1')
+    const applied = await reclassification.apply('admin-1', preview.rulesRevision)
+    expect(applied).toEqual(preview)
     expect(fake.table('dossier').get('d-1')?.axe2Financier).toBe(5)
     const actions = [...fake.table('auditLog').values()].map((a) => a.actionType)
     expect(actions).toEqual(['classification_rules_updated', 'dossier_classified'])
     expect((await reclassification.preview()).dossiers).toEqual([])
+  })
+
+  // Code review R44: a rule changed after the preview is not applied under the preview's name; the
+  // trace holds what was actually written.
+  it('refuses to apply a preview whose rules have changed since, writing nothing', async () => {
+    const { fake, p, rules, reclassification, classification, version } = await setup()
+    const field = [...fake.table('questionnaireField').values()][0]
+    await p.dossier.create({
+      data: {
+        id: 'd-1',
+        userId: 'u-1',
+        name: 'Biosensio',
+        slug: 'biosensio',
+        questionnaireVersionId: version.id,
+        submittedAt: new Date(),
+      },
+    })
+    await p.dossierAnswer.create({
+      data: { dossierId: 'd-1', fieldId: field.id, value: 'seed_investisseurs_professionnels' },
+    })
+    await classification.classify('d-1')
+    const rule = rulesOf(fake).find((r) => r.choiceKey === 'seed_investisseurs_professionnels')!
+    await rules.update(rule.id, { value: '5' }, 'admin-1')
+    const preview = await reclassification.preview()
+    // Changed again before the administrator applies: 5 is what was previewed, 2 is current.
+    await rules.update(rule.id, { value: '2' }, 'admin-1')
+
+    await expect(reclassification.apply('admin-1', preview.rulesRevision)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CLASSIFICATION_RULES_CHANGED' }),
+    })
+    expect(fake.table('dossier').get('d-1')?.axe2Financier).toBe(4)
+    const traced = () =>
+      [...fake.table('auditLog').values()].filter((a) => a.actionType === 'dossier_classified')
+    expect(traced()).toEqual([])
+
+    const fresh = await reclassification.preview()
+    const applied = await reclassification.apply('admin-1', fresh.rulesRevision)
+    expect(fake.table('dossier').get('d-1')?.axe2Financier).toBe(2)
+    expect(applied.dossiers[0].changes).toEqual([{ column: 'axe2Financier', from: 4, to: 2 }])
+    expect(traced()[0].metadata).toMatchObject({
+      rulesRevision: fresh.rulesRevision,
+      changes: [{ column: 'axe2Financier', from: 4, to: 2 }],
+    })
   })
 })
