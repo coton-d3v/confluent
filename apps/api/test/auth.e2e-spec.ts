@@ -37,44 +37,46 @@ describe('AuthController (e2e)', () => {
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue({
-        onModuleInit: async () => {},
-        onModuleDestroy: async () => {},
-        user: { findUnique, update: userUpdate },
-        magicLinkToken: {
-          create: tokenCreate,
-          findUnique: tokenFindUnique,
-          update: tokenUpdate,
-          updateMany: tokenUpdateMany,
-        },
-        // Stateful refresh_sessions so rotation/logout can be exercised end to end over HTTP.
-        refreshSession: {
-          create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-            const row = { id: `rs-${++sessionSeq}`, revokedAt: null, replacedById: null, ...data }
-            sessions.set(row.id, row)
-            return row
-          }),
-          findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
-            sessions.has(where.id) ? { ...sessions.get(where.id) } : null,
-          ),
-          update: jest.fn(async ({ where, data }: { where: { id: string }; data: object }) =>
-            Object.assign(sessions.get(where.id)!, data),
-          ),
-          updateMany: jest.fn(
-            async ({ where, data }: { where: Record<string, unknown>; data: object }) => {
-              let count = 0
-              for (const row of sessions.values()) {
-                if (Object.entries(where).every(([k, v]) => row[k] === v)) {
-                  Object.assign(row, data)
-                  count++
+      .useValue(
+        withTransactions({
+          onModuleInit: async () => {},
+          onModuleDestroy: async () => {},
+          user: { findUnique, update: userUpdate },
+          magicLinkToken: {
+            create: tokenCreate,
+            findUnique: tokenFindUnique,
+            update: tokenUpdate,
+            updateMany: tokenUpdateMany,
+          },
+          // Stateful refresh_sessions so rotation/logout can be exercised end to end over HTTP.
+          refreshSession: {
+            create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+              const row = { id: `rs-${++sessionSeq}`, revokedAt: null, replacedById: null, ...data }
+              sessions.set(row.id, row)
+              return row
+            }),
+            findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+              sessions.has(where.id) ? { ...sessions.get(where.id) } : null,
+            ),
+            update: jest.fn(async ({ where, data }: { where: { id: string }; data: object }) =>
+              Object.assign(sessions.get(where.id)!, data),
+            ),
+            updateMany: jest.fn(
+              async ({ where, data }: { where: Record<string, unknown>; data: object }) => {
+                let count = 0
+                for (const row of sessions.values()) {
+                  if (Object.entries(where).every(([k, v]) => row[k] === v)) {
+                    Object.assign(row, data)
+                    count++
+                  }
                 }
-              }
-              return { count }
-            },
-          ),
-        },
-        auditLog: { create: auditCreate },
-      })
+                return { count }
+              },
+            ),
+          },
+          auditLog: { create: auditCreate },
+        }),
+      )
       .overrideProvider(EMAIL_TRANSPORT)
       .useValue({ sendMagicLink, sendShareInvite: jest.fn() })
       .compile()
@@ -231,3 +233,13 @@ describe('AuthController (e2e)', () => {
     expect(res.body).toEqual({ status: 'ok', service: 'confluent-api', version: 'dev' })
   })
 })
+
+// Locks and transactions of the session service have no effect in memory (see test/pg for real
+// concurrency): the transaction callback runs on the same mock.
+function withTransactions<T extends object>(prisma: T) {
+  const client = Object.assign(prisma, {
+    $queryRaw: jest.fn(() => Promise.resolve([])),
+    $transaction: jest.fn((fn: (tx: unknown) => unknown): unknown => fn(client)),
+  })
+  return client
+}

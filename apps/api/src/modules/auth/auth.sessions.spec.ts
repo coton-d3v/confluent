@@ -52,8 +52,12 @@ function fakeStore() {
       updateMany: updateMany(tokens),
     },
     refreshSession: {
-      findUnique: jest.fn(({ where }: { where: { id: string } }) =>
-        sessions.has(where.id) ? { ...sessions.get(where.id)! } : null,
+      findUnique: jest.fn(
+        ({ where, include }: { where: { id: string }; include?: { user?: boolean } }) => {
+          const row = sessions.get(where.id)
+          if (!row) return null
+          return include?.user ? { ...row, user: users.get(row.userId as string) } : { ...row }
+        },
       ),
       create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
         const row = { id: randomUUID(), revokedAt: null, replacedById: null, ...data } as Row
@@ -65,8 +69,13 @@ function fakeStore() {
       ),
       updateMany: updateMany(sessions),
     },
+    // Locks and transactions have no effect in memory: concurrency is covered by test/pg.
+    $queryRaw: jest.fn(() => Promise.resolve([])),
   }
-  return { prisma, users, tokens, sessions }
+  const client = Object.assign(prisma, {
+    $transaction: jest.fn((fn: (tx: unknown) => unknown): unknown => fn(client)),
+  })
+  return { prisma: client, users, tokens, sessions }
 }
 
 async function setup() {
@@ -155,10 +164,12 @@ describe('AuthService.refreshSession', () => {
     const first = await svc.verifyMagicLink(addToken())
     const second = await svc.refreshSession(first.refreshToken)
     expect(second.refreshToken).not.toBe(first.refreshToken)
-    // Within the grace window a second use is refused without killing the login (two tabs).
-    await expect(svc.refreshSession(first.refreshToken)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    )
+    // Within the grace window a second use (another tab, a retry) gets the SAME successor session —
+    // no new session, no burned login (code review R05/R08).
+    const retry = await svc.refreshSession(first.refreshToken)
+    const jti = (token: string) =>
+      (JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { jti: string }).jti
+    expect(jti(retry.refreshToken)).toBe(jti(second.refreshToken))
     await expect(svc.refreshSession(second.refreshToken)).resolves.toBeDefined()
   })
 
