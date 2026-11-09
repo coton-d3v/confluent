@@ -128,6 +128,41 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
 
   // Code review R17/R13: write implies read on the server, so the consent screen shows both; an
   // explicitly empty or unknown choice is refused without consuming the request.
+
+  // Code review R15: RFC 9207 — every authorization response redirected to the client carries the
+  // exact issuer, errors included, with the client's state.
+  it('authorization error redirects carry iss and state', async () => {
+    const clientId = await registerClient()
+    const { challenge } = pkce()
+    const base = {
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: REDIRECT,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      scope: 'dossiers:read',
+      state: 'st-err',
+      resource: RESOURCE,
+    }
+    for (const invalid of [
+      { resource: 'https://autre.example/mcp' },
+      { code_challenge_method: 'plain' },
+      { scope: 'admin:all' },
+    ]) {
+      const res = await http()
+        .get('/authorize')
+        .query({ ...base, ...invalid })
+        .expect(302)
+      const back = new URL(res.headers.location)
+      expect(`${back.origin}${back.pathname}`).toBe(REDIRECT)
+      expect(back.searchParams.get('error')).toBeTruthy()
+      expect(back.searchParams.get('state')).toBe('st-err')
+      expect({ invalid, iss: back.searchParams.get('iss') }).toEqual({
+        invalid,
+        iss: 'http://localhost:3000/',
+      })
+    }
+  })
   it('consent: write-only request shows read too; empty or unknown choices are refused, request kept', async () => {
     const clientId = await registerClient()
     const { challenge } = pkce()

@@ -19,6 +19,7 @@ import type {
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { AppConfig } from '../../config/config.schema'
+import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { OAuthClientsStore } from './oauth-clients.store'
@@ -128,13 +129,16 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     if (redirectUri !== undefined && redirectUri !== code.redirectUri) {
       throw new InvalidGrantError('redirect_uri does not match the authorization request')
     }
-    // Single use, atomically: a replayed code gets nothing.
-    const used = await this.prisma.oAuthToken.updateMany({
-      where: { id: code.id, usedAt: null },
-      data: { usedAt: new Date() },
+    // Single use, atomically: a replayed code gets nothing. Consuming the code and issuing its
+    // tokens form one transaction: a failure in between leaves the code usable (code review R14).
+    return this.prisma.$transaction(async (tx) => {
+      const used = await tx.oAuthToken.updateMany({
+        where: { id: code.id, usedAt: null },
+        data: { usedAt: new Date() },
+      })
+      if (used.count !== 1) throw new InvalidGrantError('Authorization code already used')
+      return this.issueTokens(tx, code.grant.id, code.scopes)
     })
-    if (used.count !== 1) throw new InvalidGrantError('Authorization code already used')
-    return this.issueTokens(code.grant.id, code.scopes)
   }
 
   async exchangeRefreshToken(
@@ -168,12 +172,15 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     if (narrowed.some((s) => !granted.includes(s))) {
       throw new InvalidScopeError('Requested scope exceeds the original grant')
     }
-    const claimed = await this.prisma.oAuthToken.updateMany({
-      where: { id: token.id, usedAt: null, revokedAt: null },
-      data: { usedAt: new Date() },
+    // Rotation in one transaction (R14): the old refresh token is spent only if its successors exist.
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.oAuthToken.updateMany({
+        where: { id: token.id, usedAt: null, revokedAt: null },
+        data: { usedAt: new Date() },
+      })
+      if (claimed.count !== 1) throw new InvalidGrantError('Refresh token already used')
+      return this.issueTokens(tx, token.grant.id, narrowed)
     })
-    if (claimed.count !== 1) throw new InvalidGrantError('Refresh token already used')
-    return this.issueTokens(token.grant.id, narrowed)
   }
 
   async verifyAccessToken(accessToken: string): Promise<AuthInfo> {
@@ -362,11 +369,15 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     return !!user && user.isActive && user.emailVerifiedAt !== null
   }
 
-  private async issueTokens(grantId: string, scopes: string[]): Promise<OAuthTokens> {
+  private async issueTokens(
+    db: Prisma.TransactionClient,
+    grantId: string,
+    scopes: string[],
+  ): Promise<OAuthTokens> {
     const accessToken = newOpaqueToken('cfl_at')
     const refreshToken = newOpaqueToken('cfl_rt')
     const now = Date.now()
-    await this.prisma.oAuthToken.create({
+    await db.oAuthToken.create({
       data: {
         grantId,
         kind: 'access',
@@ -375,7 +386,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         expiresAt: new Date(now + ACCESS_TOKEN_TTL_MS),
       },
     })
-    await this.prisma.oAuthToken.create({
+    await db.oAuthToken.create({
       data: {
         grantId,
         kind: 'refresh',

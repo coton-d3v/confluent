@@ -22,6 +22,35 @@ function basicAuthToBody(req: Request, _res: Response, next: NextFunction): void
   next()
 }
 
+// RFC 9207 (code review R15): the SDK builds error redirects of /authorize itself, without `iss`, and
+// without `state` when the request failed to parse. Any redirect back to the client carrying `error`
+// gets the exact issuer we advertise and the client's state.
+function issuerOnErrorRedirects(issuer: string) {
+  return function addIssuer(req: Request, res: Response, next: NextFunction): void {
+    const params = (req.method === 'POST' ? req.body : req.query) as
+      | Record<string, unknown>
+      | undefined
+    const state = typeof params?.state === 'string' ? params.state : undefined
+    const redirect = res.redirect.bind(res) as (status: number, url: string) => void
+    res.redirect = ((statusOrUrl: number | string, maybeUrl?: string) => {
+      const status = typeof statusOrUrl === 'number' ? statusOrUrl : 302
+      const target = typeof statusOrUrl === 'string' ? statusOrUrl : maybeUrl!
+      try {
+        const url = new URL(target)
+        if (url.searchParams.has('error')) {
+          if (!url.searchParams.has('iss')) url.searchParams.set('iss', issuer)
+          if (state && !url.searchParams.has('state')) url.searchParams.set('state', state)
+          return redirect(status, url.href)
+        }
+      } catch {
+        // relative or invalid target: left as is
+      }
+      return redirect(status, target)
+    }) as Response['redirect']
+    next()
+  }
+}
+
 // Mounts the OAuth 2.1 authorization server (outside the `/v1` prefix, as MCP clients expect):
 // /authorize, /token, /register, /revoke and the RFC 8414 / RFC 9728 discovery documents.
 export function mountOAuthServer(app: INestApplication): void {
@@ -63,6 +92,7 @@ export function mountOAuthServer(app: INestApplication): void {
     },
     basicAuthToBody,
   )
+  app.use('/authorize', issuerOnErrorRedirects(issuerUrl.href))
   app.use(
     mcpAuthRouter({
       provider,
