@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
+import type { Prisma } from '@prisma/client'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
@@ -111,46 +112,59 @@ export class AuthService {
     return this.issueSession(record.user, randomUUID())
   }
 
+  // Rotation, logout and deactivation of a user's sessions are serialized on the user row (code
+  // review R07): a logout can no longer slip between spending a refresh token and creating its
+  // successor. A request replaying the token just rotated (another tab, a retry) within the grace
+  // period gets the SAME successor session instead of burning the family (R08, R05).
   async refreshSession(refreshToken: string | undefined): Promise<IssuedSession> {
     const payload = await this.verifyRefreshToken(refreshToken)
     if (!payload) throw invalidToken()
 
-    const row = await this.prisma.refreshSession.findUnique({ where: { id: payload.jti } })
-    if (!row || row.userId !== payload.sub || row.expiresAt.getTime() <= Date.now()) {
-      throw invalidToken()
-    }
-    if (row.revokedAt !== null) {
-      await this.handleRevokedTokenUse(row)
-      throw invalidToken()
-    }
-
-    // Claim the row atomically so a token can be rotated only once.
-    const claimed = await this.prisma.refreshSession.updateMany({
-      where: { id: row.id, revokedAt: null },
-      data: { revokedAt: new Date() },
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      await lockUserSessions(tx, payload.sub)
+      const row = await tx.refreshSession.findUnique({ where: { id: payload.jti } })
+      if (!row || row.userId !== payload.sub || row.expiresAt.getTime() <= Date.now()) {
+        return { kind: 'invalid' as const }
+      }
+      if (row.revokedAt !== null) {
+        const successor = await this.recentSuccessor(tx, row)
+        return successor
+          ? { kind: 'session' as const, user: successor.user, rowId: successor.id }
+          : { kind: 'reused' as const, row }
+      }
+      const user = await tx.user.findUnique({ where: { id: payload.sub } })
+      if (!user || !user.isActive || user.emailVerifiedAt === null) {
+        await revokeFamily(tx, row.familyId)
+        return { kind: 'invalid' as const }
+      }
+      const successor = await createSessionRow(tx, user.id, row.familyId)
+      await tx.refreshSession.update({
+        where: { id: row.id },
+        data: { revokedAt: new Date(), replacedById: successor.id },
+      })
+      return { kind: 'session' as const, user, rowId: successor.id }
     })
-    if (claimed.count !== 1) throw invalidToken()
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } })
-    if (!user || !user.isActive || user.emailVerifiedAt === null) {
-      await this.revokeFamily(row.familyId)
+    if (outcome.kind === 'reused') {
+      await this.handleRevokedTokenUse(outcome.row)
       throw invalidToken()
     }
-    const session = await this.issueSession(user, row.familyId)
-    await this.prisma.refreshSession.update({
-      where: { id: row.id },
-      data: { replacedById: session.sessionId },
-    })
-    return session
+    if (outcome.kind === 'invalid') throw invalidToken()
+    return this.signSession(outcome.user, outcome.rowId)
   }
 
   // Logout: revoke every token of the presented login. Never throws — logging out must always succeed.
   async revokeSession(refreshToken: string | undefined): Promise<void> {
     const payload = await this.verifyRefreshToken(refreshToken)
     if (!payload) return
-    const row = await this.prisma.refreshSession.findUnique({ where: { id: payload.jti } })
-    if (!row || row.userId !== payload.sub) return
-    await this.revokeFamily(row.familyId)
+    const row = await this.prisma.$transaction(async (tx) => {
+      await lockUserSessions(tx, payload.sub)
+      const found = await tx.refreshSession.findUnique({ where: { id: payload.jti } })
+      if (!found || found.userId !== payload.sub) return null
+      await revokeFamily(tx, found.familyId)
+      return found
+    })
+    if (!row) return
     await this.audit.record({
       actionType: 'session_revoked',
       actorId: row.userId,
@@ -160,9 +174,12 @@ export class AuthService {
 
   // Used when an account is deactivated: no refresh token of this user can be rotated any more.
   async revokeAllSessions(userId: string): Promise<void> {
-    await this.prisma.refreshSession.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      await lockUserSessions(tx, userId)
+      await tx.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
     })
   }
 
@@ -190,16 +207,34 @@ export class AuthService {
     }
   }
 
+  // A spent token: the session it was rotated into, if this is a retry within the grace period and
+  // that session is still alive; null means a real replay.
+  private async recentSuccessor(
+    tx: Prisma.TransactionClient,
+    row: { revokedAt: Date | null; replacedById: string | null },
+  ) {
+    const sinceRotation = Date.now() - (row.revokedAt?.getTime() ?? 0)
+    if (row.replacedById === null || sinceRotation >= REFRESH_REUSE_GRACE_MS) return null
+    const successor = await tx.refreshSession.findUnique({
+      where: { id: row.replacedById },
+      include: { user: true },
+    })
+    if (!successor || successor.revokedAt !== null || successor.expiresAt.getTime() <= Date.now()) {
+      return null
+    }
+    if (!successor.user.isActive || successor.user.emailVerifiedAt === null) return null
+    return successor
+  }
+
   private async handleRevokedTokenUse(row: {
     id: string
     userId: string
     familyId: string
-    revokedAt: Date | null
-    replacedById: string | null
   }): Promise<void> {
-    const sinceRevocation = Date.now() - (row.revokedAt?.getTime() ?? 0)
-    if (row.replacedById !== null && sinceRevocation < REFRESH_REUSE_GRACE_MS) return
-    await this.revokeFamily(row.familyId)
+    await this.prisma.$transaction(async (tx) => {
+      await lockUserSessions(tx, row.userId)
+      await revokeFamily(tx, row.familyId)
+    })
     this.logger.warn(`refresh_token_reused user=${row.userId} family=${row.familyId}`)
     await this.audit.record({
       actionType: 'refresh_token_reused',
@@ -208,23 +243,14 @@ export class AuthService {
     })
   }
 
-  private async revokeFamily(familyId: string): Promise<void> {
-    await this.prisma.refreshSession.updateMany({
-      where: { familyId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    })
+  private async issueSession(user: SessionUser, familyId: string): Promise<IssuedSession> {
+    const row = await createSessionRow(this.prisma, user.id, familyId)
+    return this.signSession(user, row.id)
   }
 
-  private async issueSession(
-    user: {
-      id: string
-      email: string
-      role: JwtPayload['role']
-      firstName: string | null
-      lastName: string | null
-    },
-    familyId: string,
-  ): Promise<IssuedSession & { sessionId: string }> {
+  // Tokens of an existing session row: the refresh JWT only carries the row id, so signing it again
+  // gives the same session (used for a retry within the grace period).
+  private async signSession(user: SessionUser, sessionId: string): Promise<IssuedSession> {
     const accessToken = await this.jwt.signAsync(
       { sub: user.id, email: user.email, role: user.role } satisfies JwtPayload,
       {
@@ -232,15 +258,8 @@ export class AuthService {
         expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       },
     )
-    const row = await this.prisma.refreshSession.create({
-      data: {
-        userId: user.id,
-        familyId,
-        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000),
-      },
-    })
     const refreshToken = await this.jwt.signAsync(
-      { sub: user.id, jti: row.id } satisfies RefreshPayload,
+      { sub: user.id, jti: sessionId } satisfies RefreshPayload,
       {
         secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }),
         expiresIn: REFRESH_TOKEN_TTL_SECONDS,
@@ -249,7 +268,6 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      sessionId: row.id,
       user: {
         id: user.id,
         email: user.email,
@@ -259,4 +277,34 @@ export class AuthService {
       },
     }
   }
+}
+
+interface SessionUser {
+  id: string
+  email: string
+  role: JwtPayload['role']
+  firstName: string | null
+  lastName: string | null
+}
+
+// Serializes every change to a user's sessions (rotation, logout, deactivation): R07, R08.
+async function lockUserSessions(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM "users" WHERE "id" = ${userId} FOR UPDATE`
+}
+
+async function revokeFamily(db: Prisma.TransactionClient, familyId: string): Promise<void> {
+  await db.refreshSession.updateMany({
+    where: { familyId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
+function createSessionRow(db: Prisma.TransactionClient, userId: string, familyId: string) {
+  return db.refreshSession.create({
+    data: {
+      userId,
+      familyId,
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000),
+    },
+  })
 }

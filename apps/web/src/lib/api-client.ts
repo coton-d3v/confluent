@@ -1,4 +1,4 @@
-import { getAuthState, setAuth } from '@/features/auth/auth-store'
+import { getAuthState, sessionGeneration, setAuth } from '@/features/auth/auth-store'
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
@@ -42,10 +42,14 @@ export async function apiRequest<T>(
   init: RequestInit = {},
   opts: { retryOn401?: boolean } = { retryOn401: true },
 ): Promise<T> {
+  // The account this request is sent for (code review R46). After a refresh it is replayed only for
+  // that same account — a rotation of its session — never under another account signed in
+  // meanwhile, nor for a request sent while signed out.
+  const account = getAuthState().user?.id ?? null
   let res = await doFetch(path, init, true)
-  if (res.status === 401 && opts.retryOn401) {
+  if (res.status === 401 && opts.retryOn401 && account !== null) {
     const refreshed = await refreshSession()
-    if (refreshed) {
+    if (refreshed && getAuthState().user?.id === account) {
       res = await doFetch(path, init, true)
     }
   }
@@ -67,8 +71,14 @@ export function refreshSession(): Promise<boolean> {
 }
 
 async function doRefresh(): Promise<boolean> {
+  // A sign-out or another sign-in while this refresh is in flight wins: its answer is then ignored.
+  const startedAt = sessionGeneration()
+  const stillCurrent = () => sessionGeneration() === startedAt
+  // Superseded: report the session as it now is (signed in by another event, or signed out).
+  const current = () => getAuthState().accessToken !== null
   try {
     const res = await doFetch('/v1/auth/refresh', { method: 'POST' }, false)
+    if (!stillCurrent()) return current()
     if (!res.ok) {
       setAuth(null)
       return false
@@ -77,9 +87,11 @@ async function doRefresh(): Promise<boolean> {
       accessToken: string
       user: { id: string; email: string; role: 'entrepreneur' | 'financeur' | 'admin'; firstName: string | null; lastName: string | null }
     }
+    if (!stillCurrent()) return current()
     setAuth({ accessToken: body.accessToken, user: body.user })
     return true
   } catch {
+    if (!stillCurrent()) return current()
     setAuth(null)
     return false
   }
