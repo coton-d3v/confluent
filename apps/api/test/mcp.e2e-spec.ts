@@ -178,10 +178,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const c = await client(await connect('u-1', ['dossiers:write']))
     const tools = await c.listTools()
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
+      'create_dossier',
       'get_dossier',
       'get_form',
       'list_dossiers',
       'list_forms',
+      'next_questions',
       'update_answers',
       'whoami',
     ])
@@ -539,6 +541,309 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(archived.version).toMatchObject({ version: 1, status: 'archived' })
       expect(fieldsOf(archived).map((f) => f.key)).toEqual(['ancien'])
       await c.close()
+    })
+  })
+
+  describe('conversational filling: ask, save each answer, resume later (E04.02)', () => {
+    const DOSSIER = '11111111-1111-4111-8111-111111111111'
+    type Question = Record<string, unknown> & { fieldId: string }
+    const idsOf = (res: Record<string, unknown>) =>
+      (res.questions as Question[]).map((q) => q.fieldId)
+    const errorOf = (res: Record<string, unknown>) =>
+      (res.content as Array<{ text: string }>)[0].text
+
+    beforeEach(async () => {
+      const p = fake.prisma
+      await p.user.create({
+        data: {
+          id: 'u-fin',
+          email: 'bob@invest.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await p.questionnaire.create({
+        data: {
+          id: 'form-1',
+          slug: 'profil-entreprise',
+          name: "Profil de l'entreprise",
+          usage: 'dossier',
+        },
+      })
+      for (const id of ['v-1', 'v-2']) {
+        await p.questionnaireVersion.update({ where: { id }, data: { questionnaireId: 'form-1' } })
+      }
+      // Form order: name, website (Identité), stage, Kbis (Stade financier).
+      await p.questionnaireField.create({
+        data: {
+          id: 'f-site',
+          versionId: 'v-2',
+          sectionId: 's-identite',
+          key: 'site_web',
+          label: 'Site web',
+          helpText: 'Adresse publique du projet.',
+          fieldType: 'text',
+          orderIndex: 1,
+        },
+      })
+      await p.questionnaireField.create({
+        data: {
+          id: 'f-kbis',
+          versionId: 'v-2',
+          sectionId: 's-financier',
+          key: 'kbis',
+          label: 'Extrait Kbis',
+          fieldType: 'file',
+          required: true,
+          orderIndex: 1,
+        },
+      })
+      await p.shareLink.create({
+        data: {
+          dossierId: DOSSIER,
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'complet',
+          token: 't-complet',
+        },
+      })
+    })
+
+    it('next_questions gives the unanswered questions in the order of the form, with what to send', async () => {
+      const c = await client(await connect('u-1', ['dossiers:write']))
+      const first = json(
+        await c.callTool({ name: 'next_questions', arguments: { dossier: 'biosensio', count: 2 } }),
+      )
+      expect(first).toMatchObject({
+        dossier: {
+          id: DOSSIER,
+          status: 'brouillon',
+          siteUrl: expect.stringContaining(
+            `/dashboard/dossiers/nouveau/questionnaire?dossierId=${DOSSIER}`,
+          ),
+        },
+        form: { name: "Profil de l'entreprise", version: 2 },
+        completion: { state: 'incomplet', requiredTotal: 3, requiredAnswered: 0, fieldsTotal: 4 },
+        remaining: 4,
+      })
+      expect(idsOf(first)).toEqual(['f-name', 'f-site'])
+      expect((first.questions as Question[])[1]).toMatchObject({
+        section: 'Identité du projet',
+        label: 'Site web',
+        help: 'Adresse publique du projet.',
+        valueFormat: expect.any(String),
+        required: false,
+      })
+      expect(first.guidance).toContain('update_answers')
+      expect(first).not.toHaveProperty('whyReadOnly')
+
+      // Skipping the website for now: the conversation goes on after it, and it is still owed.
+      const skipped = json(
+        await c.callTool({
+          name: 'next_questions',
+          arguments: { dossier: 'biosensio', after: 'f-site' },
+        }),
+      )
+      expect(idsOf(skipped)).toEqual(['f-stage', 'f-kbis'])
+      expect(skipped).toMatchObject({ remaining: 2, unansweredBefore: 2 })
+      const kbis = (skipped.questions as Question[])[1]
+      expect(kbis).toMatchObject({ type: 'file', howToAnswer: expect.stringContaining('site') })
+
+      const unknown = await c.callTool({
+        name: 'next_questions',
+        arguments: { dossier: 'biosensio', after: 'f-old' },
+      })
+      expect(unknown.isError).toBe(true)
+      expect(errorOf(unknown)).toContain('pas une question de ce dossier')
+      await c.close()
+    })
+
+    it('saves each answer as given and resumes from the same point in a later conversation', async () => {
+      const first = await client(await connect('u-1', ['dossiers:write']))
+      const saved = json(
+        await first.callTool({
+          name: 'update_answers',
+          arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-name', value: 'Biosensio' }] },
+        }),
+      )
+      expect(saved).toMatchObject({
+        saved: 1,
+        remaining: 3,
+        completion: { state: 'incomplet', requiredAnswered: 1, requiredTotal: 3 },
+        nextQuestion: { fieldId: 'f-site', section: 'Identité du projet' },
+      })
+      // An answer to a later question: the conversation continues after it.
+      const later = json(
+        await first.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [{ fieldId: 'f-stage', value: 'fonds_propres_uniquement' }],
+          },
+        }),
+      )
+      expect(later).toMatchObject({ remaining: 2, nextQuestion: { fieldId: 'f-kbis' } })
+      await first.close()
+
+      // Another conversation (new connection, same account): the same draft, from where it stands.
+      const second = await client(await connect('u-1', ['dossiers:read', 'dossiers:write']))
+      const list = json(await second.callTool({ name: 'list_dossiers', arguments: {} }))
+      expect(list.dossiers).toEqual([
+        expect.objectContaining({ slug: 'biosensio', status: 'brouillon' }),
+      ])
+      const resumed = json(
+        await second.callTool({ name: 'next_questions', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(idsOf(resumed)).toEqual(['f-site', 'f-kbis'])
+      expect(resumed.completion).toMatchObject({ requiredAnswered: 2, fieldsAnswered: 2 })
+
+      // The last answer given: no later question, back to the one skipped earlier.
+      const last = json(
+        await second.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [{ fieldId: 'f-site', value: 'biosensio.fr' }],
+          },
+        }),
+      )
+      expect(last).toMatchObject({ remaining: 1, nextQuestion: { fieldId: 'f-kbis' } })
+      await second.close()
+    })
+
+    it('says when every question is answered, and that submitting is done in the site', async () => {
+      for (const [fieldId, value] of [
+        ['f-name', 'Biosensio'],
+        ['f-site', 'biosensio.fr'],
+        ['f-stage', 'fonds_propres_uniquement'],
+      ]) {
+        await fake.prisma.dossierAnswer.create({ data: { dossierId: DOSSIER, fieldId, value } })
+      }
+      await fake.prisma.document.create({
+        data: {
+          dossierId: DOSSIER,
+          filename: 'kbis.pdf',
+          version: 1,
+          storageKey: 'dossiers/x/kbis',
+          mimetype: 'application/pdf',
+          size: 12,
+          fieldId: 'f-kbis',
+        },
+      })
+      const c = await client(await connect('u-1', ['dossiers:read']))
+      const done = json(
+        await c.callTool({ name: 'next_questions', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(done).toMatchObject({
+        completion: { state: 'pret_a_soumettre' },
+        remaining: 0,
+        questions: [],
+        guidance: expect.stringContaining('soumission se fait'),
+        // A read-only connection is told it cannot save.
+        whyReadOnly: expect.stringContaining('dossiers:write'),
+      })
+      await c.close()
+    })
+
+    it('refuses next_questions to anyone but the owner', async () => {
+      const c = await client(await connect('u-fin', ['dossiers:read']))
+      const res = await c.callTool({ name: 'next_questions', arguments: { dossier: DOSSIER } })
+      expect(res.isError).toBe(true)
+      expect(errorOf(res)).toContain('Seul le propriétaire')
+      const other = await client(await connect('u-2', ['dossiers:read']))
+      const foreign = await other.callTool({
+        name: 'next_questions',
+        arguments: { dossier: DOSSIER },
+      })
+      expect(errorOf(foreign)).toContain('introuvable')
+      await c.close()
+      await other.close()
+    })
+
+    it('create_dossier: a new draft with the published form, never a second draft of the same name by mistake', async () => {
+      const c = await client(await connect('u-1', ['dossiers:write']))
+      const duplicate = await c.callTool({
+        name: 'create_dossier',
+        arguments: { name: '  BIOSENSIÔ ' },
+      })
+      expect(duplicate.isError).toBe(true)
+      expect(errorOf(duplicate)).toContain('brouillon « Biosensio » existe déjà')
+      expect(fake.table('dossier').size).toBe(2)
+
+      const created = json(
+        await c.callTool({ name: 'create_dossier', arguments: { name: 'Hydrogène Vert' } }),
+      )
+      expect(created).toMatchObject({
+        dossier: { name: 'Hydrogène Vert', status: 'brouillon' },
+        form: { name: "Profil de l'entreprise", version: 2 },
+        remaining: 4,
+        message: expect.stringContaining('Dossier créé'),
+      })
+      expect(idsOf(created)).toEqual(['f-name', 'f-site', 'f-stage', 'f-kbis'])
+      const row = [...fake.table('dossier').values()].find((d) => d.name === 'Hydrogène Vert')
+      expect(row).toMatchObject({ userId: 'u-1', questionnaireVersionId: 'v-2' })
+      // Journaled with the new dossier.
+      const audit = [...fake.table('auditLog').values()].filter(
+        (a) => (a.metadata as { tool?: string })?.tool === 'create_dossier',
+      )
+      expect(audit.map((a) => [a.dossierId, (a.metadata as { result: string }).result])).toEqual([
+        [null, 'error'],
+        [row!.id, 'ok'],
+      ])
+
+      // Confirmed by the user: a second dossier of the same name.
+      const second = await c.callTool({
+        name: 'create_dossier',
+        arguments: { name: 'Biosensio', allowDuplicate: true },
+      })
+      expect(second.isError).toBeFalsy()
+      expect(fake.table('dossier').size).toBe(4)
+      await c.close()
+    })
+
+    it('create_dossier: a submitted dossier of the same name does not block; financeurs cannot create', async () => {
+      await fake.prisma.dossier.update({
+        where: { id: DOSSIER },
+        data: { submittedAt: new Date() },
+      })
+      const owner = await client(await connect('u-1', ['dossiers:write']))
+      const list = json(await owner.callTool({ name: 'list_dossiers', arguments: {} }))
+      expect(list.dossiers).toEqual([expect.objectContaining({ status: 'soumis' })])
+      const again = await owner.callTool({
+        name: 'create_dossier',
+        arguments: { name: 'Biosensio' },
+      })
+      expect(again.isError).toBeFalsy()
+
+      const fin = await client(await connect('u-fin', ['dossiers:write']))
+      const refused = await fin.callTool({ name: 'create_dossier', arguments: { name: 'Fonds' } })
+      expect(refused.isError).toBe(true)
+      expect(errorOf(refused)).toContain('porteurs de projet')
+      expect([...fake.table('dossier').values()].filter((d) => d.userId === 'u-fin')).toEqual([])
+      await owner.close()
+      await fin.close()
+    })
+
+    it('a read-only connection gets 403 insufficient_scope on create_dossier', async () => {
+      const token = await connect('u-1', ['dossiers:read'])
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2025-11-25',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'create_dossier', arguments: { name: 'Nouveau' } },
+        }),
+      })
+      expect(res.status).toBe(403)
+      expect(res.headers.get('www-authenticate') ?? '').toContain('scope="dossiers:write"')
+      expect(fake.table('dossier').size).toBe(2)
     })
   })
 

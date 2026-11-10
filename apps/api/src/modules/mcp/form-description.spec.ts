@@ -1,5 +1,10 @@
 import type { QuestionnaireField, QuestionnaireSection } from '@prisma/client'
-import { describeCompletion, describeField, isFieldAnswered } from './form-description'
+import {
+  describeCompletion,
+  describeField,
+  isFieldAnswered,
+  pendingQuestions,
+} from './form-description'
 
 const field = (data: Partial<QuestionnaireField> & Pick<QuestionnaireField, 'id' | 'fieldType'>) =>
   ({
@@ -104,5 +109,40 @@ describe('describeCompletion', () => {
 
   it('never counts a written value as an attachment', () => {
     expect(isFieldAnswered(fields[2], new Map([['kbis', 'kbis.pdf']]), new Set())).toBe(false)
+  })
+})
+
+describe('pendingQuestions', () => {
+  // Sections are listed out of order on purpose: the form's order is the sections' order.
+  const sections = [section('s-1', 'Projet'), section('s-2', 'Pièces')]
+  const fields = [
+    field({ id: 'kbis', fieldType: 'file', required: true, sectionId: 's-2' }),
+    field({ id: 'nom', fieldType: 'text', required: true }),
+    field({ id: 'site', fieldType: 'text' }),
+    field({ id: 'effectif', fieldType: 'number', sectionId: 's-2' }),
+  ]
+  const ids = (r: ReturnType<typeof pendingQuestions>) => r?.questions.map((q) => q.field.id)
+
+  it('lists the unanswered questions section by section, an attachment by its document', () => {
+    const answers = new Map([
+      ['nom', 'Biosensio'],
+      ['effectif', ' '],
+    ])
+    expect(ids(pendingQuestions(sections, fields, answers, new Set()))).toEqual([
+      'site',
+      'kbis',
+      'effectif',
+    ])
+    expect(ids(pendingQuestions(sections, fields, answers, new Set(['kbis'])))).toEqual([
+      'site',
+      'effectif',
+    ])
+  })
+
+  it('continues after a skipped question and counts the unanswered ones left behind', () => {
+    const result = pendingQuestions(sections, fields, new Map(), new Set(), 'site')
+    expect(ids(result)).toEqual(['kbis', 'effectif'])
+    expect(result?.unansweredBefore).toBe(2)
+    expect(pendingQuestions(sections, fields, new Map(), new Set(), 'inconnu')).toBeNull()
   })
 })

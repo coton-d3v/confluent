@@ -91,6 +91,31 @@ export function isFieldAnswered(
   return field.fieldType === 'file' ? attached.has(field.id) : isAnswered(answers.get(field.id))
 }
 
+// The questions still to ask, in the order of the form (E04.02): fields without an answer, section
+// by section. `after` continues past a question the user chose to skip in this conversation; a
+// skip is not stored, so a later conversation asks that question again. Returns null for an
+// `after` that is not a field of this form.
+export function pendingQuestions(
+  sections: QuestionnaireSection[],
+  fields: QuestionnaireField[],
+  answers: ReadonlyMap<string, string>,
+  attached: ReadonlySet<string>,
+  after?: string,
+) {
+  const ordered = sections.flatMap((section) =>
+    fields.filter((f) => f.sectionId === section.id).map((field) => ({ section, field })),
+  )
+  const start = after === undefined ? 0 : ordered.findIndex((q) => q.field.id === after) + 1
+  if (start === 0 && after !== undefined) return null
+  const unanswered = (q: { field: QuestionnaireField }) =>
+    !isFieldAnswered(q.field, answers, attached)
+  return {
+    questions: ordered.slice(start).filter(unanswered),
+    // Unanswered questions before `after`: skipped earlier in the conversation, still to come back to.
+    unansweredBefore: ordered.slice(0, start).filter(unanswered).length,
+  }
+}
+
 // Completion of the visible fields (E04.01): overall and per section, required and optional.
 export function describeCompletion(
   sections: QuestionnaireSection[],

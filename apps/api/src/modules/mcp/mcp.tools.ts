@@ -1,9 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
-import type { Dossier, QuestionnaireField, QuestionnaireVersion } from '@prisma/client'
+import type {
+  Dossier,
+  QuestionnaireField,
+  QuestionnaireSection,
+  QuestionnaireVersion,
+} from '@prisma/client'
 import { z } from 'zod'
+import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService } from '../answers/answers.service'
 import { InvalidAnswersException } from '../answers/invalid-answers.exception'
@@ -23,6 +30,7 @@ import {
   describeField,
   groupBySection,
   isFieldAnswered,
+  pendingQuestions,
 } from './form-description'
 
 // Who is calling: always derived from the OAuth access token, never from tool arguments (E01.06).
@@ -41,8 +49,14 @@ export const TOOL_SCOPES: Record<string, string> = {
   get_dossier: OAUTH_SCOPES.read,
   get_form: OAUTH_SCOPES.read,
   list_forms: OAUTH_SCOPES.read,
+  next_questions: OAUTH_SCOPES.read,
+  create_dossier: OAUTH_SCOPES.write,
   update_answers: OAUTH_SCOPES.write,
 }
+
+// How many questions next_questions returns by default: enough to ask a few in a row, not the
+// whole form at once.
+const DEFAULT_QUESTION_BATCH = 5
 
 // The dossier a tool call is about, once the caller's access to it is established.
 interface ToolTrace {
@@ -69,6 +83,7 @@ export class McpToolsFactory {
     private readonly formDrafts: FormDraftsService,
     private readonly documents: DocumentsService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
   // One server per HTTP request (stateless transport), bound to the caller.
@@ -81,8 +96,12 @@ export class McpToolsFactory {
           'list_dossiers, puis get_dossier pour lire les questions (fieldId, type, format attendu, ' +
           'contraintes, choix possibles, réponse actuelle), vos permissions et l’état de complétion. ' +
           'get_form décrit un formulaire sans dossier (celui des nouveaux dossiers par défaut). ' +
-          'update_answers enregistre des réponses ; n’inventez jamais une réponse : demandez-la à ' +
-          'l’utilisateur.',
+          'Pour remplir un dossier avec l’utilisateur : reprenez son brouillon existant plutôt que ' +
+          'd’en créer un autre (create_dossier seulement s’il le demande), demandez à ' +
+          'next_questions les questions restantes, posez-les une à une et enregistrez chaque réponse ' +
+          'avec update_answers dès qu’elle est donnée : elle est conservée, la conversation peut ' +
+          'reprendre plus tard au même point, ici ou dans le site. N’inventez jamais une réponse : ' +
+          'demandez-la à l’utilisateur.',
       },
     )
     const run = this.runner(caller)
@@ -128,6 +147,8 @@ export class McpToolsFactory {
               slug: d.slug,
               name: d.name,
               relation: d.userId === caller.user.id ? 'proprietaire' : 'partage',
+              // A draft is resumed (next_questions), not started again (E04.02).
+              status: d.submittedAt ? 'soumis' : 'brouillon',
               submittedAt: d.submittedAt,
               sector: d.sector,
               maturityStage: d.maturityStage,
@@ -222,6 +243,96 @@ export class McpToolsFactory {
     )
 
     server.registerTool(
+      'next_questions',
+      {
+        title: 'Questions à poser',
+        description:
+          'Propriétaire du dossier : les prochaines questions sans réponse, dans l’ordre du ' +
+          'formulaire, avec fieldId, section, libellé, aide, format attendu, contraintes et choix, ' +
+          'ainsi que la complétion et le nombre de questions restantes. Sert à reprendre un brouillon ' +
+          'là où il en est, y compris après une saisie dans le site. after : fieldId d’une question ' +
+          'que l’utilisateur préfère passer pour l’instant, pour continuer après elle.',
+        inputSchema: {
+          dossier: dossierRef,
+          count: z
+            .number()
+            .int()
+            .min(1)
+            .max(50)
+            .optional()
+            .describe(`Nombre de questions (par défaut ${DEFAULT_QUESTION_BATCH}).`),
+          after: z
+            .string()
+            .min(1)
+            .optional()
+            .describe('fieldId après lequel continuer (question passée par l’utilisateur).'),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      ({ dossier, count, after }) =>
+        run('next_questions', dossier, async (trace) => {
+          const { row } = await this.resolve(caller.user, dossier, trace)
+          requireOwner(row, caller, 'Seul le propriétaire du dossier répond à ses questions.')
+          return this.nextQuestions(row, caller, { count, after })
+        }),
+    )
+
+    server.registerTool(
+      'create_dossier',
+      {
+        title: 'Créer un dossier',
+        description:
+          'Crée un dossier à votre nom avec le formulaire publié des nouveaux dossiers, et renvoie ' +
+          'ses premières questions. Uniquement à la demande explicite de l’utilisateur : un ' +
+          'brouillon existant se reprend avec next_questions. Refusé si un brouillon du même nom ' +
+          'existe déjà, sauf allowDuplicate quand l’utilisateur veut vraiment un second dossier.',
+        inputSchema: {
+          name: z
+            .string()
+            .trim()
+            .min(1)
+            .max(200)
+            .describe('Nom du dossier, en général le nom du projet ou de l’entreprise.'),
+          allowDuplicate: z
+            .boolean()
+            .optional()
+            .describe(
+              'true seulement si l’utilisateur confirme vouloir un second dossier du même nom.',
+            ),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      ({ name, allowDuplicate }) =>
+        run('create_dossier', null, async (trace) => {
+          requireWrite(caller)
+          if (caller.user.role !== 'entrepreneur' && caller.user.role !== 'admin') {
+            throw new ToolError('Seuls les porteurs de projet créent des dossiers.')
+          }
+          if (!allowDuplicate) {
+            const sameName = (await this.dossiers.listForUser(caller.user)).find(
+              (d) => d.userId === caller.user.id && !d.submittedAt && sameDossierName(d.name, name),
+            )
+            if (sameName) {
+              throw new ToolError(
+                `Un brouillon « ${sameName.name} » existe déjà (dossier ${sameName.slug}) : ` +
+                  'reprenez-le avec next_questions. Ne passez allowDuplicate que si l’utilisateur ' +
+                  'confirme vouloir un second dossier.',
+              )
+            }
+          }
+          const created = await this.dossiers.create({ userId: caller.user.id, name })
+          trace.dossierId = created.id
+          const next = await this.nextQuestions(created, caller, {})
+          return {
+            ...next,
+            message:
+              'Dossier créé, visible dans Confluent. Posez les questions une à une et enregistrez ' +
+              'chaque réponse avec update_answers.',
+          }
+        }),
+    )
+
+    server.registerTool(
       'update_answers',
       {
         title: 'Enregistrer des réponses',
@@ -247,13 +358,9 @@ export class McpToolsFactory {
       },
       ({ dossier, answers }) =>
         run('update_answers', dossier, async (trace) => {
-          if (!expandScopes(caller.scopes).has(OAUTH_SCOPES.write)) {
-            throw new ToolError('Permission « dossiers:write » non accordée à cette application.')
-          }
+          requireWrite(caller)
           const { row } = await this.resolve(caller.user, dossier, trace)
-          if (row.userId !== caller.user.id) {
-            throw new ToolError('Seul le propriétaire du dossier peut modifier ses réponses.')
-          }
+          requireOwner(row, caller, 'Seul le propriétaire du dossier peut modifier ses réponses.')
           try {
             await this.answers.saveForDossier(row, answers)
           } catch (err) {
@@ -266,11 +373,33 @@ export class McpToolsFactory {
           // Described as it is after the write (answers and derived classification, R18).
           const updated = await this.prisma.dossier.findUnique({ where: { id: row.id } })
           if (!updated) throw new NotFoundException()
-          const after = await this.describeDossier(updated, 'complet', caller)
+          const state = await this.fillState(updated)
+          // The conversation goes on from the furthest question just answered (E04.02).
+          const savedIds = new Set(answers.map((a) => a.fieldId))
+          const ordered = state.sections.flatMap((section) =>
+            state.fields.filter((f) => f.sectionId === section.id),
+          )
+          const furthest = ordered.filter((f) => savedIds.has(f.id)).at(-1)?.id
+          const pending = pendingQuestions(
+            state.sections,
+            state.fields,
+            state.answers,
+            state.attached,
+            furthest,
+          )
+          const all = pendingQuestions(state.sections, state.fields, state.answers, state.attached)
+          const next = pending?.questions[0] ?? all?.questions[0]
           return {
             dossier: { id: row.id, slug: row.slug },
             saved: answers.length,
-            missingRequired: after.missingRequired,
+            completion: summarizeCompletion(state),
+            remaining: all?.questions.length ?? 0,
+            nextQuestion: next ? this.describeQuestion(next) : null,
+            missingRequired: missingRequiredAnswers(
+              state.fields,
+              Object.fromEntries(state.answers),
+              state.attached,
+            ).map((f) => ({ fieldId: f.id, label: f.label })),
             message: 'Réponses enregistrées ; elles sont visibles dans Confluent.',
           }
         }),
@@ -516,6 +645,88 @@ export class McpToolsFactory {
     }
   }
 
+  // What the owner has filled in: the dossier's own form version, its answers and attachments.
+  private async fillState(dossier: Dossier): Promise<FillState> {
+    const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
+    const fields = structure?.fields ?? []
+    const known = new Set(fields.map((f) => f.id))
+    const [rows, attached] = await Promise.all([
+      this.answers.listForDossier(dossier.id),
+      attachedFieldIds(this.prisma, dossier.id),
+    ])
+    return {
+      version: structure?.version ?? null,
+      sections: structure?.sections ?? [],
+      fields,
+      answers: new Map(rows.filter((a) => known.has(a.fieldId)).map((a) => [a.fieldId, a.value])),
+      attached,
+      submittedAt: dossier.submittedAt,
+    }
+  }
+
+  // E04.02: where the owner's dossier stands and the next questions to ask, in the form's order.
+  private async nextQuestions(
+    dossier: Dossier,
+    caller: McpCaller,
+    opts: { count?: number; after?: string },
+  ) {
+    const state = await this.fillState(dossier)
+    const pending = pendingQuestions(
+      state.sections,
+      state.fields,
+      state.answers,
+      state.attached,
+      opts.after,
+    )
+    if (!pending) {
+      throw new ToolError(
+        'after : ce fieldId n’est pas une question de ce dossier. Utilisez les fieldId de next_questions ou get_dossier.',
+      )
+    }
+    const completion = summarizeCompletion(state)
+    const canEdit = expandScopes(caller.scopes).has(OAUTH_SCOPES.write)
+    const site = this.config.get('FRONTEND_URL', { infer: true })
+    return {
+      dossier: {
+        id: dossier.id,
+        slug: dossier.slug,
+        name: dossier.name,
+        status: dossier.submittedAt ? 'soumis' : 'brouillon',
+        // The same dossier in the site: the journey resumes there too.
+        siteUrl: dossier.submittedAt
+          ? `${site}/dashboard/dossiers/view/${dossier.slug}`
+          : `${site}/dashboard/dossiers/nouveau/questionnaire?dossierId=${dossier.id}`,
+      },
+      form: state.version ? await this.describeFormOf(state.version) : null,
+      completion,
+      remaining: pending.questions.length,
+      ...(opts.after !== undefined ? { unansweredBefore: pending.unansweredBefore } : {}),
+      questions: pending.questions
+        .slice(0, opts.count ?? DEFAULT_QUESTION_BATCH)
+        .map((q) => this.describeQuestion(q)),
+      ...(canEdit
+        ? {}
+        : {
+            whyReadOnly:
+              'Permission « dossiers:write » non accordée à cette application : les réponses ne pourront pas être enregistrées.',
+          }),
+      guidance: guidanceFor(completion.state, pending),
+    }
+  }
+
+  private describeQuestion(q: { section: QuestionnaireSection; field: QuestionnaireField }) {
+    return {
+      section: q.section.title,
+      ...describeField(q.field, { withReadLevel: true }),
+      ...(q.field.fieldType === 'file'
+        ? {
+            howToAnswer:
+              'Document à déposer dans le site Confluent : le dépôt par MCP n’est pas encore disponible.',
+          }
+        : {}),
+    }
+  }
+
   // Which form and version, and whether a newer version of that form has been published since.
   private async describeFormOf(version: QuestionnaireVersion) {
     const [form, published] = await Promise.all([
@@ -553,6 +764,77 @@ function documentsByField(groups: DocumentGroup[]) {
     byField.set(group.fieldId, list)
   }
   return byField
+}
+
+interface FillState {
+  version: QuestionnaireVersion | null
+  sections: QuestionnaireSection[]
+  fields: QuestionnaireField[]
+  answers: Map<string, string>
+  attached: Set<string>
+  submittedAt: Date | null
+}
+
+function summarizeCompletion(state: FillState) {
+  const {
+    state: status,
+    requiredTotal,
+    requiredAnswered,
+    fieldsTotal,
+    fieldsAnswered,
+  } = describeCompletion(
+    state.sections,
+    state.fields,
+    state.answers,
+    state.attached,
+    state.submittedAt,
+  )
+  return { state: status, requiredTotal, requiredAnswered, fieldsTotal, fieldsAnswered }
+}
+
+// What to do with the questions returned: the conversation's next step, in words.
+function guidanceFor(
+  state: string,
+  pending: { questions: unknown[]; unansweredBefore: number },
+): string {
+  if (state === 'soumis') {
+    return (
+      'Dossier soumis : les réponses restent modifiables, mais une réponse obligatoire ne peut ' +
+      'plus être effacée.' +
+      (pending.questions.length ? ' Les questions ci-dessous sont facultatives.' : '')
+    )
+  }
+  if (pending.questions.length) {
+    return (
+      'Posez ces questions une à une, avec leur libellé et leur aide, sans proposer de réponse à ' +
+      'la place de l’utilisateur. Enregistrez chaque réponse avec update_answers dès qu’elle est ' +
+      'donnée. Si l’utilisateur préfère passer une question, continuez avec after.'
+    )
+  }
+  if (pending.unansweredBefore) {
+    return (
+      `Plus de question après celle-ci, mais ${pending.unansweredBefore} question(s) passée(s) ` +
+      'plus tôt reste(nt) sans réponse : proposez d’y revenir (next_questions sans after).'
+    )
+  }
+  return state === 'pret_a_soumettre'
+    ? 'Toutes les questions ont une réponse. La soumission se fait pour l’instant dans le site Confluent (siteUrl).'
+    : 'Toutes les questions ont une réponse.'
+}
+
+// Same name as an existing draft, whatever the case and accents (« biosensio » = « Biosensio »).
+function sameDossierName(a: string, b: string): boolean {
+  return a.trim().localeCompare(b.trim(), 'fr', { sensitivity: 'base' }) === 0
+}
+
+function requireWrite(caller: McpCaller): void {
+  if (!expandScopes(caller.scopes).has(OAUTH_SCOPES.write)) {
+    throw new ToolError('Permission « dossiers:write » non accordée à cette application.')
+  }
+}
+
+function requireOwner(dossier: Dossier, caller: McpCaller, message: string): void {
+  if (dossier.userId !== caller.user.id) throw new ToolError(message)
 }
 
 function requireAdmin(caller: McpCaller): void {
