@@ -145,6 +145,12 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
               >
                 Dispositifs
               </Link>
+              <Link
+                to={`/admin/workspaces/${workspace.id}/parcours`}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Parcours d’accompagnement
+              </Link>
             </div>
           )}
           {!membership && (

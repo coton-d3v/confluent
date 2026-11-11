@@ -24,6 +24,7 @@ import AdminWorkspaceFormsRoute from '@/routes/admin/workspaces/[workspaceId]/fo
 import AdminWorkspaceFormEditorRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires/[formId]'
 import AdminWorkspaceSourcesRoute from '@/routes/admin/workspaces/[workspaceId]/sources'
 import AdminWorkspaceSchemesRoute from '@/routes/admin/workspaces/[workspaceId]/dispositifs'
+import AdminWorkspaceSupportPathRoute from '@/routes/admin/workspaces/[workspaceId]/parcours'
 import MyWorkspacesRoute from '@/routes/workspaces'
 import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
@@ -129,6 +130,11 @@ export const router = createBrowserRouter([
       {
         path: 'admin/workspaces/:workspaceId/dispositifs',
         element: <AdminWorkspaceSchemesRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'admin/workspaces/:workspaceId/parcours',
+        element: <AdminWorkspaceSupportPathRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'workspaces', element: <MyWorkspacesRoute /> },
