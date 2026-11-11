@@ -9,6 +9,11 @@ import { workspaceMemberRoleSchema } from './workspace-member.schema.js'
 // a financing request to others (E05.10: publishing it, choosing the documents it shows, sending it
 // as a candidature to a workspace), granted to whoever may own companies: an application authorized
 // before a permission existed does not gain it, even by refreshing its tokens (code review R52).
+// E06.09: following the candidatures a workspace receives — keeping their financing plan and
+// eligibilities as the structure, reading and writing its internal notes — is a permission of its
+// own, granted to the conseillers of a workspace; deciding the follow-up of a candidature — its
+// financing status, on either side, and as the structure the validation of a support step or the
+// verification of an eligibility — is another, on the person's explicit request.
 export const OAUTH_SCOPES = {
   read: 'dossiers:read',
   write: 'dossiers:write',
@@ -16,6 +21,8 @@ export const OAUTH_SCOPES = {
   present: 'dossiers:present',
   formsWrite: 'forms:write',
   formsPublish: 'forms:publish',
+  support: 'candidatures:support',
+  decide: 'candidatures:decide',
 } as const
 
 // ROADMAP E05.10: a connection reaches a workspace only if the person ticked it on the consent
