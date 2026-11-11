@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { StatusDot } from '@/components/confluent/StatusDot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,11 +50,14 @@ const ACCESS_LEVELS: { value: AccessLevel; label: string; description: string }[
 export interface SharePanelProps {
   existingEntries: readonly AccessEntry[]
   onSubmitInvitation: (email: string, accessLevel: AccessLevel) => Promise<void>
+  // E07.01: the preview « Voir comme le destinataire » at the level chosen.
+  previewHref?: (level: AccessLevel) => string
 }
 
 export function SharePanel({
   existingEntries,
   onSubmitInvitation,
+  previewHref,
 }: SharePanelProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('complet')
@@ -141,6 +145,7 @@ export function SharePanel({
               <button
                 key={level.value}
                 type="button"
+                aria-pressed={accessLevel === level.value}
                 onClick={() => setAccessLevel(level.value)}
                 className={cn(
                   'rounded-lg border px-3 py-2.5 text-left transition-colors',
@@ -164,6 +169,14 @@ export function SharePanel({
               </button>
             ))}
           </fieldset>
+          {previewHref && (
+            <Link
+              to={previewHref(accessLevel)}
+              className="self-start rounded-sm text-sm underline underline-offset-4 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+            >
+              Voir ce que lira le destinataire
+            </Link>
+          )}
         </div>
 
         <SheetFooter className="flex-col gap-2 p-4 sm:flex-row-reverse sm:justify-start">

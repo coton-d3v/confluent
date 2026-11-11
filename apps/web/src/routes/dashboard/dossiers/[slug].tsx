@@ -25,10 +25,11 @@ import { getDossier, listDossiers, deleteDossier } from '@/features/dossiers/api
 import { useDossierAnswers } from '@/features/dossiers/hooks'
 import { AnswerOrigin } from '@/features/questionnaire/components/AnswerProvenance'
 import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/provenance'
-import { listShares, createShare, revokeShare } from '@/features/shares/api'
+import { listShares, createShare, revokeShare, changeShareLevel } from '@/features/shares/api'
+import { previewHref } from '@/features/shares/preview'
 import { getAnalytics } from '@/features/analytics/api'
 import { buildAccessEntries } from '@/features/shares/build-access-entries'
-import type { AccessEntry } from '@/features/shares/access-entry'
+import type { AccessEntry, AccessLevel } from '@/features/shares/access-entry'
 import { useAsync } from '@/lib/useAsync'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import type { ApiError } from '@/lib/api-client'
@@ -40,6 +41,8 @@ import { RequestPresentation } from '@/features/dossiers/components/RequestPrese
 import { DossierCandidatures } from '@/features/candidatures/components/DossierCandidatures'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import {
+  ACCESS_LEVELS,
+  ACCESS_LEVEL_LABELS,
   DOSSIER_PUBLICATION_STATUS_LABELS,
   isArchived,
   publicationStatusOf,
@@ -128,6 +131,7 @@ function DossierView({
   const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [entryToRevoke, setEntryToRevoke] = useState<AccessEntry | null>(null)
+  const [levelChanging, setLevelChanging] = useState<string | null>(null)
   const revokingRef = useRef(false)
   const deletingRef = useRef(false)
 
@@ -153,6 +157,9 @@ function DossierView({
   const isLastRequest = (companyQuery.data?.dossiers.length ?? 1) <= 1
   // E05.08: a company the signed-in conseiller prepares for an entrepreneur: no share, no publication.
   const inPreparation = dossierQuery.data?.company?.inPreparation === true
+  // E06.01/E07.01: an archived request is not diffused further; its existing accesses stay open.
+  const archived = dossierQuery.data ? isArchived(dossierQuery.data) : false
+  const basePath = `/dashboard/dossiers/view/${encodeURIComponent(slug)}`
 
   function handleRequestChange(updated: Dossier) {
     if (updated.slug !== slug) {
@@ -204,7 +211,7 @@ function DossierView({
   }
 
   const handleInvitationSubmit = useCallback(
-    async (email: string, accessLevel: 'public' | 'partiel' | 'complet' = 'complet') => {
+    async (email: string, accessLevel: AccessLevel) => {
       try {
         await createShare(dossierId, email, accessLevel)
         toast.success(`Invitation envoyée à ${email}`)
@@ -217,6 +224,21 @@ function DossierView({
     },
     [dossierId, sharesQuery],
   )
+
+  async function handleLevelChange(entry: AccessEntry, level: AccessLevel) {
+    if (levelChanging) return
+    setLevelChanging(entry.id)
+    try {
+      await changeShareLevel(dossierId, entry.id, level)
+      toast.success(`Accès de ${entry.email} : ${ACCESS_LEVEL_LABELS[level]}`)
+    } catch (err) {
+      const apiErr = err as ApiError
+      toast.error(apiErr?.message ?? 'Changement de niveau impossible.')
+    } finally {
+      setLevelChanging(null)
+      sharesQuery.refetch()
+    }
+  }
 
   function handleRevokeClick(entry: AccessEntry) {
     revokingRef.current = false
@@ -242,6 +264,7 @@ function DossierView({
       await revokeShare(dossierId, entry.id)
       toast.success('Accès révoqué')
       sharesQuery.refetch()
+      analyticsQuery.refetch()
     } catch (err) {
       const apiErr = err as ApiError
       toast.error(apiErr?.message ?? 'Révocation impossible.')
@@ -366,7 +389,7 @@ function DossierView({
             >
               Modifier les réponses
             </Button>
-            {!inPreparation && (
+            {!inPreparation && !archived && (
               <Sheet open={shareOpen} onOpenChange={setShareOpen}>
                 <SheetTrigger
                   render={
@@ -382,6 +405,7 @@ function DossierView({
                 <SharePanel
                   existingEntries={accessEntries}
                   onSubmitInvitation={handleInvitationSubmit}
+                  previewHref={(level) => previewHref(basePath, level)}
                 />
               </Sheet>
             )}
@@ -546,6 +570,16 @@ function DossierView({
             <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">
               Accès &amp; partage
             </h2>
+            {archived && (
+              <p
+                role="note"
+                className="mt-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+              >
+                Cette demande est archivée : les accès existants restent ouverts, sans sa
+                présentation. Vous pouvez restreindre ou révoquer un accès ; pour inviter un
+                nouveau destinataire ou élargir un accès, désarchivez-la d’abord.
+              </p>
+            )}
             <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
               {sharesQuery.isLoading ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">
@@ -562,12 +596,43 @@ function DossierView({
                       key={entry.id}
                       entry={entry}
                       onRevokeClick={handleRevokeClick}
+                      onLevelChange={isOwner ? handleLevelChange : undefined}
+                      levelChanging={levelChanging === entry.id}
+                      previewHref={previewHref(basePath, entry.accessLevel)}
                     />
                   ))}
                 </ul>
               )}
             </div>
           </section>
+
+          {isOwner && (
+            <section className="mt-8" aria-labelledby="preview-heading">
+              <h2
+                id="preview-heading"
+                className="font-heading text-xl font-semibold text-foreground md:text-2xl"
+              >
+                Voir comme le destinataire
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Vérifiez ce que lit un destinataire de lien nominatif à chaque niveau : questions,
+                réponses, classification et documents choisis pour cette demande. Aucun lien
+                n’est créé et aucune consultation n’est comptée.
+              </p>
+              <ul role="list" className="mt-4 flex flex-wrap gap-2">
+                {ACCESS_LEVELS.map((level) => (
+                  <li key={level}>
+                    <Link
+                      to={previewHref(basePath, level)}
+                      className="inline-flex min-h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground hover:border-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                    >
+                      Accès {ACCESS_LEVEL_LABELS[level].toLowerCase()}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </TabsContent>
       </Tabs>
 

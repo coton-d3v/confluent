@@ -7,11 +7,13 @@ import DossierNewRoute from '@/routes/dashboard/dossiers/nouveau'
 import QuestionnaireRoute from '@/routes/dashboard/dossiers/nouveau/questionnaire'
 import RecapitulatifRoute from '@/routes/dashboard/dossiers/nouveau/recapitulatif'
 import DossierViewRoute from '@/routes/dashboard/dossiers/[slug]'
+import DossierPreviewRoute from '@/routes/dashboard/dossiers/[slug]/apercu'
 import CompanyRoute from '@/routes/dashboard/entreprises/[companyId]'
 import CompanyOffersRoute from '@/routes/dashboard/propositions'
 import AdminRoute from '@/routes/admin'
 import AdminDossiersRoute from '@/routes/admin/dossiers'
 import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
+import AdminDossierPreviewRoute from '@/routes/admin/dossiers/[slug]/apercu'
 import AdminFormsRoute from '@/routes/admin/formulaires'
 import AdminClassificationRoute from '@/routes/admin/classification'
 import AdminFormEditorRoute from '@/routes/admin/formulaires/[formId]'
@@ -69,6 +71,11 @@ export const router = createBrowserRouter([
         handle: { hideBreadcrumb: true },
       },
       {
+        path: 'dashboard/dossiers/view/:slug/apercu',
+        element: <DossierPreviewRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
         path: 'dashboard/entreprises/:companyId',
         element: <CompanyRoute />,
         handle: { hideBreadcrumb: true },
@@ -88,6 +95,11 @@ export const router = createBrowserRouter([
       {
         path: 'admin/dossiers/:slug',
         element: <AdminDossierDetailRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'admin/dossiers/:slug/apercu',
+        element: <AdminDossierPreviewRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'admin/formulaires', element: <AdminFormsRoute /> },

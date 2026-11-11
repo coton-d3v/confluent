@@ -1,4 +1,4 @@
-import type { PerRecipientAnalytics, ShareLink } from '@confluent/shared'
+import type { PerRecipientAnalytics, ShareAccess } from '@confluent/shared'
 import { deriveInitials, type AccessEntry } from './access-entry'
 
 function formatRevokedAt(iso: string): string {
@@ -20,12 +20,19 @@ function formatLastSeen(analytics: PerRecipientAnalytics | undefined, status: st
   }
   if (status === 'pending') return 'Invitation envoyée'
   if (status === 'revoked') return 'Accès révoqué'
-  return 'Aucune session enregistrée'
+  return 'Invitation envoyée, pas encore consulté'
+}
+
+// Who revoked an access (E07.01), named for whoever reads the list: its owner, or an administrator.
+const REVOKED_BY: Record<'owner' | 'admin', Record<'owner' | 'admin', string>> = {
+  owner: { owner: 'vous', admin: 'l’administration' },
+  admin: { owner: 'le porteur de projet', admin: 'l’administration' },
 }
 
 export function buildAccessEntries(
-  shares: ShareLink[],
+  shares: ShareAccess[],
   analytics: { perRecipient: PerRecipientAnalytics[] } | undefined,
+  reader: 'owner' | 'admin' = 'owner',
 ): AccessEntry[] {
   const analyticsByLinkId = new Map<string, PerRecipientAnalytics>()
   for (const r of analytics?.perRecipient ?? []) {
@@ -40,7 +47,7 @@ export function buildAccessEntries(
       initials: deriveInitials(s.recipientEmail),
       lastSeen,
       sessionDuration: '—',
-      accessLevel: (s.accessLevel ?? 'complet') as 'public' | 'partiel' | 'complet',
+      accessLevel: s.accessLevel,
     }
     if (s.status === 'revoked') {
       const revokedIso = s.revokedAt ?? new Date().toISOString()
@@ -49,7 +56,7 @@ export function buildAccessEntries(
         status: 'revoked',
         revokedAt: formatRevokedAt(revokedIso),
         revokedAtIso: revokedIso,
-        revokedBy: '—',
+        revokedBy: s.revokedBy ? REVOKED_BY[reader][s.revokedBy] : '—',
       }
     }
     if (s.status === 'expired') {
