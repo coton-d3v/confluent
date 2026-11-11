@@ -21,22 +21,33 @@ export function RecipientPreview({
   backHref,
   backLabel,
   load,
+  audience = 'share',
 }: {
   dossierName: string
   backHref: string
   backLabel: string
   load: (level: AccessLevel) => Promise<SharePreview>
+  // E07.02: opened from a workspace's pool, whose investors read the request as a recipient at the
+  // same level does.
+  audience?: 'share' | 'pool'
 }) {
+  const pool = audience === 'pool'
   const [searchParams] = useSearchParams()
   const parsed = accessLevelSchema.safeParse(searchParams.get(PREVIEW_LEVEL_PARAM))
   // Closed by default: an unknown level previews the least shared one.
   const level: AccessLevel = parsed.success ? parsed.data : 'public'
   const query = useAsync(() => load(level), [level])
   const data = query.data?.preview.accessLevel === level ? query.data : undefined
+  // Switching level keeps the rest of the address (where the preview was opened from).
+  const levelHref = (l: AccessLevel) => {
+    const params = new URLSearchParams(searchParams)
+    params.set(PREVIEW_LEVEL_PARAM, l)
+    return `?${params.toString()}`
+  }
 
   return (
     <div className="mx-auto flex max-w-[720px] flex-col gap-6">
-      <title>{`Voir comme le destinataire · ${dossierName} · Confluent`}</title>
+      <title>{`${pool ? 'Voir comme un investisseur du vivier' : 'Voir comme le destinataire'} · ${dossierName} · Confluent`}</title>
       <nav aria-label="Fil d'Ariane">
         <Link
           to={backHref}
@@ -47,10 +58,12 @@ export function RecipientPreview({
       </nav>
       <header className="flex flex-col gap-2">
         <h1 className="font-heading text-2xl font-semibold text-foreground md:text-[28px]">
-          Voir comme le destinataire
+          {pool ? 'Voir comme un investisseur du vivier' : 'Voir comme le destinataire'}
         </h1>
         <p className="text-sm text-muted-foreground">
-          {dossierName} · ce qu’un destinataire de lien nominatif lit à chaque niveau d’accès.
+          {pool
+            ? `${dossierName} · ce que les investisseurs d’un vivier liront à chaque niveau : exactement ce qu’un destinataire de lien nominatif lit au même niveau.`
+            : `${dossierName} · ce qu’un destinataire de lien nominatif lit à chaque niveau d’accès.`}
         </p>
       </header>
 
@@ -59,7 +72,7 @@ export function RecipientPreview({
           {ACCESS_LEVELS.map((l) => (
             <li key={l}>
               <Link
-                to={`?${PREVIEW_LEVEL_PARAM}=${l}`}
+                to={levelHref(l)}
                 replace
                 aria-current={l === level ? 'page' : undefined}
                 className={cn(
@@ -81,8 +94,9 @@ export function RecipientPreview({
         className="rounded-md border border-status-pending/50 bg-status-pending/10 px-4 py-3 text-sm text-foreground"
       >
         Aperçu en accès « {ACCESS_LEVEL_LABELS[level]} » : exactement les questions, réponses,
-        classification et documents qu’un destinataire lit à ce niveau. Aucun lien n’est créé,
-        aucune consultation n’est comptée et les fichiers ne se téléchargent pas depuis l’aperçu.
+        classification et documents qu’un {pool ? 'investisseur du vivier' : 'destinataire'} lit à
+        ce niveau. Aucun lien n’est créé, aucune consultation n’est comptée et les fichiers ne se
+        téléchargent pas depuis l’aperçu.
       </p>
 
       {query.error ? (

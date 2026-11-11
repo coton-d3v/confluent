@@ -1,4 +1,5 @@
 import type {
+  AccessLevel,
   AnswerInput,
   Candidature,
   ChangeFinancingStatusInput,
@@ -50,6 +51,20 @@ export const changeFinancingStatus = (candidatureId: string, change: ChangeFinan
   apiRequest<Candidature>(`/v1/candidatures/${id(candidatureId)}/financing-status`, {
     method: 'POST',
     body: JSON.stringify(change),
+  })
+
+// E07.02: the owner's explicit consent to publish the request in the candidature's workspace pool,
+// at the level chosen (also to publish it again, or to change the level), and its withdrawal from
+// that workspace only.
+export const publishToPool = (candidatureId: string, accessLevel: AccessLevel) =>
+  apiRequest<Candidature>(`/v1/candidatures/${id(candidatureId)}/pool-publication`, {
+    method: 'PUT',
+    body: JSON.stringify({ accessLevel, consent: true }),
+  })
+
+export const withdrawFromPool = (candidatureId: string) =>
+  apiRequest<Candidature>(`/v1/candidatures/${id(candidatureId)}/pool-publication`, {
+    method: 'DELETE',
   })
 
 // The workspace's side: its conseillers follow the candidatures it receives in its portfolio

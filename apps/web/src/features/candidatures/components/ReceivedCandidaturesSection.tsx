@@ -21,6 +21,7 @@ import { progressText } from '@/features/support-paths/presentation'
 import { useAsync } from '@/lib/useAsync'
 import { getPortfolio } from '../api'
 import { FinancingStatusBadge } from './FinancingStatusPanel'
+import { PoolPublicationBadge } from './PoolPublicationPanel'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -315,6 +316,14 @@ function Results({
                   <dd>
                     <FinancingStatusBadge status={c.financingStatus} />
                   </dd>
+                  {c.poolPublication && c.poolPublication.state !== 'withdrawn' && (
+                    <>
+                      <dt className="text-muted-foreground">Vivier</dt>
+                      <dd>
+                        <PoolPublicationBadge publication={c.poolPublication} />
+                      </dd>
+                    </>
+                  )}
                 </dl>
                 {c.eligibilities.length > 0 && (
                   <ul aria-label="Dispositifs indiqués" className="mt-2 flex flex-wrap gap-1.5">
