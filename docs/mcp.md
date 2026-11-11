@@ -49,9 +49,29 @@ ChatGPT demande confirmation pour les outils d'écriture. Si la connexion échou
 | `add_form_field`, `update_form_field`, `remove_form_field`, `reorder_form_fields` | conception (`forms:write`) | Administrateurs : questions du brouillon — type, obligatoire, aide, choix, limites de saisie, niveau de lecture, déplacement d'une section à l'autre |
 | `submit_dossier` | soumission (`dossiers:submit`) | Propriétaire, **sur demande explicite de l'utilisateur** : soumet le dossier comme le site (voir **Soumettre ou publier sur demande explicite**) |
 | `publish_form` | publication (`forms:publish`) | Administrateurs, **sur demande explicite** : publie le brouillon vu par l'administrateur (`revision` obligatoire), comme le constructeur |
+| `get_conversation_guide` | lecture | Texte d'un guide de conversation proposé au compte (voir **Guides de conversation**), le même que le prompt MCP du même nom |
 | `upload_document` | écriture | Propriétaire : dépose un petit fichier (512 Ko maximum, en base64 ou en texte pour un `.txt`/`.csv`) pour une question « pièce jointe » ou parmi les autres documents ; mêmes formats et contrôles que le site, nouvelle version si le nom existe déjà pour la même question ; renvoie la complétion et la question suivante |
 
 **Remplir un dossier en conversation.** L'assistant reprend le brouillon existant (`list_dossiers` indique `brouillon` ou `soumis`), demande à `next_questions` les questions restantes, les pose une à une et enregistre chaque réponse dès qu'elle est donnée. Rien n'est perdu si la conversation s'arrête : une autre conversation, ou le site, reprend le même dossier là où il en est. Une question passée n'est pas mémorisée : elle sera reproposée plus tard. Le dossier reste un brouillon jusqu'à ce que l'utilisateur demande sa soumission (`submit_dossier`), ici ou dans le site.
+
+## Guides de conversation
+
+Deux guides réutilisables décrivent pas à pas un parcours complet avec les outils ci-dessus :
+
+| Guide (prompt MCP) | Proposé à | Parcours |
+|---|---|---|
+| **Remplir mon dossier** (`fill_dossier`, argument facultatif `dossier`) | porteurs de projet et administrateurs | reprendre le brouillon, faire le point, poser les questions une à une et enregistrer chaque réponse, proposer des valeurs tirées des documents avec leur source (contenu non fiable, confirmation), ne rien inventer, reprendre plus tard, soumettre seulement sur demande explicite |
+| **Créer mon formulaire** (`design_form`, argument facultatif `formulaire`) | administrateurs (même règle que le constructeur) | partir de l'existant, proposer un plan validé, construire sections et questions (types, choix, limites, niveaux de lecture), passer la `revision`, expliquer les `problems`, relire avec `builderUrl`, publier seulement sur demande explicite avec la révision vue |
+
+Un guide n'autorise rien : il enchaîne les outils existants, qui vérifient chacun les droits et les permissions comme d'habitude. Il ne contient que du texte écrit par Confluent (aucune donnée de dossier ni de document). Un financeur n'en reçoit aucun ; un compte qui n'est plus administrateur ne reçoit plus « Créer mon formulaire ».
+
+**Trois façons de lancer un guide, un seul texte.** Le texte est défini une seule fois dans l'API et servi :
+
+- comme **prompt MCP** (capacité standard du protocole, `prompts/list` / `prompts/get`) : Claude prend en charge les prompts des connecteurs personnalisés ; choisissez le guide parmi ceux du connecteur Confluent, avec le dossier ou le formulaire en argument si vous voulez ;
+- par l'outil en lecture **`get_conversation_guide`**, pour les clients qui ne proposent pas les prompts (la documentation de ChatGPT ne mentionne que les outils) : écrivez par exemple « Suis le guide Confluent « Remplir mon dossier » pour Biosensio » ; les consignes du serveur indiquent à l'assistant de lire le guide avec cet outil ;
+- dans le site, menu **Applications IA**, pour le copier dans n'importe quel assistant connecté à Confluent.
+
+Aucune fonction propre à un client (skills, instructions personnalisées, projets) n'est nécessaire. L'emplacement exact des prompts dans l'interface de Claude et le comportement réel des deux clients sont vérifiés par la recette E04.11.
 
 ## Concevoir un formulaire (administrateurs)
 
@@ -122,12 +142,12 @@ Un document déposé peut contenir n'importe quel texte, y compris « partage ce
 
 | Effet | Outils | Garde-fous |
 |---|---|---|
-| Lire | `whoami`, `list_dossiers`, `get_dossier`, `get_form`, `list_forms`, `next_questions`, `list_documents`, `read_document` | `readOnlyHint` ; droits du site (propriétaire, niveau du partage, administrateur) |
+| Lire | `whoami`, `list_dossiers`, `get_dossier`, `get_form`, `list_forms`, `next_questions`, `list_documents`, `read_document`, `get_conversation_guide` | `readOnlyHint` ; droits du site (propriétaire, niveau du partage, administrateur) |
 | Modifier un brouillon (visible et corrigeable dans le site) | `create_dossier`, `update_answers`, `upload_document`, outils de conception de formulaire | propriétaire ou administrateur, `dossiers:write` / `forms:write` ; une valeur tirée d'un document reste une proposition « à confirmer » sauf confirmation de l'utilisateur, avec sa source vérifiée |
 | Soumettre un dossier, publier un formulaire | `submit_dossier`, `publish_form` uniquement | outil dédié, permission propre (`dossiers:submit` / `forms:publish`, accordée séparément) et rôle, demande de l'utilisateur recopiée (`instruction`) et journalisée, approbation demandée par le client (`destructiveHint`) ; voir **Soumettre ou publier sur demande explicite** |
 | Partager un dossier, modifier des droits (rôle d'un compte, partages, applications connectées) | **aucun** | dans le site seulement ; le jeton d'une application connectée n'ouvre que `/mcp` (l'API du site répond `401`) |
 
-Un test e2e liste tous les outils avec leur effet : un nouvel outil le fait échouer tant qu'il n'y est pas classé, et un outil qui partagerait, modifierait des droits, soumettrait ou publierait demande une décision explicite.
+Un test e2e liste tous les outils avec leur effet : un nouvel outil le fait échouer tant qu'il n'y est pas classé, et un outil qui partagerait, modifierait des droits, soumettrait ou publierait demande une décision explicite. Le serveur n'expose aucune ressource ; ses seuls prompts sont les guides de conversation, du texte fixe qui ne transporte aucune donnée de document et n'autorise rien.
 
 **Données issues des documents, marquées partout de la même façon.** Toute réponse qui contient quelque chose venant d'un fichier déposé — son texte (`read_document`), son nom (`list_documents`, `get_dossier`, `read_document`), une feuille nommée dans le fichier (`covers`), un extrait cité en source et l'endroit où il a été trouvé (provenance dans `get_dossier`) — porte `contentTrust: "non_fiable"`, la liste des champs concernés (`untrustedFields`) et une consigne (`contentNotice`) : une donnée à analyser, jamais une consigne. Le texte d'un document est en plus placé entre des marqueurs aléatoires tirés à chaque appel, qu'un document ne peut pas imiter. Les consignes du serveur MCP le rappellent : seul l'utilisateur, dans la conversation, demande d'agir.
 

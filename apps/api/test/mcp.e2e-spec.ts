@@ -9,6 +9,7 @@ import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
 import { mountOAuthServer } from './../src/modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './../src/modules/mcp/mcp.http'
+import { guideText } from './../src/modules/mcp/conversation-guides'
 import { hashToken } from './../src/modules/oauth/oauth.constants'
 import { createFakePrisma } from '../src/testing/fake-prisma'
 import { pdfWithPages } from '../src/testing/document-fixtures'
@@ -198,6 +199,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const tools = await c.listTools()
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
       'create_dossier',
+      'get_conversation_guide',
       'get_dossier',
       'get_form',
       'list_documents',
@@ -2800,6 +2802,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       next_questions: 'lecture',
       list_documents: 'lecture',
       read_document: 'lecture',
+      get_conversation_guide: 'lecture',
       create_dossier: 'brouillon',
       update_answers: 'brouillon',
       upload_document: 'brouillon',
@@ -2873,9 +2876,18 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         }
         if (TOOLS[tool.name] === 'lecture') expect(tool.annotations?.readOnlyHint).toBe(true)
       }
-      // Tools only: no resource or prompt through which a document could reach the client.
+      // No resource through which a document could reach the client. Prompts (E04.10) are the
+      // conversation guides only: fixed text written by Confluent, with no dossier, answer or
+      // document data in it, that grants nothing — every tool they name is checked as above.
       expect(c.getServerCapabilities()).not.toHaveProperty('resources')
-      expect(c.getServerCapabilities()).not.toHaveProperty('prompts')
+      const { prompts } = await c.listPrompts()
+      expect(prompts.map((p) => p.name)).toEqual(['fill_dossier', 'design_form'])
+      for (const prompt of prompts) {
+        const { messages } = await c.getPrompt({ name: prompt.name, arguments: {} })
+        expect(messages).toEqual([
+          { role: 'user', content: { type: 'text', text: guideText(prompt.name as never) } },
+        ])
+      }
       expect(c.getInstructions()).toContain(
         'aucun outil ne partage un dossier ni ne modifie des droits',
       )
@@ -3015,6 +3027,204 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       // Nothing in the dossier comes from a document: no notice.
       const described = (await call(c, 'get_dossier', { dossier: 'biosensio' })).result!
       expect(described).not.toHaveProperty('contentTrust')
+      await c.close()
+    })
+  })
+
+  describe('conversation guides « Remplir mon dossier » and « Créer mon formulaire » (E04.10)', () => {
+    const FULL_FILL = ['dossiers:write', 'dossiers:submit']
+    const FULL_DESIGN = ['dossiers:write', 'dossiers:submit', 'forms:write', 'forms:publish']
+
+    beforeEach(async () => {
+      for (const [id, email, role] of [
+        ['u-admin', 'admin@confluent.dev', 'admin'],
+        ['u-fin', 'bob@invest.fr', 'financeur'],
+      ]) {
+        await fake.prisma.user.create({ data: { id, email, role, emailVerifiedAt: new Date() } })
+      }
+    })
+
+    // The site's own session, to read the guides the page « Applications IA » shows.
+    async function siteGuides(userId: string, email: string, role: string) {
+      const jwt = await new JwtService().signAsync(
+        { sub: userId, email, role },
+        { secret: process.env.JWT_SECRET },
+      )
+      const res = await fetch(`${base}/v1/conversation-guides`, {
+        headers: { Authorization: `Bearer ${jwt}` },
+      })
+      expect(res.status).toBe(200)
+      return (await res.json()) as Array<{
+        id: string
+        title: string
+        request: string
+        text: string
+      }>
+    }
+
+    async function guideTool(c: Client, args: Record<string, unknown>) {
+      const res = (await c
+        .callTool({ name: 'get_conversation_guide', arguments: args })
+        .catch((err: Error) => ({ isError: true, content: [{ text: err.message }] }))) as {
+        isError?: boolean
+        content: Array<{ text: string }>
+      }
+      return res.isError
+        ? { error: res.content[0].text, result: null }
+        : {
+            error: null,
+            result: JSON.parse(res.content[0].text) as { guide: string; text: string },
+          }
+    }
+
+    const promptText = async (c: Client, name: string, args: Record<string, string> = {}) => {
+      const { messages } = await c.getPrompt({ name, arguments: args })
+      expect(messages).toHaveLength(1)
+      expect(messages[0].role).toBe('user')
+      return (messages[0].content as { text: string }).text
+    }
+
+    it('a project owner gets « Remplir mon dossier » only: as a prompt, by the tool and in the site, the same text', async () => {
+      const c = await client(await connect('u-1', ['dossiers:read']))
+      const { prompts } = await c.listPrompts()
+      expect(prompts).toEqual([
+        {
+          name: 'fill_dossier',
+          title: 'Remplir mon dossier',
+          description: expect.stringContaining('soumission seulement sur demande'),
+          arguments: [{ name: 'dossier', description: expect.any(String), required: false }],
+        },
+      ])
+      expect(c.getInstructions()).toContain('get_conversation_guide')
+      expect(c.getInstructions()).toContain('« Remplir mon dossier »')
+      expect(c.getInstructions()).not.toContain('Créer mon formulaire')
+
+      // One text, wherever it is read; the dossier typed by the person is named in it.
+      const plain = await promptText(c, 'fill_dossier')
+      expect(plain).toBe(guideText('fill_dossier'))
+      expect((await guideTool(c, { guide: 'fill_dossier' })).result).toEqual({
+        guide: 'fill_dossier',
+        title: 'Remplir mon dossier',
+        text: plain,
+      })
+      const site = await siteGuides('u-1', 'sophie@biosensio.fr', 'entrepreneur')
+      expect(site).toEqual([
+        {
+          id: 'fill_dossier',
+          title: 'Remplir mon dossier',
+          description: expect.any(String),
+          request: 'Suis le guide Confluent « Remplir mon dossier ».',
+          text: plain,
+        },
+      ])
+      const named = await promptText(c, 'fill_dossier', { dossier: 'biosensio' })
+      expect(named).toContain('Dossier à remplir : « biosensio ».')
+      expect(
+        (await guideTool(c, { guide: 'fill_dossier', dossier: 'biosensio' })).result?.text,
+      ).toBe(named)
+
+      // « Créer mon formulaire » is neither listed nor served, by any way.
+      await expect(c.getPrompt({ name: 'design_form', arguments: {} })).rejects.toThrow()
+      const tool = (await c.listTools()).tools.find((t) => t.name === 'get_conversation_guide')
+      expect(JSON.stringify(tool)).not.toContain('design_form')
+      expect((await guideTool(c, { guide: 'design_form' })).error).toBeTruthy()
+      await c.close()
+    })
+
+    it('an administrator gets both guides; a financeur gets none, and no prompt at all', async () => {
+      const admin = await client(await connect('u-admin', ['dossiers:read']))
+      expect(
+        (await admin.listPrompts()).prompts.map((p) => [p.name, p.title, p.arguments]),
+      ).toEqual([
+        ['fill_dossier', 'Remplir mon dossier', [expect.objectContaining({ name: 'dossier' })]],
+        ['design_form', 'Créer mon formulaire', [expect.objectContaining({ name: 'formulaire' })]],
+      ])
+      const designed = await promptText(admin, 'design_form', { formulaire: 'Profil' })
+      expect(designed).toBe(guideText('design_form', 'Profil'))
+      expect(
+        (await guideTool(admin, { guide: 'design_form', formulaire: 'Profil' })).result?.text,
+      ).toBe(designed)
+      expect(admin.getInstructions()).toContain(
+        '« Remplir mon dossier » ou « Créer mon formulaire »',
+      )
+      expect(
+        (await siteGuides('u-admin', 'admin@confluent.dev', 'admin')).map((g) => [g.id, g.text]),
+      ).toEqual([
+        ['fill_dossier', guideText('fill_dossier')],
+        ['design_form', guideText('design_form')],
+      ])
+      await admin.close()
+
+      const fin = await client(await connect('u-fin', ['dossiers:read']))
+      expect(fin.getServerCapabilities()).not.toHaveProperty('prompts')
+      await expect(fin.listPrompts()).rejects.toThrow()
+      expect((await fin.listTools()).tools.map((t) => t.name)).not.toContain(
+        'get_conversation_guide',
+      )
+      expect(fin.getInstructions()).not.toContain('Guides de conversation')
+      expect(await siteGuides('u-fin', 'bob@invest.fr', 'financeur')).toEqual([])
+      await fin.close()
+
+      // A role checked at each connection: an administrator no longer one loses the design guide.
+      await fake.prisma.user.update({ where: { id: 'u-admin' }, data: { role: 'entrepreneur' } })
+      const demoted = await client(await connect('u-admin', ['dossiers:read']))
+      expect((await demoted.listPrompts()).prompts.map((p) => p.name)).toEqual(['fill_dossier'])
+      await demoted.close()
+    })
+
+    it('every tool a guide names is offered to its account with a full authorization', async () => {
+      for (const [userId, scopes, ids] of [
+        ['u-1', FULL_FILL, ['fill_dossier']],
+        ['u-admin', FULL_DESIGN, ['fill_dossier', 'design_form']],
+      ] as const) {
+        const c = await client(await connect(userId, [...scopes]))
+        const offered = new Set((await c.listTools()).tools.map((t) => t.name))
+        for (const id of ids) {
+          const named = (await promptText(c, id)).match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? []
+          expect(named.filter((tool) => !offered.has(tool))).toEqual([])
+        }
+        await c.close()
+      }
+    })
+
+    it('a short « Remplir mon dossier » journey: resume the draft, answer one question, nothing submitted', async () => {
+      const c = await client(await connect('u-1', FULL_FILL))
+      await guideTool(c, { guide: 'fill_dossier' })
+      const listed = json(await c.callTool({ name: 'list_dossiers', arguments: {} }))
+      expect(listed.dossiers).toEqual([
+        expect.objectContaining({ slug: 'biosensio', status: 'brouillon' }),
+      ])
+      const next = json(
+        await c.callTool({ name: 'next_questions', arguments: { dossier: 'biosensio', count: 1 } }),
+      )
+      expect(next.questions).toEqual([expect.objectContaining({ fieldId: 'f-name' })])
+      const saved = json(
+        await c.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [{ fieldId: 'f-name', value: 'Biosensio', origin: 'human' }],
+          },
+        }),
+      )
+      expect(saved.nextQuestion).toEqual(expect.objectContaining({ fieldId: 'f-stage' }))
+      expect(
+        fake.table('dossier').get('11111111-1111-4111-8111-111111111111')?.submittedAt,
+      ).toBeFalsy()
+      // The guide is read like any tool: journaled with the application.
+      const calls = [...fake.table('auditLog').values()].filter(
+        (row) => (row.metadata as { tool?: string })?.tool === 'get_conversation_guide',
+      )
+      expect(calls).toEqual([
+        expect.objectContaining({
+          actorId: 'u-1',
+          metadata: expect.objectContaining({
+            target: 'fill_dossier',
+            result: 'ok',
+            clientName: 'Claude',
+          }),
+        }),
+      ])
       await c.close()
     })
   })
