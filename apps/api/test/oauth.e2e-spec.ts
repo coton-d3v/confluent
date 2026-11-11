@@ -204,7 +204,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
   })
   // E04.06: designing forms is for administrators only. Clients usually ask for every scope the
   // server supports: an entrepreneur is never shown nor granted `forms:write`.
-  it('consent: forms:write is offered and granted to an administrator only', async () => {
+  it('consent: the form permissions are offered and granted to an administrator only', async () => {
     await fake.prisma.user.create({
       data: {
         id: 'admin-1',
@@ -248,20 +248,27 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       [...fake.table('oAuthGrant').values()].filter((g) => g.userId === userId).map((g) => g.scopes)
 
     const forEntrepreneur = await request()
-    expect(await shown(forEntrepreneur, userJwt)).toEqual(['dossiers:read', 'dossiers:write'])
+    expect(await shown(forEntrepreneur, userJwt)).toEqual([
+      'dossiers:read',
+      'dossiers:submit',
+      'dossiers:write',
+    ])
     await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:write']).expect(400)
+    await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:publish']).expect(400)
     expect(grantsOf('u-1')).toEqual([])
-    await decide(forEntrepreneur, userJwt).expect(200)
+    await decide(forEntrepreneur, userJwt, ['dossiers:read', 'dossiers:write']).expect(200)
     expect(grantsOf('u-1')).toEqual([['dossiers:read', 'dossiers:write']])
 
     const forAdmin = await request()
     expect(await shown(forAdmin, adminJwt)).toEqual([
       'dossiers:read',
+      'dossiers:submit',
       'dossiers:write',
+      'forms:publish',
       'forms:write',
     ])
-    await decide(forAdmin, adminJwt).expect(200)
-    expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'dossiers:write', 'forms:write']])
+    await decide(forAdmin, adminJwt, ['dossiers:read', 'forms:write', 'forms:publish']).expect(200)
+    expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'forms:write', 'forms:publish']])
   })
 
   it('keeps Nest global body parsers active (mounting OAuth must not shadow them)', async () => {
@@ -284,7 +291,13 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       code_challenge_methods_supported: ['S256'],
       client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true,
-      scopes_supported: ['dossiers:read', 'dossiers:write', 'forms:write'],
+      scopes_supported: [
+        'dossiers:read',
+        'dossiers:write',
+        'dossiers:submit',
+        'forms:write',
+        'forms:publish',
+      ],
     })
   })
 
@@ -333,6 +346,36 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       .send({ client_id: clientId, token: refreshed.body.refresh_token })
       .expect(200)
     await expect(provider.verifyAccessToken(refreshed.body.access_token)).rejects.toThrow()
+  })
+
+  // Code review R52: submitting and publishing are permissions of their own. A connection
+  // authorized without them never obtains them by refreshing its tokens.
+  it('a connection authorized before dossiers:submit cannot gain it by refreshing', async () => {
+    const clientId = await registerClient()
+    const { code, verifier } = await authorize(clientId)
+    const tokens = await exchange(clientId, code, verifier).expect(200)
+    expect(tokens.body.scope).toBe('dossiers:read dossiers:write')
+    const refresh = (refreshToken: string, scope?: string) =>
+      http()
+        .post('/token')
+        .type('form')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: refreshToken,
+          ...(scope ? { scope } : {}),
+        })
+    const widened = await refresh(
+      tokens.body.refresh_token,
+      'dossiers:read dossiers:write dossiers:submit',
+    ).expect(400)
+    expect(widened.body.error).toBe('invalid_scope')
+    const refreshed = await refresh(tokens.body.refresh_token).expect(200)
+    expect(refreshed.body.scope).toBe('dossiers:read dossiers:write')
+    const info = await app
+      .get(ConfluentOAuthProvider)
+      .verifyAccessToken(refreshed.body.access_token)
+    expect(info.scopes).not.toContain('dossiers:submit')
   })
 
   it('a refresh token replayed after the retry window revokes the connection', async () => {

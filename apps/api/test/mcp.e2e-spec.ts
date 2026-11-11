@@ -58,6 +58,24 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
   const json = (res: Record<string, unknown>) =>
     JSON.parse((res.content as Array<{ text: string }>)[0].text) as Record<string, unknown>
 
+  // A tool call over plain HTTP, to see what the server answers before any tool runs (scopes).
+  const rawToolCall = (token: string, name: string, args: Record<string, unknown>) =>
+    fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'MCP-Protocol-Version': '2025-11-25',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    })
+
   beforeEach(async () => {
     fake = createFakePrisma()
     const p = fake.prisma
@@ -187,6 +205,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       'list_forms',
       'next_questions',
       'read_document',
+      'submit_dossier',
       'update_answers',
       'upload_document',
       'whoami',
@@ -385,7 +404,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     })
 
     it('get_dossier tells which form version is asked, what each field expects, and what is missing', async () => {
-      const c = await client(await connect('u-1', ['dossiers:write']))
+      const c = await client(await connect('u-1', ['dossiers:write', 'dossiers:submit']))
       const before = json(
         await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
       )
@@ -400,10 +419,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         accessLevel: 'complet',
         hiddenFields: 0,
         canEditAnswers: true,
-        canSubmit: false,
+        // E04.08: on the owner's explicit request only, once every required answer is given.
+        canSubmit: true,
         canUploadDocuments: true,
-        inSiteOnly: expect.stringContaining('soumission'),
+        howToSubmit: expect.stringContaining('demande explicite'),
       })
+      expect(before.pendingProposals).toBe(0)
       expect(before.completion).toMatchObject({
         state: 'incomplet',
         requiredTotal: 2,
@@ -456,6 +477,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(own.permissions).toMatchObject({
         canEditAnswers: false,
         whyReadOnly: expect.stringContaining('dossiers:write'),
+        canSubmit: false,
+        whyCannotSubmit: expect.stringContaining('dossiers:submit'),
       })
       await ro.close()
 
@@ -469,7 +492,9 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         canEditAnswers: false,
         whyReadOnly: expect.stringContaining('partagé'),
       })
-      expect(shared.permissions).not.toHaveProperty('inSiteOnly')
+      expect(shared.permissions).toMatchObject({ canSubmit: false })
+      expect(shared.permissions).not.toHaveProperty('howToSubmit')
+      expect(shared).not.toHaveProperty('pendingProposals')
       // Who may read each answer is the owner's business, not the reader's.
       expect(fieldsOf(shared).map((f) => f.fieldId)).toEqual(['f-name'])
       expect(fieldsOf(shared)[0]).not.toHaveProperty('readLevel')
@@ -725,7 +750,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       await second.close()
     })
 
-    it('says when every question is answered, and that submitting is done in the site', async () => {
+    it('says when every question is answered, and that submitting waits for the user’s explicit request', async () => {
       for (const [fieldId, value] of [
         ['f-name', 'Biosensio'],
         ['f-site', 'biosensio.fr'],
@@ -752,7 +777,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         completion: { state: 'pret_a_soumettre' },
         remaining: 0,
         questions: [],
-        guidance: expect.stringContaining('soumission se fait'),
+        guidance: expect.stringContaining('submit_dossier'),
         // A read-only connection is told it cannot save.
         whyReadOnly: expect.stringContaining('dossiers:write'),
       })
@@ -1836,6 +1861,282 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
 
   // E04.06 / E04.07: an administrator designs a form draft in conversation with the builder's own
   // operations; the result is the draft the site's builder edits. Never published by the assistant.
+  describe('submission on the owner’s explicit request (E04.08)', () => {
+    // Submitting is a permission of its own (code review R52).
+    const SUBMIT = ['dossiers:write', 'dossiers:submit']
+    const DOSSIER = '11111111-1111-4111-8111-111111111111'
+    const ASKED = 'Oui, c’est bon, soumets mon dossier Biosensio.'
+
+    beforeEach(async () => {
+      await fake.prisma.user.create({
+        data: {
+          id: 'u-fin',
+          email: 'bob@invest.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await fake.prisma.shareLink.create({
+        data: {
+          dossierId: DOSSIER,
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'complet',
+          token: 't-complet',
+        },
+      })
+    })
+
+    // A tool call as the assistant sees it: its result, or the refusal's text (tool or SDK).
+    async function call(c: Client, name: string, args: Record<string, unknown>) {
+      const res = (await c
+        .callTool({ name, arguments: args })
+        .catch((err: Error) => ({ isError: true, content: [{ text: err.message }] }))) as {
+        isError?: boolean
+        content: Array<{ text: string }>
+      }
+      return res.isError
+        ? { error: res.content[0].text, result: null }
+        : { error: null, result: JSON.parse(res.content[0].text) as Record<string, unknown> }
+    }
+    const submittedAt = () => fake.table('dossier').get(DOSSIER)?.submittedAt ?? null
+    const journal = (actionType: string) =>
+      [...fake.table('auditLog').values()].filter((l) => l.actionType === actionType)
+    const ownerJwt = () =>
+      new JwtService().signAsync(
+        { sub: 'u-1', email: 'sophie@biosensio.fr', role: 'entrepreneur' },
+        { secret: process.env.JWT_SECRET },
+      )
+
+    it('submits on request like the site, journals the application and the request; the site shows it submitted', async () => {
+      const c = await client(await connect('u-1', SUBMIT))
+      const tool = (await c.listTools()).tools.find((t) => t.name === 'submit_dossier')
+      // The client is told to have the person approve the call.
+      expect(tool?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      })
+      expect(tool?.inputSchema.required).toEqual(expect.arrayContaining(['dossier', 'instruction']))
+      expect(c.getInstructions()).toContain('reste un brouillon tant que l’utilisateur ne vous')
+
+      // Filling the dossier, even completely, never submits it: without a request it stays a draft.
+      await call(c, 'update_answers', {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-name', value: 'Biosensio', origin: 'human' }],
+      })
+      await fake.prisma.dossierAnswer.create({
+        data: {
+          dossierId: DOSSIER,
+          fieldId: 'f-stage',
+          value: 'fonds_propres_uniquement',
+          origin: 'ai',
+          confirmation: 'pending',
+          channel: 'mcp',
+          authorId: 'u-1',
+          clientName: 'Claude',
+        },
+      })
+      const ready = (await call(c, 'get_dossier', { dossier: 'biosensio' })).result!
+      expect(ready).toMatchObject({
+        completion: { state: 'pret_a_soumettre' },
+        permissions: { canSubmit: true },
+        pendingProposals: 1,
+      })
+      expect(submittedAt()).toBeNull()
+
+      const done = await call(c, 'submit_dossier', { dossier: 'biosensio', instruction: ASKED })
+      expect(done.error).toBeNull()
+      expect(done.result).toMatchObject({
+        message: expect.stringContaining('aucune autre validation'),
+        dossier: { slug: 'biosensio', status: 'soumis' },
+        pendingProposals: 1,
+        pendingProposalsNote: expect.stringContaining('ne les confirme pas'),
+      })
+      expect(submittedAt()).toBeInstanceOf(Date)
+      // The proposal stays a proposal: submitting is not confirming.
+      const stage = [...fake.table('dossierAnswer').values()].find((a) => a.fieldId === 'f-stage')
+      expect(stage).toMatchObject({ origin: 'ai', confirmation: 'pending' })
+
+      // The business event, with who, through which application and on which request.
+      expect(journal('dossier_submitted')).toEqual([
+        expect.objectContaining({
+          actorId: 'u-1',
+          dossierId: DOSSIER,
+          metadata: expect.objectContaining({
+            channel: 'mcp',
+            clientId: 'client-claude',
+            clientName: 'Claude',
+            grantId: expect.any(String),
+            instruction: ASKED,
+            firstSubmission: true,
+            pendingProposals: 1,
+          }),
+        }),
+      ])
+      expect(journal('mcp_tool_called').at(-1)).toMatchObject({
+        dossierId: DOSSIER,
+        metadata: { tool: 'submit_dossier', result: 'ok', instruction: ASKED },
+      })
+
+      // The site reads the same submitted dossier, with nothing left to validate, and the owner's
+      // journal says the application submitted it.
+      const jwt = await ownerJwt()
+      const site = await fetch(`${base}/v1/dossiers/${DOSSIER}`, {
+        headers: { Authorization: `Bearer ${jwt}` },
+      })
+      expect(site.status).toBe(200)
+      expect((await site.json()).submittedAt).toEqual(expect.any(String))
+      const ownJournal = (await (
+        await fetch(`${base}/v1/dossiers/${DOSSIER}/audit-log`, {
+          headers: { Authorization: `Bearer ${jwt}` },
+        })
+      ).json()) as Array<{ actionType: string; metadata: Record<string, unknown> }>
+      expect(ownJournal.find((e) => e.actionType === 'dossier_submitted')?.metadata).toMatchObject({
+        channel: 'mcp',
+        clientName: 'Claude',
+        instruction: ASKED,
+      })
+
+      // Asking again changes nothing: already submitted, said so.
+      const first = submittedAt()
+      const again = await call(c, 'submit_dossier', { dossier: 'biosensio', instruction: ASKED })
+      expect(again.error).toContain('déjà été soumis')
+      expect(submittedAt()).toEqual(first)
+      expect(journal('dossier_submitted')).toHaveLength(1)
+      const after = (await call(c, 'get_dossier', { dossier: 'biosensio' })).result!
+      expect(after.permissions).toMatchObject({
+        canSubmit: false,
+        whyCannotSubmit: expect.stringContaining('déjà soumis'),
+      })
+      await c.close()
+    })
+
+    it('a site submission is journaled too, without application or request', async () => {
+      for (const [fieldId, value] of [
+        ['f-name', 'Biosensio'],
+        ['f-stage', 'fonds_propres_uniquement'],
+      ]) {
+        await fake.prisma.dossierAnswer.create({ data: { dossierId: DOSSIER, fieldId, value } })
+      }
+      const res = await fetch(`${base}/v1/dossiers/${DOSSIER}/submit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await ownerJwt()}` },
+      })
+      expect(res.status).toBe(200)
+      expect(journal('dossier_submitted')).toEqual([
+        expect.objectContaining({
+          actorId: 'u-1',
+          metadata: expect.objectContaining({ channel: 'site', firstSubmission: true }),
+        }),
+      ])
+      expect(journal('dossier_submitted')[0].metadata).not.toHaveProperty('instruction')
+    })
+
+    // Code review R52: an application authorized when « dossiers:write » did not include submitting
+    // never submits, not even once its tokens are refreshed (same scopes as the grant).
+    it('an authorization given before dossiers:submit existed never submits', async () => {
+      await fake.prisma.dossierAnswer.create({
+        data: { dossierId: DOSSIER, fieldId: 'f-name', value: 'Biosensio' },
+      })
+      await fake.prisma.dossierAnswer.create({
+        data: { dossierId: DOSSIER, fieldId: 'f-stage', value: 'fonds_propres_uniquement' },
+      })
+      for (const scopes of [['dossiers:write'], ['dossiers:read', 'dossiers:write']]) {
+        const res = await rawToolCall(await connect('u-1', scopes), 'submit_dossier', {
+          dossier: 'biosensio',
+          instruction: ASKED,
+        })
+        expect(res.status).toBe(403)
+        expect(res.headers.get('www-authenticate') ?? '').toContain('scope="dossiers:submit"')
+      }
+      const c = await client(await connect('u-1', ['dossiers:write']))
+      const described = json(
+        await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+      )
+      expect(described.permissions).toMatchObject({
+        canEditAnswers: true,
+        canSubmit: false,
+        whyCannotSubmit: expect.stringContaining('dossiers:submit'),
+      })
+      await c.close()
+      expect(submittedAt()).toBeNull()
+      expect(journal('dossier_submitted')).toHaveLength(0)
+    })
+
+    it('refuses what the site refuses, and anything without the owner’s request, submitting nothing', async () => {
+      const c = await client(await connect('u-1', SUBMIT))
+      await call(c, 'update_answers', {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-name', value: 'Biosensio', origin: 'human' }],
+      })
+      // A required question without an answer: listed, nothing submitted.
+      const incomplete = await call(c, 'submit_dossier', {
+        dossier: 'biosensio',
+        instruction: ASKED,
+      })
+      expect(incomplete.error).toContain('Dossier non soumis')
+      expect(incomplete.error).toContain('Stade de financement actuel (fieldId f-stage)')
+      expect(incomplete.error).not.toContain('Nom du projet')
+      // The refused attempt is journaled with the request it reported.
+      expect(journal('mcp_tool_called').at(-1)).toMatchObject({
+        metadata: { tool: 'submit_dossier', result: 'error', instruction: ASKED },
+      })
+
+      await call(c, 'update_answers', {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-stage', value: 'fonds_propres_uniquement', origin: 'human' }],
+      })
+      // No request, an empty one, or one that is no text: refused before anything is read.
+      for (const args of [
+        { dossier: 'biosensio' },
+        { dossier: 'biosensio', instruction: '  ' },
+        { dossier: 'biosensio', instruction: 'x'.repeat(501) },
+      ]) {
+        expect((await call(c, 'submit_dossier', args)).error).toBeTruthy()
+      }
+      // Someone else's dossier: not found, as for any tool.
+      expect(
+        (await call(c, 'submit_dossier', { dossier: 'autre', instruction: ASKED })).error,
+      ).toContain('introuvable')
+      await c.close()
+
+      // A financeur, even with a complete share and the permissions, never submits.
+      const fin = await client(await connect('u-fin', SUBMIT))
+      const shared = await call(fin, 'submit_dossier', { dossier: DOSSIER, instruction: ASKED })
+      expect(shared.error).toContain('Seul le propriétaire')
+      await fin.close()
+
+      // A read-only connection: 403 insufficient_scope, so the client can ask for dossiers:submit.
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${await connect('u-1', ['dossiers:read'])}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2025-11-25',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'submit_dossier',
+            arguments: { dossier: 'biosensio', instruction: ASKED },
+          },
+        }),
+      })
+      expect(res.status).toBe(403)
+      expect(res.headers.get('www-authenticate') ?? '').toContain('scope="dossiers:submit"')
+
+      expect(submittedAt()).toBeNull()
+      expect(
+        fake.table('dossier').get('22222222-2222-4222-8222-222222222222')?.submittedAt,
+      ).toBeNull()
+      expect(journal('dossier_submitted')).toHaveLength(0)
+    })
+  })
+
   describe('form design in conversation (E04.06, E04.07)', () => {
     const DESIGN = ['dossiers:read', 'forms:write']
     type Outline = {
@@ -1910,8 +2211,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       const c = await client(await connect('u-admin', DESIGN))
       const tools = (await c.listTools()).tools.map((t) => t.name)
       expect(tools).toEqual(expect.arrayContaining(['create_form', 'add_form_field']))
-      expect(tools.some((t) => t.startsWith('publish'))).toBe(false)
-      expect(c.getInstructions()).toContain('n’est jamais publié par l’assistant')
+      expect(tools).toContain('publish_form')
+      expect(c.getInstructions()).toContain('reste un brouillon tant que l’administrateur ne vous')
 
       let o = await ok(c, 'create_form', { name: 'Candidature incubateur' })
       expect(o.form.slug).toBe('candidature-incubateur')
@@ -2290,6 +2591,198 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(demoted.error).toBeTruthy()
       expect(before()).toBe(formsBefore)
       await c.close()
+    })
+
+    describe('publication on the administrator’s explicit request (E04.08)', () => {
+      // Publishing is a permission of its own (code review R52).
+      const PUBLISH = [...DESIGN, 'forms:publish']
+      const ASKED = 'Parfait, publie ce formulaire.'
+      const versionsOf = (formId: string) =>
+        [...fake.table('questionnaireVersion').values()]
+          .filter((v) => v.questionnaireId === formId)
+          .map((v) => `${v.version}:${v.status}`)
+          .sort()
+      const journal = (actionType: string) =>
+        [...fake.table('auditLog').values()].filter((l) => l.actionType === actionType)
+      // A publishable draft of a form no dossier uses.
+      async function readyDraft(c: Client, name: string) {
+        let o = await ok(c, 'create_form', { name })
+        o = await ok(c, 'add_form_section', { form: o.form.id, title: 'Projet' })
+        o = await ok(c, 'add_form_field', {
+          form: o.form.id,
+          sectionId: o.sections[0].sectionId,
+          label: 'Nom du projet',
+          type: 'text',
+          required: true,
+          revision: o.draft.revision,
+        })
+        expect(o.publishable).toBe(true)
+        return o
+      }
+
+      it('publishes the draft the administrator saw, like the builder; journals the application and the request', async () => {
+        const c = await client(await connect('u-admin', PUBLISH))
+        const tool = (await c.listTools()).tools.find((t) => t.name === 'publish_form')
+        expect(tool?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+        expect(tool?.inputSchema.required).toEqual(
+          expect.arrayContaining(['form', 'revision', 'instruction']),
+        )
+        const o = await readyDraft(c, 'Candidature incubateur')
+        // Designing never publishes: the draft stays a draft until asked.
+        expect(o.draft.status).toBe('draft')
+        expect(versionsOf(o.form.id)).toEqual(['1:draft'])
+
+        const res = await call(c, 'publish_form', {
+          form: o.form.slug,
+          revision: o.draft.revision,
+          instruction: ASKED,
+        })
+        expect(res.error).toBeNull()
+        expect(res.outline).toMatchObject({
+          message: expect.stringContaining('aucune autre validation'),
+          form: { id: o.form.id },
+          version: { version: 1, status: 'published' },
+          effect: expect.stringContaining('non affecté'),
+        })
+        expect(versionsOf(o.form.id)).toEqual(['1:published'])
+        // The builder shows it published; nothing left to validate in the site.
+        const detail = (await (await builder('GET', `/${o.form.id}`)).json()) as {
+          published: { version: number } | null
+          draft: unknown
+        }
+        expect(detail.published).toMatchObject({ version: 1 })
+        expect(detail.draft).toBeNull()
+
+        expect(journal('questionnaire_version_published')).toEqual([
+          expect.objectContaining({
+            actorId: 'u-admin',
+            metadata: expect.objectContaining({
+              formId: o.form.id,
+              version: 1,
+              channel: 'mcp',
+              clientId: 'client-claude',
+              clientName: 'Claude',
+              instruction: ASKED,
+            }),
+          }),
+        ])
+        expect(journal('mcp_tool_called').at(-1)).toMatchObject({
+          metadata: { tool: 'publish_form', formId: o.form.id, result: 'ok', instruction: ASKED },
+        })
+
+        // Next version, published in the site this time: journaled as such, without a request.
+        const next = await ok(c, 'open_form_draft', { form: o.form.id })
+        expect(
+          (await builder('POST', `/${o.form.id}/draft/publish`, undefined, next.draft.revision))
+            .status,
+        ).toBe(200)
+        expect(versionsOf(o.form.id)).toEqual(['1:archived', '2:published'])
+        const bySite = journal('questionnaire_version_published').at(-1)!
+        expect(bySite.metadata).toMatchObject({ channel: 'site', version: 2 })
+        expect(bySite.metadata).not.toHaveProperty('instruction')
+        await c.close()
+      })
+
+      it('refuses a draft with problems, a stale or missing revision, or no request, publishing nothing', async () => {
+        const c = await client(await connect('u-admin', PUBLISH))
+        // A section without any field: the builder's problems, listed.
+        let o = await ok(c, 'create_form', { name: 'Brouillon incomplet' })
+        o = await ok(c, 'add_form_section', { form: o.form.id, title: 'Vide' })
+        const invalid = await call(c, 'publish_form', {
+          form: o.form.id,
+          revision: o.draft.revision,
+          instruction: ASKED,
+        })
+        expect(invalid.error).toContain('Rien n’a été publié')
+        expect(invalid.error).toContain('- Le formulaire ne contient aucun champ.')
+        expect(versionsOf(o.form.id)).toEqual(['1:draft'])
+
+        // Changed in the site since the administrator saw it: nothing published.
+        const ready = await readyDraft(c, 'Brouillon modifié')
+        const edited = await builder(
+          'PATCH',
+          `/${ready.form.id}/draft/fields/${ready.sections[0].fields[0].fieldId}`,
+          { label: 'Nom du projet (modifié)' },
+          ready.draft.revision,
+        )
+        expect(edited.status).toBe(200)
+        const stale = await call(c, 'publish_form', {
+          form: ready.form.id,
+          revision: ready.draft.revision,
+          instruction: ASKED,
+        })
+        expect(stale.error).toContain('Rien n’a été publié')
+        expect(stale.error).toContain('modifié entre-temps')
+        // No revision, no request, an empty request: refused before anything is read.
+        for (const args of [
+          { form: ready.form.id, instruction: ASKED },
+          { form: ready.form.id, revision: ready.draft.revision },
+          { form: ready.form.id, revision: ready.draft.revision, instruction: ' ' },
+        ]) {
+          expect((await call(c, 'publish_form', args)).error).toBeTruthy()
+        }
+        expect(versionsOf(ready.form.id)).toEqual(['1:draft'])
+        // The form of new dossiers is untouched by any of this.
+        expect(versionsOf('form-1')).toEqual(['1:archived', '2:published'])
+        expect(journal('questionnaire_version_published')).toHaveLength(0)
+        await c.close()
+      })
+
+      // Code review R52: designing forms (« forms:write ») never included publishing them.
+      it('an authorization given before forms:publish existed never publishes', async () => {
+        const admin = await client(await connect('u-admin', PUBLISH))
+        const o = await readyDraft(admin, 'Formulaire autorisé avant')
+        await admin.close()
+        const res = await rawToolCall(await connect('u-admin', DESIGN), 'publish_form', {
+          form: o.form.id,
+          revision: o.draft.revision,
+          instruction: ASKED,
+        })
+        expect(res.status).toBe(403)
+        expect(res.headers.get('www-authenticate') ?? '').toContain('scope="forms:publish"')
+        expect(versionsOf(o.form.id)).toEqual(['1:draft'])
+        expect(journal('questionnaire_version_published')).toHaveLength(0)
+      })
+
+      it('only administrators with forms:publish publish; checked again at each call', async () => {
+        const admin = await client(await connect('u-admin', PUBLISH))
+        const o = await readyDraft(admin, 'Formulaire protégé')
+        await admin.close()
+        const args = { form: o.form.id, revision: o.draft.revision, instruction: ASKED }
+
+        // Entrepreneur and financeur, even with the form permissions: no such tool, nothing published.
+        for (const userId of ['u-1', 'u-fin']) {
+          const c = await client(await connect(userId, PUBLISH))
+          expect((await c.listTools()).tools.map((t) => t.name)).not.toContain('publish_form')
+          expect((await call(c, 'publish_form', args)).error).toBeTruthy()
+          await c.close()
+        }
+        // An administrator without forms:publish: 403 insufficient_scope.
+        const res = await fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${await connect('u-admin', ['dossiers:write'])}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            'MCP-Protocol-Version': '2025-11-25',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'publish_form', arguments: args },
+          }),
+        })
+        expect(res.status).toBe(403)
+        expect(res.headers.get('www-authenticate') ?? '').toContain('scope="forms:publish"')
+        // An account no longer administrator, with a grant from before: refused.
+        const c = await client(await connect('u-admin', PUBLISH))
+        await fake.prisma.user.update({ where: { id: 'u-admin' }, data: { role: 'entrepreneur' } })
+        expect((await call(c, 'publish_form', args)).error).toBeTruthy()
+        await c.close()
+        expect(versionsOf(o.form.id)).toEqual(['1:draft'])
+        expect(journal('questionnaire_version_published')).toHaveLength(0)
+      })
     })
   })
 })

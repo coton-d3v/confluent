@@ -24,7 +24,10 @@ export default function OAuthConsentRoute() {
   if (loading) {
     return (
       <Shell>
-        <LoaderCircleIcon className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />
+        <LoaderCircleIcon
+          className="size-6 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
       </Shell>
     )
   }
@@ -50,7 +53,25 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
   return <ConsentDecision request={data} email={email} />
 }
 
-const { write: WRITE, formsWrite: FORMS_WRITE } = OAUTH_SCOPES
+const { write: WRITE } = OAUTH_SCOPES
+
+// Permissions offered on top of the level, each consented to on its own (the API lists the form
+// ones for an administrator only). Submitting and publishing act on the user's behalf: they start
+// unticked, so that approving without reading never grants them (code review R52).
+const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
+  {
+    scope: OAUTH_SCOPES.formsWrite,
+    title: 'Concevoir les formulaires (administrateur)',
+    ticked: true,
+  },
+  { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
+  {
+    scope: OAUTH_SCOPES.formsPublish,
+    title: 'Publier un formulaire (administrateur)',
+    ticked: false,
+  },
+]
+const OPTIONAL_SCOPES = new Set<string>(OPTIONAL_PERMISSIONS.map((p) => p.scope))
 
 interface AccessChoice {
   title: string
@@ -70,15 +91,23 @@ function accessChoices(dossierScopes: string[]): AccessChoice[] {
 
 function ConsentDecision({ request, email }: { request: OAuthConsentRequest; email: string }) {
   const requested = request.scopes.map((s) => s.scope)
-  const choices = accessChoices(requested.filter((s) => s !== FORMS_WRITE))
-  // Designing forms (E04.06) is a separate choice on top of the level. The API only lists it for an
-  // administrator; it is never implied by « Lire et modifier ».
-  const offersFormDesign = requested.includes(FORMS_WRITE)
+  const choices = accessChoices(requested.filter((s) => !OPTIONAL_SCOPES.has(s)))
+  // Never implied by « Lire et modifier »: each is a choice of its own.
+  const optional = OPTIONAL_PERMISSIONS.filter((p) => requested.includes(p.scope))
   const [choiceIndex, setChoiceIndex] = useState(0)
-  const [designForms, setDesignForms] = useState(offersFormDesign)
+  const [ticked, setTicked] = useState(
+    () => new Set(optional.filter((p) => p.ticked).map((p) => p.scope)),
+  )
+  const toggle = (scope: string, on: boolean) =>
+    setTicked((current) => {
+      const next = new Set(current)
+      if (on) next.add(scope)
+      else next.delete(scope)
+      return next
+    })
   const selected = [
     ...(choices[choiceIndex]?.scopes ?? []),
-    ...(offersFormDesign && designForms ? [FORMS_WRITE] : []),
+    ...optional.filter((p) => ticked.has(p.scope)).map((p) => p.scope),
   ]
   const labelOf = (scope: string) => request.scopes.find((s) => s.scope === scope)?.label ?? scope
   const [pending, setPending] = useState<'approve' | 'deny' | null>(null)
@@ -117,7 +146,7 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
                 <input
                   type="radio"
                   name="access-level"
-                  className="mt-0.5 size-4 accent-primary"
+                  className="mt-0.5 size-4 shrink-0 accent-primary"
                   checked={choiceIndex === index}
                   onChange={() => setChoiceIndex(index)}
                   disabled={pending !== null}
@@ -133,26 +162,27 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
               </span>
             </label>
           ))}
-          {offersFormDesign && (
+          {optional.map((permission, index) => (
             <label
+              key={permission.scope}
               className={`flex items-start gap-3 text-sm text-foreground ${
-                choices.length > 0 ? 'border-t border-border pt-3' : ''
+                choices.length > 0 || index > 0 ? 'border-t border-border pt-3' : ''
               }`}
             >
               <input
                 type="checkbox"
-                className="mt-0.5 size-4 accent-primary"
-                checked={designForms}
-                onChange={(event) => setDesignForms(event.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+                checked={ticked.has(permission.scope)}
+                onChange={(event) => toggle(permission.scope, event.target.checked)}
                 disabled={pending !== null}
               />
               <span className="flex flex-col gap-1">
-                <span className="font-medium">Concevoir les formulaires (administrateur)</span>
-                <span className="text-muted-foreground">{labelOf(FORMS_WRITE)}</span>
+                <span className="font-medium">{permission.title}</span>
+                <span className="text-muted-foreground">{labelOf(permission.scope)}</span>
               </span>
             </label>
-          )}
-          {choices.length === 0 && !offersFormDesign && (
+          ))}
+          {choices.length === 0 && optional.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Cette application ne demande aucune permission que votre compte peut accorder.
             </p>
@@ -167,8 +197,8 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
           </p>
           <p>
             Après votre choix, vous serez redirigé vers{' '}
-            <span className="font-medium text-foreground">{request.client.redirectHost}</span>.
-            Vous pourrez révoquer cet accès à tout moment.
+            <span className="font-medium text-foreground">{request.client.redirectHost}</span>. Vous
+            pourrez révoquer cet accès à tout moment.
           </p>
         </div>
 

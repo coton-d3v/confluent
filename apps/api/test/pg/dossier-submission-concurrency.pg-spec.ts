@@ -3,6 +3,8 @@ import { UnprocessableEntityException } from '@nestjs/common'
 import { AnswerSourcesService } from '../../src/modules/answers/answer-sources.service'
 import { AnswersService } from '../../src/modules/answers/answers.service'
 import { InvalidAnswersException } from '../../src/modules/answers/invalid-answers.exception'
+import { SITE_ORIGIN } from '../../src/modules/audit/action-origin'
+import { AuditService } from '../../src/modules/audit/audit.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
@@ -20,7 +22,12 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     classification,
     new AnswerSourcesService(prisma, {} as DocumentsService),
   )
-  const dossiers = new DossiersService(prisma, new QuestionnairesService(prisma), classification)
+  const dossiers = new DossiersService(
+    prisma,
+    new QuestionnairesService(prisma),
+    classification,
+    new AuditService(prisma),
+  )
 
   afterAll(() => prisma.$disconnect())
 
@@ -77,7 +84,7 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     const readBeforeSubmission = await prisma.dossier.findUniqueOrThrow({
       where: { id: dossier.id },
     })
-    await dossiers.submit(dossier.id, user.id)
+    await dossiers.submit(dossier.id, user.id, SITE_ORIGIN)
 
     await expect(
       answers.saveForDossier(readBeforeSubmission, [{ fieldId: field.id, value: '' }], {
@@ -86,6 +93,13 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
       }),
     ).rejects.toBeInstanceOf(InvalidAnswersException)
     expect(await state(dossier.id, field.id)).toEqual({ submitted: true, answer: 'Alpha' })
+    // E04.08: the submission is journaled (the audit action exists in the migrated database).
+    const journal = await prisma.auditLog.findMany({
+      where: { dossierId: dossier.id, actionType: 'dossier_submitted' },
+    })
+    expect(journal.map((e) => e.metadata)).toEqual([
+      expect.objectContaining({ channel: 'site', firstSubmission: true }),
+    ])
   })
 
   it('clearing first: a submission waiting for the save sees the cleared answer and is refused', async () => {
@@ -106,7 +120,7 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
       { timeout: 10_000 },
     )
     await clearing
-    const submission = dossiers.submit(dossier.id, user.id)
+    const submission = dossiers.submit(dossier.id, user.id, SITE_ORIGIN)
     await save
     await expect(submission).rejects.toBeInstanceOf(UnprocessableEntityException)
     expect(await state(dossier.id, field.id)).toEqual({ submitted: false, answer: '' })

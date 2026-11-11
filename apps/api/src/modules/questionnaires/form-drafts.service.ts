@@ -16,6 +16,7 @@ import {
   type UpdateDraftSectionInput,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { validateDraft } from './draft-validation'
 import { assertCanDesignForms, type FormDesigner } from './form-design-access'
@@ -132,11 +133,14 @@ export class FormDraftsService {
   }
 
   // The draft becomes the published version and the previous one is archived, in one transaction.
-  // Dossiers keep the version they were created with (E03.08).
+  // Dossiers keep the version they were created with (E03.08). Same publication from the site's
+  // builder or from an AI application on the administrator's explicit instruction (E04.08), which
+  // `origin` records in the journal.
   async publishDraft(
     actor: FormDesigner,
     formId: string,
-    revision?: string,
+    revision: string | undefined,
+    origin: ActionOrigin,
   ): Promise<FormVersionView> {
     assertCanDesignForms(actor)
     const { draft, previous, fieldCount } = await this.prisma.$transaction(async (tx) => {
@@ -169,6 +173,7 @@ export class FormDraftsService {
         version: draft.version,
         fieldCount,
         archivedVersionId: previous?.id ?? null,
+        ...originMetadata(origin),
       },
     })
     return this.getVersion(formId, draft.id)

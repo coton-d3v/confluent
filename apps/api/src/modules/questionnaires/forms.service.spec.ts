@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common'
+import { SITE_ORIGIN } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { FormDraftsService } from './form-drafts.service'
@@ -90,7 +91,7 @@ describe('FormsService', () => {
       fieldType: 'text',
       required: true,
     })
-    const published = await drafts.publishDraft(ADMIN, next.id)
+    const published = await drafts.publishDraft(ADMIN, next.id, undefined, SITE_ORIGIN)
 
     const assigned = await forms.assignUsage(ADMIN, next.id, 'dossier')
     expect(assigned.usage).toBe('dossier')

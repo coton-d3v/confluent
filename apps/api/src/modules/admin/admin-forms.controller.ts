@@ -37,6 +37,7 @@ import {
 } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { SITE_ORIGIN } from '../audit/action-origin'
 import { AdminGuard } from '../auth/guards/admin.guard'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { FormDraftsService, type FormVersionView } from '../questionnaires/form-drafts.service'
@@ -243,7 +244,7 @@ export class AdminFormsController {
     @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.publishDraft(user, formId, revisionOf(ifMatch))
+    return this.drafts.publishDraft(user, formId, revisionOf(ifMatch), SITE_ORIGIN)
   }
 
   @Post(':formId/draft/sections')
