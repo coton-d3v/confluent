@@ -18,10 +18,13 @@ import type {
   OAuthTokenRevocationRequest,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
+import type { OAuthConsentRequest, OAuthConsentWorkspace } from '@confluent/shared'
 import type { AppConfig } from '../../config/config.schema'
 import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
+import { canManageWorkspace } from '../workspaces/workspace-access'
+import { WorkspaceMembersService } from '../workspaces/workspace-members.service'
 import { OAuthClientsStore } from './oauth-clients.store'
 import {
   ACCESS_TOKEN_TTL_MS,
@@ -30,6 +33,7 @@ import {
   GRANT_TTL_MS,
   REFRESH_REUSE_GRACE_MS,
   REFRESH_TOKEN_TTL_MS,
+  SCOPE_LABELS,
   SUPPORTED_SCOPES,
   hashToken,
   mcpResourceUrl,
@@ -43,6 +47,15 @@ export interface ConfluentAuthExtra extends Record<string, unknown> {
   userId: string
   grantId: string
   clientName: string
+  // E05.10: the workspaces the person allowed this connection to reach (the grant's, never wider).
+  workspaceIds: string[]
+}
+
+// What an account may consent to (E05.10): its active memberships, offered as the workspaces an
+// application may reach, and whether it manages one of them (form permissions, E05.09).
+interface ConsentOptions {
+  workspaces: OAuthConsentWorkspace[]
+  managesWorkspace: boolean
 }
 
 // RFC 8707 canonical comparison: lowercase scheme/host, no trailing slash.
@@ -60,6 +73,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly audit: AuditService,
     private readonly clients: OAuthClientsStore,
+    private readonly members: WorkspaceMembersService,
   ) {}
 
   get clientsStore(): OAuthClientsStore {
@@ -213,6 +227,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         userId: token.grant.userId,
         grantId: token.grantId,
         clientName: token.grant.client.name,
+        workspaceIds: token.grant.workspaceIds,
       } satisfies ConfluentAuthExtra,
     }
   }
@@ -230,12 +245,65 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     await this.revokeGrant(token.grantId, token.grant.userId, 'client_revocation')
   }
 
+  // What the consent screen shows: the application, the permissions requested that this account may
+  // grant, and the workspaces it may allow the application to reach (E05.10). `null` if the request
+  // is unknown, expired or already decided.
+  async describeRequest(
+    requestId: string,
+    user: { id: string; role: string },
+  ): Promise<OAuthConsentRequest | null> {
+    const request = await this.prisma.oAuthAuthorizationRequest.findUnique({
+      where: { id: requestId },
+      include: { client: true },
+    })
+    if (!request || request.decidedAt || request.expiresAt.getTime() <= Date.now()) return null
+    const options = await this.consentOptions(user)
+    const metadata = request.client.metadata as { client_uri?: string }
+    return {
+      id: request.id,
+      client: {
+        name: request.client.name,
+        // MCP spec: the redirect hostname MUST be shown to the user.
+        redirectHost: new URL(request.redirectUri).host,
+        clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
+        verifiedByMetadataDocument: request.client.source === 'cimd',
+      },
+      // Effective permissions: writing implies reading on the server, so both are shown (R17). Only
+      // what this account may grant: `forms:write` is never offered to whoever designs no form.
+      scopes: grantableScopes(expandScopes(request.scopes), user, options)
+        .sort()
+        .map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
+      workspaces: options.workspaces,
+      expiresAt: request.expiresAt.toISOString(),
+    }
+  }
+
+  // The account's active memberships, read at consent time — the only workspaces it may allow an
+  // application to reach, whatever its global role (an administrator chooses among the workspaces
+  // it is a member of, like anyone).
+  private async consentOptions(user: { id: string; role: string }): Promise<ConsentOptions> {
+    const memberships = await this.members.listMine(user)
+    return {
+      workspaces: memberships.map((m) => ({
+        id: m.workspace.id,
+        slug: m.workspace.slug,
+        name: m.workspace.name,
+        programName: m.workspace.programName ?? null,
+        role: m.role,
+      })),
+      managesWorkspace: memberships.some((m) =>
+        canManageWorkspace(user, { ...m, deactivatedAt: null }),
+      ),
+    }
+  }
+
   // Step 2 — called by the consent screen (logged-in user). Returns where to send the browser.
   async decide(
     requestId: string,
     user: { id: string; role: string },
     approved: boolean,
     approvedScopes?: string[],
+    approvedWorkspaceIds: string[] = [],
   ): Promise<string> {
     const userId = user.id
     const request = await this.prisma.oAuthAuthorizationRequest.findUnique({
@@ -247,12 +315,19 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
     }
     // Checked BEFORE the request is consumed, so that the user can correct the choice (R13):
     // `undefined` keeps what was requested and this account may grant (a non-administrator never
-    // grants `forms:write`); an explicitly empty, unknown or ungrantable list is refused.
-    const allowed = new Set(grantableScopes(expandScopes(request.scopes), user))
+    // grants `forms:write`); an explicitly empty, unknown or ungrantable list is refused. The same for
+    // the workspaces (E05.10): only active memberships of this account, read now; none by default.
+    const options = await this.consentOptions(user)
+    const allowed = new Set(grantableScopes(expandScopes(request.scopes), user, options))
     const scopes =
-      approvedScopes === undefined ? grantableScopes(request.scopes, user) : approvedScopes
+      approvedScopes === undefined ? grantableScopes(request.scopes, user, options) : approvedScopes
     if (approved && (scopes.length === 0 || scopes.some((s) => !allowed.has(s)))) {
       throw new InvalidScopeError('Choose at least one of the requested permissions')
+    }
+    const offered = new Set(options.workspaces.map((w) => w.id))
+    const workspaceIds = [...new Set(approvedWorkspaceIds)]
+    if (approved && workspaceIds.some((id) => !offered.has(id))) {
+      throw new InvalidRequestError('Choose workspaces among your active memberships')
     }
     const decided = await this.prisma.oAuthAuthorizationRequest.updateMany({
       where: { id: requestId, decidedAt: null },
@@ -273,6 +348,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         userId,
         clientId: request.clientId,
         scopes,
+        workspaceIds,
         resource: request.resource,
         expiresAt: new Date(Date.now() + GRANT_TTL_MS),
       },
@@ -297,6 +373,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         clientId: request.clientId,
         clientName: request.client.name,
         scopes,
+        workspaceIds,
       },
     })
     target.searchParams.set('code', code)

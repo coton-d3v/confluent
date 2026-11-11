@@ -249,6 +249,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
 
     const forEntrepreneur = await request()
     expect(await shown(forEntrepreneur, userJwt)).toEqual([
+      'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
       'dossiers:write',
@@ -261,6 +262,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
 
     const forAdmin = await request()
     expect(await shown(forAdmin, adminJwt)).toEqual([
+      'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
       'dossiers:write',
@@ -269,6 +271,183 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
     ])
     await decide(forAdmin, adminJwt, ['dossiers:read', 'forms:write', 'forms:publish']).expect(200)
     expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'forms:write', 'forms:publish']])
+  })
+
+  // ROADMAP E05.10: the person chooses which workspaces the application may reach, among their
+  // active memberships, none beforehand; the choice is checked when decided and stored with the
+  // authorization, which no refresh widens. Presenting financing requests is offered to whoever may
+  // own companies; designing forms to whoever manages a workspace too.
+  describe('consent per workspace (E05.10)', () => {
+    let memberJwt: string
+    let clientId: string
+
+    beforeEach(async () => {
+      const p = fake.prisma
+      await p.user.create({
+        data: {
+          id: 'u-cons',
+          email: 'claire@incubateur.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      for (const [id, slug, name] of [
+        ['w-1', 'incubateur-nord', 'Incubateur Nord'],
+        ['w-2', 'club-sud', 'Club Sud'],
+        ['w-3', 'reseau-est', 'Réseau Est'],
+        ['w-4', 'cci-ouest', 'CCI Ouest'],
+      ]) {
+        await p.workspace.create({ data: { id, slug, name } })
+      }
+      // Manager of w-1, investor in w-2, deactivated in w-3, nothing in w-4.
+      await p.workspaceMembership.create({
+        data: {
+          workspaceId: 'w-1',
+          userId: 'u-cons',
+          role: 'conseiller',
+          canManageWorkspace: true,
+        },
+      })
+      await p.workspaceMembership.create({
+        data: { workspaceId: 'w-2', userId: 'u-cons', role: 'investisseur' },
+      })
+      await p.workspaceMembership.create({
+        data: {
+          workspaceId: 'w-3',
+          userId: 'u-cons',
+          role: 'conseiller',
+          deactivatedAt: new Date(),
+        },
+      })
+      memberJwt = await new JwtService().signAsync(
+        { sub: 'u-cons', email: 'claire@incubateur.fr', role: 'financeur' },
+        { secret: process.env.JWT_SECRET },
+      )
+      clientId = await registerClient()
+    })
+
+    const start = async () => {
+      const { verifier, challenge } = pkce()
+      const res = await http()
+        .get('/authorize')
+        .query({
+          response_type: 'code',
+          client_id: clientId,
+          redirect_uri: REDIRECT,
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          resource: RESOURCE,
+        })
+        .expect(302)
+      return { requestId: new URL(res.headers.location).searchParams.get('request')!, verifier }
+    }
+    const decide = (id: string, jwt: string, body: Record<string, unknown>) =>
+      http()
+        .post(`/v1/oauth/requests/${id}/decision`)
+        .set('Authorization', `Bearer ${jwt}`)
+        .send({ approve: true, ...body })
+    const grants = () => [...fake.table('oAuthGrant').values()]
+
+    it('offers the active memberships only, none ticked; refuses any other; stores the choice', async () => {
+      const { requestId } = await start()
+      const shown = await http()
+        .get(`/v1/oauth/requests/${requestId}`)
+        .set('Authorization', `Bearer ${memberJwt}`)
+        .expect(200)
+      expect(shown.body.workspaces).toEqual([
+        { id: 'w-2', slug: 'club-sud', name: 'Club Sud', programName: null, role: 'investisseur' },
+        {
+          id: 'w-1',
+          slug: 'incubateur-nord',
+          name: 'Incubateur Nord',
+          programName: null,
+          role: 'conseiller',
+        },
+      ])
+      // A manager designs the forms of their workspace: offered; presenting requests is not
+      // (a financeur owns no company).
+      expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
+        'dossiers:read',
+        'dossiers:submit',
+        'dossiers:write',
+        'forms:publish',
+        'forms:write',
+      ])
+
+      // A deactivated membership, a workspace one is not in, an unknown one: refused, nothing kept,
+      // the request still pending.
+      for (const workspaceIds of [['w-3'], ['w-4'], ['w-1', 'nope']]) {
+        await decide(requestId, memberJwt, { scopes: ['dossiers:read'], workspaceIds }).expect(400)
+      }
+      await decide(requestId, memberJwt, { scopes: ['dossiers:read', 'dossiers:present'] }).expect(
+        400,
+      )
+      expect(grants()).toHaveLength(0)
+
+      await decide(requestId, memberJwt, {
+        scopes: ['dossiers:read', 'forms:write'],
+        workspaceIds: ['w-1', 'w-1'],
+      }).expect(200)
+      expect(grants().map((g) => [g.scopes, g.workspaceIds])).toEqual([
+        [['dossiers:read', 'forms:write'], ['w-1']],
+      ])
+      const journal = [...fake.table('auditLog').values()].find(
+        (e) => e.actionType === 'oauth_grant_created',
+      )
+      expect(journal?.metadata).toMatchObject({ workspaceIds: ['w-1'] })
+
+      // « Applications connectées » says which workspaces the application reaches.
+      const apps = await http()
+        .get('/v1/oauth/applications')
+        .set('Authorization', `Bearer ${memberJwt}`)
+        .expect(200)
+      expect(apps.body[0].workspaces).toEqual([{ id: 'w-1', name: 'Incubateur Nord' }])
+    })
+
+    it('no choice means no workspace; the tokens carry the grant’s choice, which a refresh never widens', async () => {
+      const first = await start()
+      await decide(first.requestId, memberJwt, { scopes: ['dossiers:read'] }).expect(200)
+      expect(grants().map((g) => g.workspaceIds)).toEqual([[]])
+
+      const second = await start()
+      const decided = await decide(second.requestId, memberJwt, {
+        scopes: ['dossiers:read'],
+        workspaceIds: ['w-2'],
+      }).expect(200)
+      const code = new URL(decided.body.redirectUrl).searchParams.get('code')!
+      const tokens = await exchange(clientId, code, second.verifier).expect(200)
+      const provider = app.get(ConfluentOAuthProvider)
+      expect((await provider.verifyAccessToken(tokens.body.access_token)).extra).toMatchObject({
+        workspaceIds: ['w-2'],
+      })
+      const refreshed = await http()
+        .post('/token')
+        .type('form')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: tokens.body.refresh_token,
+          scope: 'dossiers:read',
+        })
+        .expect(200)
+      expect((await provider.verifyAccessToken(refreshed.body.access_token)).extra).toMatchObject({
+        workspaceIds: ['w-2'],
+      })
+    })
+
+    it('an entrepreneur without membership is offered dossiers:present and no workspace', async () => {
+      const { requestId } = await start()
+      const shown = await http()
+        .get(`/v1/oauth/requests/${requestId}`)
+        .set('Authorization', `Bearer ${userJwt}`)
+        .expect(200)
+      expect(shown.body.workspaces).toEqual([])
+      expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toContain('dossiers:present')
+      await decide(requestId, userJwt, { scopes: ['dossiers:read', 'dossiers:present'] }).expect(
+        200,
+      )
+      expect(grants().map((g) => g.scopes)).toEqual([['dossiers:read', 'dossiers:present']])
+    })
   })
 
   it('keeps Nest global body parsers active (mounting OAuth must not shadow them)', async () => {
@@ -295,6 +474,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'dossiers:read',
         'dossiers:write',
         'dossiers:submit',
+        'dossiers:present',
         'forms:write',
         'forms:publish',
       ],

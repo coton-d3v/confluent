@@ -13,5 +13,7 @@ import { CompanyTransfersService } from './company-transfers.service'
   imports: [AuthModule, DossiersModule, WorkspacesModule],
   controllers: [PreparedCompaniesController, CompanyTransfersController],
   providers: [CompanyTransfersService],
+  // E05.10: read by the MCP tools.
+  exports: [CompanyTransfersService],
 })
 export class CompanyTransfersModule {}

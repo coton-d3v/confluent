@@ -420,7 +420,11 @@ export function createFakePrisma() {
     refreshSession: model('refreshSession', () => ({ revokedAt: null })),
     oAuthClient: model('oAuthClient', () => ({ fetchedAt: null, clientSecret: null })),
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
-    oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),
+    oAuthGrant: model('oAuthGrant', () => ({
+      revokedAt: null,
+      lastUsedAt: null,
+      workspaceIds: [],
+    })),
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
     company: withOwnerCascade(model('company', () => ({ preparedInWorkspaceId: null }))),
     companyTransfer: model('companyTransfer', () => ({

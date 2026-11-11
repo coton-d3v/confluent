@@ -43,8 +43,9 @@ const GUIDES: Record<ConversationGuideId, GuideDefinition> = {
       'outils Confluent. Suis ces étapes.',
     steps: [
       'Retrouver le dossier. Appelle list_dossiers et reprends mon brouillon existant (statut ' +
-        'brouillon) ; s’il y en a plusieurs, demande-moi lequel. Ne crée un dossier avec ' +
-        'create_dossier que si je te le demande.',
+        'brouillon) ; s’il y en a plusieurs, demande-moi lequel (list_companies montre mes ' +
+        'entreprises et leurs demandes de financement, qui partagent un même profil). Ne crée un ' +
+        'dossier avec create_dossier que si je te le demande.',
       'Faire le point. Appelle get_dossier et résume-moi en quelques phrases ce qui est rempli, ' +
         'les questions obligatoires qui manquent et les propositions encore à confirmer.',
       'Poser les questions une à une. Appelle next_questions et pose-moi une seule question à la ' +

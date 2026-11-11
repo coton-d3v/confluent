@@ -1,10 +1,12 @@
 import { HttpException } from '@nestjs/common'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { ANSWER_EXCERPT_MAX_LENGTH, answerOriginSchema } from '@confluent/shared'
 import { z } from 'zod'
 import type { ActionOrigin } from '../audit/action-origin'
 import { canOwnCompanies } from '../companies/company-access'
 import type { DocumentsService } from '../documents/documents.service'
 import type { DossierRef } from '../dossiers/dossier-profile'
+import { expandScopes } from '../oauth/oauth.constants'
 import type { McpCaller } from './mcp.tools'
 
 // A refusal or a problem worded for the assistant, passed on as is (in French).
@@ -52,6 +54,10 @@ export interface ToolTrace {
   dossierId: string | null
   documentId?: string
   formId?: string
+  // E05.10: the workspace, company or candidature reached.
+  workspaceId?: string
+  companyId?: string
+  candidatureId?: string
   // E04.08: the person's request reported for a submission or a publication, even when refused.
   instruction?: string
 }
@@ -62,6 +68,14 @@ export type ToolRunner = (
   target: string | null,
   fn: (trace: ToolTrace) => Promise<Record<string, unknown>>,
 ) => Promise<CallToolResult>
+
+// The permission given to the application, checked again inside the tool (the HTTP layer answers
+// 403 insufficient_scope before, from TOOL_SCOPES).
+export function requireScope(caller: Pick<McpCaller, 'scopes'>, scope: string): void {
+  if (!expandScopes(caller.scopes).has(scope)) {
+    throw new ToolError(`Permission « ${scope} » non accordée à cette application.`)
+  }
+}
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -141,3 +155,48 @@ export const CONSEQUENTIAL_ACTION = {
   idempotentHint: false,
   openWorldHint: false,
 } as const
+
+// The answers an assistant records (update_answers, update_candidature_answers): each value with its
+// provenance (E04.04) — who gave it, whether the person confirmed a proposal, and the document it
+// comes from, checked by Confluent.
+export function answersInput(fieldsFrom: string) {
+  return z
+    .array(
+      z.object({
+        fieldId: z.string().describe(`fieldId renvoyé par ${fieldsFrom}`),
+        value: z.string().max(10_000),
+        origin: answerOriginSchema.describe(
+          'human : valeur donnée par l’utilisateur dans la conversation. ai : valeur que ' +
+            'vous proposez (lue dans un document, déduite).',
+        ),
+        confirmedByUser: z
+          .boolean()
+          .optional()
+          .describe(
+            'Pour origin ai : true seulement si l’utilisateur a explicitement confirmé ' +
+              'cette valeur ; sinon elle reste une proposition à confirmer.',
+          ),
+        source: z
+          .object({
+            documentId: z
+              .string()
+              .uuid()
+              .describe('documentId (list_documents) de la version lue.'),
+            excerpt: z
+              .string()
+              .trim()
+              .min(1)
+              .max(ANSWER_EXCERPT_MAX_LENGTH)
+              .optional()
+              .describe(
+                'Passage court qui justifie la valeur, recopié tel que read_document le ' +
+                  'renvoie : Confluent le retrouve et note la page ou la feuille.',
+              ),
+          })
+          .optional()
+          .describe('Document de l’entreprise dont la valeur est tirée.'),
+      }),
+    )
+    .min(1)
+    .max(200)
+}

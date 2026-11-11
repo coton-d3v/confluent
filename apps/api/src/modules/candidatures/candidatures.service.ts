@@ -35,6 +35,7 @@ import {
 } from '../answers/answer-validation'
 import type { AnswerInput, AnswerRevisionView } from '../answers/answers.service'
 import { InvalidAnswersException } from '../answers/invalid-answers.exception'
+import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { assertCanOwnCompanies } from '../companies/company-access'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -134,9 +135,10 @@ function identityOf(workspace: CandidatureWorkspaceView): CandidatureWorkspaceVi
 // nothing before its entrepreneur owns it (E05.08). The candidature's answers are its own: stored
 // apart from the profile, with the same validation, lock, provenance and history rules, read by its
 // owner and — once submitted — by the conseillers of that workspace only. No other workspace, no
-// share recipient, no other candidature of the company ever reads them; the share and MCP paths do
-// not know them. Every read and write of a workspace goes through the workspaces' single access
-// rule, then `canReviewCandidatures`, at each request.
+// share recipient, no other candidature of the company ever reads them; the share paths do not know
+// them, and the MCP tools (E05.10) go through this service like the site. Every read and write of a
+// workspace goes through the workspaces' single access rule, then `canReviewCandidatures`, at each
+// request.
 @Injectable()
 export class CandidaturesService {
   constructor(
@@ -267,7 +269,11 @@ export class CandidaturesService {
   // The owner sends the candidature: the workspace's conseillers read it from then on. It needs the
   // common profile submitted through this request (E03.10) and every required question of the
   // complementary form answered. Sending it again changes nothing.
-  async submit(candidatureId: string, userId: string): Promise<CandidatureView> {
+  async submit(
+    candidatureId: string,
+    userId: string,
+    origin: ActionOrigin = SITE_ORIGIN,
+  ): Promise<CandidatureView> {
     const { candidature, dossier } = await this.findOwned(candidatureId, userId)
     const { submitted, first } = await this.prisma.$transaction(async (tx) => {
       const current = await lockCandidature(tx, candidature.id, userId)
@@ -296,6 +302,8 @@ export class CandidaturesService {
         actorId: userId,
         dossierId: dossier.id,
         metadata: {
+          // E05.10: the site, or an AI application on the owner's explicit instruction.
+          ...originMetadata(origin),
           candidatureId: submitted.id,
           workspaceId: submitted.workspaceId,
           submittedAt: submitted.submittedAt?.toISOString() ?? null,

@@ -16,6 +16,7 @@ describe('OAuth token exchange atomicity (PostgreSQL)', () => {
     config as never,
     new AuditService(prisma),
     {} as never,
+    {} as never,
   )
   let client: OAuthClientInformationFull
   let grantId: string

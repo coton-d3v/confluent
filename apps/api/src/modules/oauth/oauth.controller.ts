@@ -19,17 +19,11 @@ import {
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import type { Request } from 'express'
 import { createZodDto } from 'nestjs-zod'
-import { z } from 'zod'
-import { PrismaService } from '../../prisma/prisma.service'
+import { oauthConsentDecisionSchema } from '@confluent/shared'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ConfluentOAuthProvider } from './oauth.provider'
-import { SCOPE_LABELS, expandScopes, grantableScopes } from './oauth.constants'
 
-const decisionSchema = z.object({
-  approve: z.boolean(),
-  scopes: z.array(z.string().max(100)).max(20).optional(),
-})
-class DecisionDto extends createZodDto(decisionSchema) {}
+class DecisionDto extends createZodDto(oauthConsentDecisionSchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
@@ -41,47 +35,26 @@ function currentUser(req: Request): AuthenticatedUser {
 @ApiBearerAuth('jwt')
 @Controller('oauth/requests')
 export class OAuthConsentController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly provider: ConfluentOAuthProvider,
-  ) {}
+  constructor(private readonly provider: ConfluentOAuthProvider) {}
 
   @Get(':id')
   @ApiOperation({
     summary: 'Demande d’autorisation en attente de consentement',
     description:
       'Ce que l’écran de consentement affiche : application, domaine de redirection, permissions ' +
-      'demandées. `404` si la demande est inconnue, expirée ou déjà traitée.',
+      'demandées que ce compte peut accorder, workspaces que l’application peut être autorisée à ' +
+      'voir (appartenances actives, E05.10). `404` si la demande est inconnue, expirée ou déjà traitée.',
   })
   @ApiOkResponse({ description: 'Demande à présenter à l’utilisateur.' })
   async get(@Req() req: Request, @Param('id') id: string) {
-    const request = await this.prisma.oAuthAuthorizationRequest.findUnique({
-      where: { id },
-      include: { client: true },
-    })
-    if (!request || request.decidedAt || request.expiresAt.getTime() <= Date.now()) {
+    const request = await this.provider.describeRequest(id, currentUser(req))
+    if (!request) {
       throw new NotFoundException({
         code: 'OAUTH_REQUEST_NOT_FOUND',
         message: 'Authorization request expired or already handled.',
       })
     }
-    const metadata = request.client.metadata as { client_uri?: string; logo_uri?: string }
-    return {
-      id: request.id,
-      client: {
-        name: request.client.name,
-        // MCP spec: the redirect hostname MUST be shown to the user.
-        redirectHost: new URL(request.redirectUri).host,
-        clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
-        verifiedByMetadataDocument: request.client.source === 'cimd',
-      },
-      // Effective permissions: writing implies reading on the server, so both are shown (R17). Only
-      // what this account may grant: `forms:write` is never offered to a non-administrator.
-      scopes: grantableScopes(expandScopes(request.scopes), currentUser(req))
-        .sort()
-        .map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
-      expiresAt: request.expiresAt.toISOString(),
-    }
+    return request
   }
 
   @Post(':id/decision')
@@ -89,8 +62,9 @@ export class OAuthConsentController {
   @ApiOperation({
     summary: 'Accepter ou refuser une demande d’autorisation',
     description:
-      'Accepté : crée la connexion (grant) avec les permissions retenues et un code d’autorisation ' +
-      'à usage unique. Refusé : `error=access_denied`. Renvoie l’URL de redirection vers l’application.',
+      'Accepté : crée la connexion (grant) avec les permissions et les workspaces retenus (aucun ' +
+      'par défaut, parmi les appartenances actives) et un code d’autorisation à usage unique. ' +
+      'Refusé : `error=access_denied`. Renvoie l’URL de redirection vers l’application.',
   })
   @ApiOkResponse({ description: '`{ redirectUrl }` vers l’application cliente.' })
   @ApiBadRequestResponse({ description: 'Demande expirée, déjà traitée ou permissions invalides.' })
@@ -101,6 +75,7 @@ export class OAuthConsentController {
         currentUser(req),
         body.approve,
         body.scopes,
+        body.workspaceIds,
       )
       return { redirectUrl }
     } catch (err) {

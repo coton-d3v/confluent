@@ -11,6 +11,6 @@ import { FormDraftsService } from './form-drafts.service'
   imports: [WorkspacesModule],
   controllers: [QuestionnairesController],
   providers: [QuestionnairesService, FormsService, FormDraftsService, FormDesignAccess],
-  exports: [QuestionnairesService, FormsService, FormDraftsService],
+  exports: [QuestionnairesService, FormsService, FormDraftsService, FormDesignAccess],
 })
 export class QuestionnairesModule {}
