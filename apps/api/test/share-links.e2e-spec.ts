@@ -83,6 +83,18 @@ describe('ShareLinksController (e2e)', () => {
         classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
         // The company's library (E05.06): documents with their field and versions.
         libraryDocument: { findMany: documentFindMany },
+        // The dossier selects every document of the library, following its latest version, as the
+        // E05.07 migration leaves an existing dossier (selection itself: financing-requests e2e).
+        dossierDocument: {
+          findMany: jest
+            .fn()
+            .mockResolvedValue(
+              [0, 1, 2, 3].map((i) => ({
+                libraryDocumentId: `lib-doc-${i}`,
+                pinnedVersionId: null,
+              })),
+            ),
+        },
         auditLog: { create: jest.fn() },
       })
       .overrideProvider(EMAIL_TRANSPORT)
@@ -262,7 +274,7 @@ describe('ShareLinksController (e2e)', () => {
     expect(res.body.dossier).toMatchObject({ axe1Projet: null, axe2Financier: null })
     expect(listedFiles(res.body)).toEqual(['kbis.pdf'])
     expect(res.body.documents[0]).toMatchObject({ fieldId: 'f-name' })
-    // The link opens the dossier, which presents its company's documents (E05.05).
+    // The link opens the dossier, which presents its company's documents (E05.05) it selects.
     expect(documentFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { companyId: 'c-1' } }),
     )

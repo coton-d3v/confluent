@@ -14,13 +14,18 @@ import {
 } from '@nestjs/swagger'
 import type { Request } from 'express'
 import type { Dossier } from '@prisma/client'
-import { createDossierSchema, updateDossierSchema } from '@confluent/shared'
+import {
+  createCompanyDossierSchema,
+  createDossierSchema,
+  updateDossierSchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { DossiersService } from './dossiers.service'
 import { SITE_ORIGIN } from '../audit/action-origin'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
 class CreateDossierDto extends createZodDto(createDossierSchema) {}
+class CreateCompanyDossierDto extends createZodDto(createCompanyDossierSchema) {}
 class UpdateDossierDto extends createZodDto(updateDossierSchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
@@ -83,19 +88,59 @@ export class DossiersController {
 
   @Patch(':id')
   @ApiOperation({
-    summary: 'Renommer un dossier',
+    summary: 'Modifier le titre et la présentation d’une demande',
     description:
-      'Met à jour le `name` et régénère le `slug` (collision-free). Seul le propriétaire peut éditer. ' +
-      '404 sinon.',
+      'Titre (`name`, régénère le `slug` sans collision) et présentation de la demande de financement ' +
+      '(E05.07) : `summary` (≤ 300), `objective` (≤ 1000), `description` (≤ 5000) — textes simples, ' +
+      'balises HTML refusées, vide ou `null` pour effacer —, `amountEur` (euros entiers, 1 à 1 milliard, ' +
+      '`null` pour effacer) et `financingTypes` (liste fermée, sans doublon). Champ omis : inchangé ; ' +
+      'champ inconnu : `400`. Une demande publiée garde ce que la publication exige (sinon `422` ' +
+      '`DOSSIER_NOT_PUBLISHABLE`). Seul le propriétaire peut éditer, `404` sinon.',
   })
   @ApiOkResponse({ description: 'Dossier mis à jour.' })
+  @ApiUnprocessableEntityResponse({
+    description: 'Demande publiée : présentation incomplète refusée (la dépublier d’abord).',
+  })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   update(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() body: UpdateDossierDto,
   ): Promise<Dossier> {
-    return this.service.update({ userId: currentUser(req).id, id, name: body.name })
+    return this.service.update({ userId: currentUser(req).id, id, changes: body })
+  }
+
+  @Post(':id/publish')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Publier une demande de financement (E05.07)',
+    description:
+      'Le propriétaire déclare la demande prête : `publicationStatus` = `published`, `publishedAt`. ' +
+      'Exige le résumé, l’objectif, le montant, au moins un type de financement et le profil de ' +
+      'l’entreprise soumis pour ce dossier (sinon `422` `DOSSIER_NOT_PUBLISHABLE`, `error.details` ' +
+      'liste ce qui manque). Distincte de la soumission (contrôle du profil et classification). ' +
+      'Les destinataires des partages voient alors la présentation de la demande ; la publication ' +
+      'n’ouvre ni ne ferme aucun partage. Publier une demande déjà publiée ne change rien. Journalisé.',
+  })
+  @ApiOkResponse({ description: 'Demande publiée.' })
+  @ApiUnprocessableEntityResponse({ description: 'Informations manquantes pour publier.' })
+  @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  publish(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
+    return this.service.publish(id, currentUser(req).id)
+  }
+
+  @Post(':id/unpublish')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Dépublier une demande (E05.07)',
+    description:
+      'Retour au brouillon : les partages restent ouverts mais ne montrent plus la présentation de la ' +
+      'demande. Sans effet sur un brouillon. Propriétaire seul (`404` sinon). Journalisé.',
+  })
+  @ApiOkResponse({ description: 'Demande en brouillon.' })
+  @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  unpublish(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
+    return this.service.unpublish(id, currentUser(req).id)
   }
 
   @Delete(':id')
@@ -130,5 +175,37 @@ export class DossiersController {
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   submit(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
     return this.service.submit(id, currentUser(req).id, SITE_ORIGIN)
+  }
+}
+
+// ROADMAP E05.07: the financing requests of an existing company.
+@ApiTags('Entreprises')
+@ApiBearerAuth('jwt')
+@ApiUnauthorizedResponse({ description: 'JWT manquant, invalide, ou user désactivé.' })
+@Controller('companies/:companyId/dossiers')
+export class CompanyDossiersController {
+  constructor(private readonly service: DossiersService) {}
+
+  @Post()
+  @HttpCode(201)
+  @ApiParam({ name: 'companyId', description: 'UUID de l’entreprise' })
+  @ApiOperation({
+    summary: 'Créer une autre demande de financement de l’entreprise',
+    description:
+      'Nouveau dossier de l’entreprise, en brouillon, qui présente le même profil (réponses et ' +
+      'bibliothèque) sans le ressaisir. Il ne sélectionne encore aucun document : ses partages n’en ' +
+      'montrent aucun tant que le propriétaire n’en a pas choisi. Propriétaire de l’entreprise ' +
+      'seulement (`404` identique pour une entreprise d’un autre compte ou inconnue ; `403` pour un ' +
+      'compte qui ne peut pas posséder d’entreprise).',
+  })
+  @ApiCreatedResponse({ description: 'Dossier créé dans l’entreprise.' })
+  @ApiForbiddenResponse({ description: 'Compte qui ne peut pas posséder d’entreprise.' })
+  @ApiNotFoundResponse({ description: 'Entreprise inexistante ou d’un autre compte.' })
+  create(
+    @Req() req: Request,
+    @Param('companyId') companyId: string,
+    @Body() body: CreateCompanyDossierDto,
+  ) {
+    return this.service.createForCompany({ owner: currentUser(req), companyId, name: body.name })
   }
 }

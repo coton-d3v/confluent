@@ -462,10 +462,12 @@ describe('Document upload (e2e)', () => {
       await owner().upload('bp.pdf', PDF('2')).expect(201)
       const { financeur, stranger, admin } = await others()
 
-      // The financeur reads the library at their level, types and history included…
+      // The financeur reads the document at their level with its type — deposited through this
+      // dossier, it is selected following its latest version, the only one shown (E05.07)…
       const [seen] = (await financeur.list().expect(200)).body
       expect(seen).toMatchObject({ type: 'business_plan', current: { version: 2 } })
-      expect(seen.versions).toHaveLength(2)
+      expect(seen.versions.map((v: { version: number }) => v.version)).toEqual([2])
+      expect(seen).not.toHaveProperty('selection')
       // …but neither uploads, retypes nor restores; nobody else even sees the dossier.
       for (const account of [financeur, stranger, admin]) {
         await account.upload('bp.pdf', PDF('3')).expect(404)

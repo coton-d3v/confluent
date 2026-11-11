@@ -85,9 +85,24 @@ export const documentVersionSchema = z.object({
   restoredFromVersion: z.number().int().positive().nullable(),
 })
 
+// E05.07: how a dossier (financing request) selects a document of its company's library — its
+// latest version (`pinnedVersionId` null: the request follows the document), or one version pinned.
+// Only the selected documents, at that version, reach the recipients of the dossier's shares.
+export const dossierDocumentSelectionSchema = z
+  .object({ pinnedVersionId: z.string().uuid().nullable() })
+  .strict()
+
+export const dossierDocumentSelectedSchema = z.object({
+  documentId: z.string().uuid(),
+  pinnedVersionId: z.string().uuid().nullable(),
+})
+
 // A document of the company's library: a file name answering one attachment question (or none),
 // with its type and its versions, newest first; `current` is the newest. The same name sent for two
 // questions makes two documents (code review R48). `id` identifies the document across its versions.
+// The owner lists the whole library, with the dossier's `selection` of each document (null: not
+// selected); a share recipient lists the selected documents only, each with the one version
+// selected (E05.07), without `selection`.
 export const documentGroupSchema = z.object({
   id: z.string().uuid(),
   filename: z.string(),
@@ -95,6 +110,7 @@ export const documentGroupSchema = z.object({
   type: documentTypeSchema,
   current: documentVersionSchema,
   versions: z.array(documentVersionSchema),
+  selection: dossierDocumentSelectionSchema.nullable().optional(),
 })
 
 // A version just created, by a deposit or by bringing back an earlier version (E05.06).
@@ -128,3 +144,5 @@ export type DocumentGroup = z.infer<typeof documentGroupSchema>
 export type UploadedDocument = z.infer<typeof uploadedDocumentSchema>
 export type UpdateDocument = z.infer<typeof updateDocumentSchema>
 export type LibraryDocument = z.infer<typeof libraryDocumentSchema>
+export type DossierDocumentSelection = z.infer<typeof dossierDocumentSelectionSchema>
+export type DossierDocumentSelected = z.infer<typeof dossierDocumentSelectedSchema>

@@ -1261,6 +1261,83 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       await c.close()
     })
 
+    // E05.07: a share shows only the documents its request selects, at the version selected.
+    it('a financeur reads only the documents the request selects, at their selected version', async () => {
+      const owner = await client(await connect('u-1', ['dossiers:write']))
+      const upload = async (filename: string, text: string, fieldId?: string) =>
+        (
+          json(
+            await owner.callTool({
+              name: 'upload_document',
+              arguments: { dossier: 'biosensio', filename, text, ...(fieldId ? { fieldId } : {}) },
+            }),
+          ).document as Doc
+        ).documentId
+      const kbis1 = await upload('kbis.txt', 'kbis un', 'f-kbis')
+      const kbis2 = await upload('kbis.txt', 'kbis deux', 'f-kbis')
+      const annexe = await upload('annexe.txt', 'annexe')
+      const p = fake.prisma
+      const documentOf = (versionId: string) =>
+        fake.table('document').get(versionId)!.libraryDocumentId as string
+      // The request pins the first Kbis and no longer presents the annex.
+      await p.dossierDocument.updateMany({
+        where: { dossierId: DOSSIER, libraryDocumentId: documentOf(kbis1) },
+        data: { pinnedVersionId: kbis1 },
+      })
+      await p.dossierDocument.deleteMany({
+        where: { dossierId: DOSSIER, libraryDocumentId: documentOf(annexe) },
+      })
+      await p.shareLink.create({
+        data: {
+          dossierId: DOSSIER,
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'complet',
+          token: 't-c',
+        },
+      })
+      const fin = await client(await connect('u-fin', ['dossiers:read']))
+      const listed = json(
+        await fin.callTool({ name: 'list_documents', arguments: { dossier: DOSSIER } }),
+      )
+      expect(listed.otherDocuments).toEqual([])
+      const [kbis] = (listed.expected as Expected[]).filter((e) => e.fieldId === 'f-kbis')
+      expect(kbis.documents.map((d) => d.documentId)).toEqual([kbis1])
+      const read = json(
+        await fin.callTool({
+          name: 'read_document',
+          arguments: { dossier: DOSSIER, documentId: kbis1 },
+        }),
+      )
+      expect(JSON.stringify(read)).toContain('kbis un')
+      for (const hidden of [kbis2, annexe]) {
+        const res = await fin.callTool({
+          name: 'read_document',
+          arguments: { dossier: DOSSIER, documentId: hidden },
+        })
+        expect(errorOf(res)).toContain('Document introuvable')
+      }
+      const described = json(
+        await fin.callTool({ name: 'get_dossier', arguments: { dossier: DOSSIER } }),
+      )
+      expect(JSON.stringify(described)).not.toContain('annexe.txt')
+      expect(JSON.stringify(described)).not.toContain(kbis2)
+      await fin.close()
+      // The owner still reads the whole library.
+      const own = json(
+        await owner.callTool({ name: 'list_documents', arguments: { dossier: 'biosensio' } }),
+      )
+      expect((own.otherDocuments as Doc[]).map((d) => d.filename)).toEqual(['annexe.txt'])
+      for (const id of [kbis2, annexe]) {
+        const res = await owner.callTool({
+          name: 'read_document',
+          arguments: { dossier: 'biosensio', documentId: id },
+        })
+        expect(res.isError).toBeFalsy()
+      }
+      await owner.close()
+    })
+
     it('a financeur reads only the documents of his share level, and never uploads', async () => {
       const owner = await client(await connect('u-1', ['dossiers:write']))
       const ids: Record<string, string> = {}

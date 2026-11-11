@@ -1,6 +1,15 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
-import { highestAccessLevel, missingRequiredAnswers, type AccessLevel } from '@confluent/shared'
-import type { Dossier } from '@prisma/client'
+import {
+  PUBLICATION_REQUIREMENT_LABELS,
+  financingTypesOf,
+  highestAccessLevel,
+  isPublished,
+  missingForPublication,
+  missingRequiredAnswers,
+  type AccessLevel,
+  type FinancingType,
+} from '@confluent/shared'
+import type { Dossier, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { slugify } from '../../common/slug'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
@@ -18,8 +27,10 @@ import { assertCanOwnCompanies } from '../companies/company-access'
 import {
   fieldVisibleAt,
   grantedLevel,
+  presentationForShare,
   projectDossierForLevel,
   type DerivedDataContext,
+  type DossierRelation,
 } from './financeur-access'
 
 export interface CreateDossierParams {
@@ -35,13 +46,36 @@ export interface DossierReadAccess {
   dossier: Dossier
   // `complet` for the owner; for a financeur, the highest level among their active share links.
   accessLevel: AccessLevel
+  // A financeur reads through a share: the documents the dossier selects, its presentation once
+  // published (E05.07).
+  relation: DossierRelation
+}
+
+// The title and presentation of a request (E05.07), as validated by `updateDossierSchema`: an
+// undefined part is left as it is, null clears it.
+export interface DossierChanges {
+  name?: string
+  summary?: string | null
+  objective?: string | null
+  description?: string | null
+  amountEur?: number | null
+  financingTypes?: FinancingType[]
 }
 
 export interface UpdateDossierParams {
   userId: string
   id: string
-  name?: string
+  changes: DossierChanges
 }
+
+const notPublishable = (missing: ReturnType<typeof missingForPublication>, published: boolean) =>
+  new UnprocessableEntityException({
+    code: 'DOSSIER_NOT_PUBLISHABLE',
+    message: published
+      ? 'Une demande publiée garde sa présentation complète : dépubliez-la avant de retirer ces informations.'
+      : `${missing.length} information(s) manquante(s) avant de publier la demande.`,
+    details: missing.map((item) => ({ item, label: PUBLICATION_REQUIREMENT_LABELS[item] })),
+  })
 
 @Injectable()
 export class DossiersService {
@@ -55,8 +89,7 @@ export class DossiersService {
 
   // A new dossier comes with its own company, named after it and owned by the same account (E05.04),
   // both or neither; the company's profile answers the form currently assigned to it (E03.09).
-  // Attaching a dossier to an existing company, whose profile it would then present without asking
-  // it again, comes with several financing requests (E05.07).
+  // Another request of an existing company: `createForCompany` (E05.07).
   async create(params: CreateDossierParams) {
     assertCanOwnCompanies(params.owner)
     const baseSlug = slugify(params.name)
@@ -75,6 +108,26 @@ export class DossiersService {
       })
       return { ...dossier, company: { id: company.id, name: company.name } }
     })
+  }
+
+  // E05.07: another financing request of a company its owner already has, presenting the same
+  // profile (answers and library) without entering it again. It selects no document yet: its owner
+  // chooses what its shares will show (closed by default). Owner only, like the company (404 for
+  // another account's or an unknown company).
+  async createForCompany(params: CreateDossierParams & { companyId: string }) {
+    assertCanOwnCompanies(params.owner)
+    const company = await this.companies.findOwned(params.companyId, params.owner)
+    const slug = await this.uniqueSlug(slugify(params.name))
+    const dossier = await this.prisma.dossier.create({
+      data: {
+        userId: company.ownerId,
+        companyId: company.id,
+        name: params.name,
+        slug,
+        questionnaireVersionId: company.profileVersionId,
+      },
+    })
+    return { ...dossier, company: { id: company.id, name: company.name } }
   }
 
   async listForUser(user: { id: string; email: string; role: string }): Promise<Dossier[]> {
@@ -100,7 +153,7 @@ export class DossiersService {
           const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
           const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
           return {
-            ...(await this.projectForLevel(d, level ?? 'public')),
+            ...presentationForShare(await this.projectForLevel(d, level ?? 'public')),
             ownerEmail: owner.email,
             ownerName,
           }
@@ -143,12 +196,12 @@ export class DossiersService {
       if (!accessLevel) {
         throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
       }
-      return { dossier, accessLevel }
+      return { dossier, accessLevel, relation: 'share' }
     }
     if (dossier.userId !== user.id) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    return { dossier, accessLevel: 'complet' }
+    return { dossier, accessLevel: 'complet', relation: 'owner' }
   }
 
   // Ids of the questionnaire fields whose answers the given level may read.
@@ -161,7 +214,7 @@ export class DossiersService {
   }
 
   async getWithQuestionnaire(id: string, user: { id: string; email: string; role: string }) {
-    const { dossier, accessLevel } = await this.resolveReadAccess(id, user)
+    const { dossier, accessLevel, relation } = await this.resolveReadAccess(id, user)
     const snapshot = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
     const questionnaireVersion = snapshot && {
       ...snapshot,
@@ -169,14 +222,15 @@ export class DossiersService {
     }
     // The company is its owner's: a share shows the dossier only (E05.04).
     const company =
-      dossier.userId === user.id
+      relation === 'owner'
         ? await this.prisma.company.findUnique({
             where: { id: dossier.companyId },
             ...COMPANY_SUMMARY,
           })
         : null
+    const projected = await this.projectForLevel(dossier, accessLevel)
     return {
-      ...(await this.projectForLevel(dossier, accessLevel)),
+      ...(relation === 'owner' ? projected : presentationForShare(projected)),
       ...(company ? { company: { id: company.id, name: company.name } } : {}),
       questionnaireVersion,
     }
@@ -196,20 +250,94 @@ export class DossiersService {
     return { fieldLevels: new Map(fields.map((f) => [f.key, f.minAccessLevel])) }
   }
 
+  // The title (a new slug with it) and the presentation of a request (E05.07). A published request
+  // keeps what publication requires (422 otherwise): its owner unpublishes it first. Under the
+  // dossier's lock, like publication, so neither sees the other half done.
   async update(params: UpdateDossierParams): Promise<Dossier> {
-    const dossier = await this.getByIdForUser(params.id, params.userId)
-    const data: { name?: string; slug?: string } = {}
-    if (params.name !== undefined) {
-      data.name = params.name
-      data.slug = await this.uniqueSlug(slugify(params.name), dossier.id)
+    const { id } = await this.getByIdForUser(params.id, params.userId)
+    const { changes } = params
+    const slug =
+      changes.name !== undefined ? await this.uniqueSlug(slugify(changes.name), id) : undefined
+    return this.prisma.$transaction(async (tx) => {
+      const dossier = await lockDossier(tx, id)
+      const data: Prisma.DossierUpdateInput = {
+        name: changes.name,
+        slug,
+        summary: changes.summary,
+        objective: changes.objective,
+        description: changes.description,
+        amountEur: changes.amountEur,
+        financingTypes:
+          changes.financingTypes === undefined
+            ? undefined
+            : financingTypesOf(changes.financingTypes),
+      }
+      if (isPublished(dossier)) {
+        const merged = { ...dossier, ...withoutUndefined(data) } as Dossier
+        const missing = missingForPublication(merged)
+        if (missing.length > 0) throw notPublishable(missing, true)
+      }
+      return tx.dossier.update({ where: { id }, data })
+    })
+  }
+
+  // E05.07: the owner declares the request ready (D03 « publié »). Requires its presentation
+  // (summary, objective, amount, at least one type) and its company profile submitted for this
+  // dossier — the submission checks the profile; publication presents the request. Its shares then
+  // show the presentation; it opens or closes no share. Publishing a published request changes
+  // nothing. Journaled (`dossier_published`).
+  async publish(id: string, userId: string): Promise<Dossier> {
+    const { id: dossierId } = await this.getByIdForUser(id, userId)
+    const { dossier, changed } = await this.prisma.$transaction(async (tx) => {
+      const current = await lockDossier(tx, dossierId)
+      if (isPublished(current)) return { dossier: current, changed: false }
+      const missing = missingForPublication(current)
+      if (missing.length > 0) throw notPublishable(missing, false)
+      const updated = await tx.dossier.update({
+        where: { id: dossierId },
+        data: { publicationStatus: 'published', publishedAt: new Date() },
+      })
+      return { dossier: updated, changed: true }
+    })
+    if (changed) {
+      await this.audit.record({
+        actionType: 'dossier_published',
+        actorId: userId,
+        dossierId,
+        metadata: { publishedAt: dossier.publishedAt?.toISOString() ?? null },
+      })
     }
-    return this.prisma.dossier.update({ where: { id: dossier.id }, data })
+    return dossier
+  }
+
+  // Back to a draft: the shares stop showing the presentation; they stay open. Journaled.
+  async unpublish(id: string, userId: string): Promise<Dossier> {
+    const { id: dossierId } = await this.getByIdForUser(id, userId)
+    const { dossier, publishedAt } = await this.prisma.$transaction(async (tx) => {
+      const current = await lockDossier(tx, dossierId)
+      if (!isPublished(current)) return { dossier: current, publishedAt: null }
+      const updated = await tx.dossier.update({
+        where: { id: dossierId },
+        data: { publicationStatus: 'draft', publishedAt: null },
+      })
+      return { dossier: updated, publishedAt: current.publishedAt }
+    })
+    if (publishedAt) {
+      await this.audit.record({
+        actionType: 'dossier_unpublished',
+        actorId: userId,
+        dossierId,
+        metadata: { publishedAt: publishedAt.toISOString() },
+      })
+    }
+    return dossier
   }
 
   // The company goes with its last dossier, and its profile (answers, history, documents) with it,
-  // as deleting a dossier did before E05.05: until a company page and several financing requests
-  // (E05.07) let its owner reach and reuse it, a company without dossier would be kept out of sight.
-  // Under the profile's lock, taken before the rows, like every write on the profile.
+  // as deleting a dossier did before E05.05: its profile and library are reached through its
+  // dossiers only, so a company without dossier would be kept out of sight (the site warns before
+  // deleting the last request). Under the profile's lock, taken before the rows, like every write on
+  // the profile.
   async delete(id: string, userId: string): Promise<void> {
     const dossier = await this.getByIdForUser(id, userId)
     await this.prisma.$transaction(async (tx) => {
@@ -290,4 +418,19 @@ export class DossiersService {
     while (taken.has(`${base}-${n}`)) n += 1
     return `${base}-${n}`
   }
+}
+
+// The dossier's row, held for the rest of the transaction: its presentation and publication change
+// one at a time (E05.07).
+async function lockDossier(tx: Prisma.TransactionClient, id: string): Promise<Dossier> {
+  await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${id} FOR UPDATE`
+  const dossier = await tx.dossier.findUnique({ where: { id } })
+  if (!dossier) {
+    throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
+  }
+  return dossier
+}
+
+function withoutUndefined<T extends object>(data: T): Partial<T> {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as Partial<T>
 }

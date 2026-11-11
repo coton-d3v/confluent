@@ -5,10 +5,12 @@ import { AuditService } from '../../src/modules/audit/audit.service'
 import { DocumentsService } from '../../src/modules/documents/documents.service'
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
 import { companyOf, testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, financingRequestsDown, sqlStatements } from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261112200000_document_library/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261112200000_document_library.down.sql'))
+// E05.07 builds on the library: undone first, before the library is.
+const LATER_DOWN = financingRequestsDown()
 
 class RolledBack extends Error {}
 
@@ -114,6 +116,7 @@ describe('document library (PostgreSQL)', () => {
 
   it('files every existing version under its document, unchanged, renumbers shared numbers, and can be undone then applied again', async () => {
     await rolledBack(async (tx) => {
+      await run(tx, LATER_DOWN)
       await run(tx, DOWN)
       const { company, field, ids } = await legacyVersions(tx)
       const list = `('${ids.join("','")}')`
@@ -176,6 +179,7 @@ describe('document library (PostgreSQL)', () => {
 
   it('resumes an interrupted deployment: any prefix of the migration, then the whole migration, gives the same database', async () => {
     await rolledBack(async (tx) => {
+      await run(tx, LATER_DOWN)
       await run(tx, DOWN)
       await legacyVersions(tx)
       await tx.$executeRawUnsafe('SAVEPOINT legacy')

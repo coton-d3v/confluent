@@ -14,7 +14,7 @@ import { AuthService } from '../auth/auth.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
-import { fieldVisibleAt, grantedLevel } from '../dossiers/financeur-access'
+import { fieldVisibleAt, grantedLevel, presentationForShare } from '../dossiers/financeur-access'
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -32,14 +32,22 @@ export interface FinanceurShareResponse {
     axe3Origine: number | null
     deeptechScore: number | null
     preCreation: boolean | null
+    // E05.07: the request's presentation, empty while it is a draft.
+    summary: string | null
+    objective: string | null
+    description: string | null
+    amountEur: number | null
+    financingTypes: string[]
+    publicationStatus: string
+    publishedAt: Date | null
   }
   share: { recipientEmail: string; status: string; accessLevel: AccessLevel }
   // Already filtered by `share.accessLevel`: hidden fields and their answers never leave the server.
   sections: QuestionnaireSection[]
   fields: QuestionnaireField[]
   answers: Array<{ fieldId: string; value: string }>
-  // Only the versions the level may read: an attachment follows its field's level, any other
-  // document requires `complet` (E03.11).
+  // Only the documents the dossier selects, at the version selected (E05.07), that the level may
+  // read: an attachment follows its field's level, any other document requires `complet` (E03.11).
   documents: DocumentGroup[]
 }
 
@@ -80,8 +88,8 @@ export class ShareLinksService {
     })
   }
 
-  // A share opens a dossier, which presents its company's profile (E05.05): the answers and
-  // documents its level may read.
+  // A share opens a dossier, which presents its company's profile (E05.05): the answers its level
+  // may read, the documents the dossier selects (E05.07) and, once published, its presentation.
   async resolveForFinanceur(shareLink: ShareLink): Promise<FinanceurShareResponse> {
     const dossier = await this.prisma.dossier.findUnique({ where: { id: shareLink.dossierId } })
     if (!dossier) {
@@ -97,7 +105,7 @@ export class ShareLinksService {
     // The level of this very link — not the highest across the recipient's links: the token is what
     // was shared, and it may have been forwarded.
     const accessLevel = grantedLevel(shareLink.accessLevel)
-    const row = await this.dossiers.projectForLevel(dossier, accessLevel)
+    const row = presentationForShare(await this.dossiers.projectForLevel(dossier, accessLevel))
     const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
     const visibleIds = new Set(fields.map((f) => f.id))
     return {
@@ -114,6 +122,13 @@ export class ShareLinksService {
         axe3Origine: row.axe3Origine,
         deeptechScore: row.deeptechScore,
         preCreation: row.preCreation,
+        summary: row.summary,
+        objective: row.objective,
+        description: row.description,
+        amountEur: row.amountEur,
+        financingTypes: row.financingTypes,
+        publicationStatus: row.publicationStatus,
+        publishedAt: row.publishedAt,
       },
       share: { recipientEmail: shareLink.recipientEmail, status: shareLink.status, accessLevel },
       // Only the sections that still contain a visible field.
@@ -124,7 +139,7 @@ export class ShareLinksService {
       answers: answers
         .filter((a) => visibleIds.has(a.fieldId))
         .map((a) => ({ fieldId: a.fieldId, value: a.value })),
-      documents: await this.documents.listForDossier(dossier, accessLevel),
+      documents: await this.documents.listForDossier(dossier, accessLevel, 'share'),
     }
   }
 

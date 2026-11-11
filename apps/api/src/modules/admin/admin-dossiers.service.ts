@@ -1,6 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import type { Document, Dossier, DossierAnswer } from '@prisma/client'
-import { documentTypeOf, type DocumentType } from '@confluent/shared'
+import {
+  documentTypeOf,
+  isPublished,
+  type DocumentType,
+  type DossierDocumentSelected,
+  type DossierPublicationStatus,
+} from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService, type AnswerInput } from '../answers/answers.service'
 import {
@@ -18,6 +24,7 @@ export interface AdminDossierListItem {
   tagTechnologique: string | null
   ownerEmail: string
   companyName: string
+  publicationStatus: DossierPublicationStatus
   createdAt: Date
   activeShareLinksCount: number
 }
@@ -62,6 +69,7 @@ export class AdminDossiersService {
       tagTechnologique: d.tagTechnologique,
       ownerEmail: d.user.email,
       companyName: d.company.name,
+      publicationStatus: isPublished(d) ? ('published' as const) : ('draft' as const),
       createdAt: d.createdAt,
       activeShareLinksCount: d.shareLinks.length,
     }))
@@ -71,7 +79,8 @@ export class AdminDossiersService {
   // The dossier with its company profile's own questionnaire version (never the currently published
   // one): answers and edits must target the fields the profile was created with. Answers and
   // documents are the company's (E05.05), listed as the dossier presents them, with its id as
-  // before; each document version with its library document's field and type (E05.06).
+  // before; each document version with its library document's field and type (E05.06). The
+  // administrator reads the whole library and, apart, the documents this request selects (E05.07).
   async detail(id: string): Promise<
     Dossier & {
       ownerEmail: string
@@ -79,6 +88,7 @@ export class AdminDossiersService {
       questionnaireVersion: VersionStructure | null
       answers: Array<DossierAnswer & { dossierId: string }>
       documents: Array<Document & { dossierId: string; fieldId: string | null; type: DocumentType }>
+      documentSelection: DossierDocumentSelected[]
     }
   > {
     const dossier = await this.prisma.dossier.findUnique({
@@ -92,12 +102,17 @@ export class AdminDossiersService {
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    const [questionnaireVersion, answers, documents] = await Promise.all([
+    const [questionnaireVersion, answers, documents, selection] = await Promise.all([
       this.questionnaires.getVersion(dossier.questionnaireVersionId),
       this.answers.listForDossier(dossier),
       this.prisma.document.findMany({
         where: { companyId: dossier.companyId },
         include: { libraryDocument: { select: { fieldId: true, type: true } } },
+      }),
+      this.prisma.dossierDocument.findMany({
+        where: { dossierId: dossier.id },
+        select: { libraryDocumentId: true, pinnedVersionId: true },
+        orderBy: { createdAt: 'asc' },
       }),
     ])
     return {
@@ -110,6 +125,10 @@ export class AdminDossiersService {
         fieldId: libraryDocument.fieldId,
         type: documentTypeOf(libraryDocument.type),
         dossierId: dossier.id,
+      })),
+      documentSelection: selection.map((s) => ({
+        documentId: s.libraryDocumentId,
+        pinnedVersionId: s.pinnedVersionId,
       })),
     }
   }

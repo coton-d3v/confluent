@@ -84,5 +84,21 @@ BEGIN
   IF (SELECT count(DISTINCT library_document_id) FROM documents) <> 2 THEN
     RAISE EXCEPTION 'one library document per company and name expected';
   END IF;
+
+  -- E05.07: each dossier a draft without presentation, selecting its company's whole library,
+  -- following the latest version.
+  SELECT string_agg(s.dossier_id || '=' || l.filename || ':' || coalesce(s.pinned_version_id, 'latest'), ',' ORDER BY s.dossier_id)
+  INTO got
+  FROM dossier_documents s JOIN library_documents l ON l.id = s.library_document_id;
+  IF got IS DISTINCT FROM 'd-blank=kbis.pdf:latest,d-check=kbis.pdf:latest' THEN
+    RAISE EXCEPTION 'document selections: %', got;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM dossiers
+    WHERE publication_status <> 'draft' OR published_at IS NOT NULL OR financing_types <> '{}'
+      OR summary IS NOT NULL OR objective IS NOT NULL OR description IS NOT NULL OR amount_eur IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'existing dossiers must stay drafts without presentation';
+  END IF;
 END
 $$;

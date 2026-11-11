@@ -54,7 +54,7 @@ describe('AnswerSourcesService', () => {
     })
     // Read with the owner's level, only for the document an excerpt must be found in.
     expect(readFile).toHaveBeenCalledTimes(1)
-    expect(readFile).toHaveBeenCalledWith(D1, 'complet', CSV.id)
+    expect(readFile).toHaveBeenCalledWith(D1, 'complet', CSV.id, 'owner')
     expect(result).toEqual({
       sources: [
         { documentId: CSV.id, location: null, excerpt: '2025;120 000' },

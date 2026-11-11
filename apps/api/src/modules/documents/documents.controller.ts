@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   Patch,
   Post,
+  Put,
   Req,
   UploadedFile,
   UseGuards,
@@ -21,6 +23,7 @@ import {
   ApiConsumes,
   ApiCreatedResponse,
   ApiGoneResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -38,8 +41,10 @@ import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
   DOCUMENT_TYPES,
   documentTypeSchema,
+  dossierDocumentSelectionSchema,
   updateDocumentSchema,
   type DocumentType,
+  type DossierDocumentSelected,
   type LibraryDocument,
   type UploadedDocument,
 } from '@confluent/shared'
@@ -68,6 +73,7 @@ const UPLOAD_OPTIONS = {
 }
 
 class UpdateDocumentDto extends createZodDto(updateDocumentSchema) {}
+class DossierDocumentSelectionDto extends createZodDto(dossierDocumentSelectionSchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
@@ -218,6 +224,59 @@ export class DocumentsController {
     }
   }
 
+  @Put(':documentId/selection')
+  @ApiParam({ name: 'documentId', description: 'UUID du document de la bibliothèque' })
+  @ApiOperation({
+    summary: 'Sélectionner un document pour cette demande (E05.07)',
+    description:
+      'Propriétaire du dossier seulement (sinon `404`). Le dossier présente ce document de la ' +
+      'bibliothèque de son entreprise à ses partages : `pinnedVersionId` `null` pour suivre sa ' +
+      'dernière version, ou l’identifiant d’une de ses versions pour l’épingler. Seuls les documents ' +
+      'sélectionnés, à cette version, sont montrés aux destinataires des partages (toujours selon ' +
+      'leur niveau). Rappeler la route change le mode. Journalisé.',
+  })
+  @ApiOkResponse({ description: 'Sélection (documentId, pinnedVersionId).' })
+  @ApiBadRequestResponse({ description: 'Corps invalide.' })
+  @ApiNotFoundResponse({
+    description: 'Dossier ou document inconnu, ou version qui n’appartient pas au document.',
+  })
+  async select(
+    @Req() req: Request,
+    @Param('dossierId') dossierId: string,
+    @Param('documentId') documentId: string,
+    @Body() body: DossierDocumentSelectionDto,
+  ): Promise<DossierDocumentSelected> {
+    const user = currentUser(req)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, user.id)
+    return this.documents.select({
+      dossier,
+      documentId,
+      pinnedVersionId: body.pinnedVersionId,
+      actorId: user.id,
+    })
+  }
+
+  @Delete(':documentId/selection')
+  @HttpCode(204)
+  @ApiParam({ name: 'documentId', description: 'UUID du document de la bibliothèque' })
+  @ApiOperation({
+    summary: 'Retirer un document de cette demande (E05.07)',
+    description:
+      'Propriétaire du dossier seulement (sinon `404`). Les partages du dossier ne montrent plus ce ' +
+      'document dès la requête suivante ; il reste dans la bibliothèque. Sans effet s’il n’était pas ' +
+      'sélectionné. Journalisé.',
+  })
+  @ApiNoContentResponse({ description: 'Document retiré de la demande.' })
+  async unselect(
+    @Req() req: Request,
+    @Param('dossierId') dossierId: string,
+    @Param('documentId') documentId: string,
+  ): Promise<void> {
+    const user = currentUser(req)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, user.id)
+    await this.documents.unselect({ dossier, documentId, actorId: user.id })
+  }
+
   @Post(':documentId/versions/:versionId/restore')
   @HttpCode(201)
   @ApiParam({ name: 'documentId', description: 'UUID du document' })
@@ -260,15 +319,18 @@ export class DocumentsController {
       'Retourne un tableau de `{ id, filename, fieldId, type, current, versions[] }` : la bibliothèque de l’entreprise du dossier (E05.05, E05.06), un document par nom et par question, avec son type. Chaque version a son `id`, indique la version qu’elle a restaurée (`restoredFromVersion`, null pour un dépôt) et sa disponibilité ' +
       '(`available` avec une URL signée de téléchargement valable 15 min, `missing` si le fichier est perdu ' +
       'et doit être redéposé, `unavailable` si le stockage est momentanément injoignable). Les versions sont triées desc par `version`. ' +
-      'Chaque version indique le champ « pièce jointe » auquel elle répond (`fieldId`, null sinon). Financeur : seules les versions ' +
-      'que son niveau de partage permet de lire, celui du champ pour une pièce jointe, `complet` pour les autres documents.',
+      'Chaque version indique le champ « pièce jointe » auquel elle répond (`fieldId`, null sinon). ' +
+      'Propriétaire : toute la bibliothèque, chaque document avec `selection` (comment ce dossier le sélectionne, ' +
+      '`pinnedVersionId` null = dernière version suivie ; `null` = non sélectionné, E05.07). Financeur : seuls les documents ' +
+      'sélectionnés par ce dossier, avec la seule version sélectionnée (la dernière ou celle épinglée), et que son niveau de ' +
+      'partage permet de lire — celui du champ pour une pièce jointe, `complet` pour les autres documents.',
   })
   @ApiOkResponse({ description: 'Documents groupés par filename.' })
   async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<DocumentGroup[]> {
-    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(
+    const { dossier, accessLevel, relation } = await this.dossiers.resolveReadAccess(
       dossierId,
       currentUser(req),
     )
-    return this.documents.listForDossier(dossier, accessLevel)
+    return this.documents.listForDossier(dossier, accessLevel, relation)
   }
 }

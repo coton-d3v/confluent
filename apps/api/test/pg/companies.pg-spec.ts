@@ -7,11 +7,11 @@ import { CompaniesService } from '../../src/modules/companies/companies.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, financingRequestsDown, sqlStatements } from './sql-file'
 
 const MIGRATION = join(MIGRATIONS, '20261112000000_companies/migration.sql')
 const DOWN = join(CHECKS, '20261112000000_companies.down.sql')
-// The next migrations (E05.05, then E05.06) build on companies: undone first, latest first.
+// The next migrations (E05.05, E05.06, then E05.07) build on companies: undone first, latest first.
 const LIBRARY_DOWN = join(CHECKS, '20261112200000_document_library.down.sql')
 const NEXT_DOWN = join(CHECKS, '20261112100000_company_profile.down.sql')
 
@@ -57,6 +57,7 @@ describe('companies (PostgreSQL)', () => {
             for (const sql of sqlStatements(path)) await tx.$executeRawUnsafe(sql)
           }
           // The database as it was before the migration, with dossiers as they were written then.
+          for (const sql of financingRequestsDown()) await tx.$executeRawUnsafe(sql)
           await run(LIBRARY_DOWN)
           await run(NEXT_DOWN)
           await run(DOWN)

@@ -52,6 +52,7 @@ const UPDATED_AT = new Set([
   'workspaceMembership',
   'company',
   'libraryDocument',
+  'dossierDocument',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -371,6 +372,13 @@ export function createFakePrisma() {
       deeptechScore: null,
       preCreation: null,
       classificationSources: null,
+      summary: null,
+      objective: null,
+      description: null,
+      amountEur: null,
+      financingTypes: [],
+      publicationStatus: 'draft',
+      publishedAt: null,
       updatedAt: new Date(),
     })),
     shareLink: model('shareLink'),
@@ -398,6 +406,7 @@ export function createFakePrisma() {
     })),
     libraryDocument: model('libraryDocument', () => ({ fieldId: null, type: 'other' })),
     document: model('document', () => ({ restoredFromId: null })),
+    dossierDocument: model('dossierDocument', () => ({ pinnedVersionId: null })),
     workspace: model('workspace', () => ({ logoKey: null })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
@@ -412,6 +421,24 @@ export function createFakePrisma() {
 }
 
 type FakePrisma = ReturnType<typeof createFakePrisma>['prisma']
+
+// The dossier selects every document of its company's library, following their latest version, as
+// the E05.07 migration leaves an existing dossier.
+export async function selectWholeLibrary(
+  prisma: FakePrisma,
+  dossier: { id: string; companyId: string },
+): Promise<void> {
+  const documents = await prisma.libraryDocument.findMany({
+    where: { companyId: dossier.companyId },
+  })
+  for (const document of documents) {
+    if (!document) continue
+    const key = { dossierId: dossier.id, libraryDocumentId: document.id }
+    if (!(await prisma.dossierDocument.findFirst({ where: key }))) {
+      await prisma.dossierDocument.create({ data: { ...key, companyId: dossier.companyId } })
+    }
+  }
+}
 
 // A stored version of a library document (E05.06), its document created on first use, as a deposit
 // leaves them.

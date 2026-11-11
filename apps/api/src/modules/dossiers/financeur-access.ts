@@ -1,4 +1,4 @@
-import { accessLevelSchema, grantsAccess, type AccessLevel } from '@confluent/shared'
+import { accessLevelSchema, grantsAccess, isPublished, type AccessLevel } from '@confluent/shared'
 import type { Dossier } from '@prisma/client'
 import {
   readClassificationSources,
@@ -24,6 +24,34 @@ const CLASSIFICATION_MIN_LEVEL: Record<ClassificationColumn, AccessLevel> = {
 }
 
 export const DOCUMENTS_MIN_LEVEL: AccessLevel = 'complet'
+
+// How a reader reaches a dossier: its owner, or a recipient of one of its shares. A share recipient
+// reads the documents the dossier selects (E05.07), the owner the company's whole library.
+export type DossierRelation = 'owner' | 'share'
+
+// E05.07: the presentation of a request, as a share recipient reads it — nothing while it is a draft
+// (closed by default: any status but `published`). Its owner and administrators read it as stored.
+// The title (`name`) stays: shares have always shown it.
+export function presentationForShare<
+  T extends {
+    publicationStatus: string
+    summary: string | null
+    objective: string | null
+    description: string | null
+    amountEur: number | null
+    financingTypes: string[]
+  },
+>(dossier: T): T {
+  if (isPublished(dossier)) return dossier
+  return {
+    ...dossier,
+    summary: null,
+    objective: null,
+    description: null,
+    amountEur: null,
+    financingTypes: [],
+  }
+}
 
 // What the projection needs to know about the dossier's version: the read level of each field (by
 // key). The sources of each column are those recorded with its value (`classification_sources`).
