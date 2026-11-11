@@ -21,11 +21,16 @@ import {
   type AccessLevel,
   type DocumentAvailability,
   type DocumentType,
+  type DossierDocumentSelected,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { lockProfile, type DossierRef } from '../dossiers/dossier-profile'
-import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt } from '../dossiers/financeur-access'
+import {
+  DOCUMENTS_MIN_LEVEL,
+  fieldVisibleAt,
+  type DossierRelation,
+} from '../dossiers/financeur-access'
 import { detectDocumentType } from './document-types'
 import { DOCUMENT_TEXT_LIMITS, extractDocumentText, readingOf } from './text/document-text'
 import { locateExcerpt } from './text/excerpt-location'
@@ -77,6 +82,8 @@ export interface DocumentGroup {
   type: DocumentType
   current: DocumentVersionView
   versions: DocumentVersionView[]
+  // For the owner only: how the dossier selects the document (E05.07), null when it does not.
+  selection?: { pinnedVersionId: string | null } | null
 }
 
 // A version as stored, with what its document says about it.
@@ -88,6 +95,12 @@ export type StoredVersion = Document & {
 
 const documentNotFound = () =>
   new NotFoundException({ code: 'DOCUMENT_NOT_FOUND', message: 'Document introuvable.' })
+
+const versionNotFound = () =>
+  new NotFoundException({
+    code: 'DOCUMENT_VERSION_NOT_FOUND',
+    message: 'Cette version n’appartient pas à ce document.',
+  })
 
 const storageUnavailable = () =>
   new ServiceUnavailableException({
@@ -112,6 +125,9 @@ export class DocumentsService {
   // document of that name for that question, or a new document of type `type` (default `other`;
   // ignored for a new version, whose document keeps its type). `fieldId` attaches it to an
   // attachment field of the company-profile form (E03.11); it is checked before anything is stored.
+  // A new document is selected by the dossier it is deposited through, following its latest version
+  // (E05.07: what is deposited for a request reaches its shares, as before); the company's other
+  // dossiers select it only if their owner chooses to. A new version changes no selection.
   async upload(params: {
     dossier: DossierRef
     filename: string
@@ -148,11 +164,17 @@ export class DocumentsService {
       // is NULL).
       return await this.prisma.$transaction(async (tx) => {
         await lockProfile(tx, params.dossier.id)
-        const document =
-          (await tx.libraryDocument.findFirst({ where: { companyId, fieldId, filename } })) ??
-          (await tx.libraryDocument.create({
+        let document = await tx.libraryDocument.findFirst({
+          where: { companyId, fieldId, filename },
+        })
+        if (!document) {
+          document = await tx.libraryDocument.create({
             data: { companyId, fieldId, filename, type: params.type ?? 'other' },
-          }))
+          })
+          await tx.dossierDocument.create({
+            data: { dossierId: params.dossier.id, companyId, libraryDocumentId: document.id },
+          })
+        }
         const version = await this.nextVersion(tx, document.id)
         const created = await tx.document.create({
           data: {
@@ -173,29 +195,45 @@ export class DocumentsService {
     }
   }
 
-  // The documents `level` may read (E03.11), each with all its versions, newest first: a file
-  // attached to a field follows that field's read level, any other file requires
-  // DOCUMENTS_MIN_LEVEL. Hidden documents are neither listed nor signed. A dossier presents every
-  // document of its company (E05.05) until a dossier selects its own (E05.07).
-  async listForDossier(dossier: DossierRef, level: AccessLevel): Promise<DocumentGroup[]> {
-    const documents = (
-      await this.prisma.libraryDocument.findMany({
+  // The documents a reader may see (E03.11): a file attached to a field follows that field's read
+  // level, any other file requires DOCUMENTS_MIN_LEVEL. Hidden documents are neither listed nor
+  // signed. The owner reads the company's whole library (E05.05), every version, with the dossier's
+  // selection of each document. A share recipient reads only the documents the dossier selects
+  // (E05.07), each with the one version selected — its latest, or the pinned one — never the others.
+  async listForDossier(
+    dossier: DossierRef,
+    level: AccessLevel,
+    relation: DossierRelation,
+  ): Promise<DocumentGroup[]> {
+    const owner = relation === 'owner'
+    const [library, selection] = await Promise.all([
+      this.prisma.libraryDocument.findMany({
         where: { companyId: dossier.companyId },
         orderBy: [{ filename: 'asc' }, { createdAt: 'asc' }],
         include: {
           field: { select: { minAccessLevel: true } },
           versions: { orderBy: { version: 'desc' } },
         },
-      })
-    ).filter((document) => document.versions.length > 0 && documentVisibleAt(document, level))
-    const rows = documents.flatMap((document) => document.versions)
+      }),
+      this.selectionOf(dossier),
+    ])
+    const documents = library
+      .filter((document) => owner || selection.has(document.id))
+      .map((document) => ({
+        ...document,
+        shown: owner
+          ? document.versions
+          : selectedVersions(document.versions, selection.get(document.id)!),
+      }))
+      .filter((document) => document.shown.length > 0 && documentVisibleAt(document, level))
+    const rows = documents.flatMap((document) => document.shown)
     const downloads = await mapWithConcurrency(rows, LISTING_CONCURRENCY, (row) =>
       this.download(row.storageKey, row.filename),
     )
     const downloadOf = new Map(rows.map((row, i) => [row.id, downloads[i]]))
     return documents.map((document) => {
       const numbers = new Map(document.versions.map((v) => [v.id, v.version]))
-      const versions = document.versions.map(
+      const versions = document.shown.map(
         (row): DocumentVersionView => ({
           id: row.id,
           version: row.version,
@@ -216,22 +254,33 @@ export class DocumentsService {
         type: documentTypeOf(document.type),
         current: versions[0],
         versions,
+        ...(owner
+          ? {
+              selection: selection.has(document.id)
+                ? { pinnedVersionId: selection.get(document.id)!.pinnedVersionId }
+                : null,
+            }
+          : {}),
       }
     })
   }
 
-  // The content of one version, if `level` may read it (same rule as the listing): a version that is
-  // hidden or belongs to another company is reported as not found.
+  // The content of one version, if the reader may read it (same rules as the listing): a version that
+  // is hidden, not selected for a share recipient, or of another company is reported as not found.
   async readFile(
     dossier: DossierRef,
     level: AccessLevel,
     documentId: string,
+    relation: DossierRelation,
   ): Promise<{ document: StoredVersion; content: Buffer }> {
     const row = await this.prisma.document.findFirst({
       where: { id: documentId, companyId: dossier.companyId },
       include: { libraryDocument: { include: { field: { select: { minAccessLevel: true } } } } },
     })
     if (!row || !documentVisibleAt(row.libraryDocument, level)) throw documentNotFound()
+    if (relation !== 'owner' && !(await this.isShownToShares(dossier, row))) {
+      throw documentNotFound()
+    }
     const { libraryDocument, ...version } = row
     const restoredFrom = version.restoredFromId
       ? await this.prisma.document.findUnique({
@@ -362,6 +411,100 @@ export class DocumentsService {
     return restored
   }
 
+  // E05.07: the dossier selects a document of its company's library, following its latest version
+  // (`pinnedVersionId` null) or pinned to one of its versions; selecting it again changes how.
+  // Owner only (the caller checks it). Journaled when something changes.
+  async select(params: {
+    dossier: DossierRef
+    documentId: string
+    pinnedVersionId: string | null
+    actorId: string
+  }): Promise<DossierDocumentSelected> {
+    const { dossier, documentId, pinnedVersionId } = params
+    const document = await this.prisma.libraryDocument.findFirst({
+      where: { id: documentId, companyId: dossier.companyId },
+    })
+    if (!document) throw documentNotFound()
+    const pinned = pinnedVersionId
+      ? await this.prisma.document.findFirst({
+          where: { id: pinnedVersionId, libraryDocumentId: document.id },
+          select: { id: true, version: true },
+        })
+      : null
+    if (pinnedVersionId && !pinned) throw versionNotFound()
+    const key = { dossierId: dossier.id, libraryDocumentId: document.id }
+    const before = await this.prisma.dossierDocument.findUnique({
+      where: { dossierId_libraryDocumentId: key },
+    })
+    await this.prisma.dossierDocument.upsert({
+      where: { dossierId_libraryDocumentId: key },
+      create: { ...key, companyId: dossier.companyId, pinnedVersionId },
+      update: { pinnedVersionId },
+    })
+    if (!before || before.pinnedVersionId !== pinnedVersionId) {
+      await this.audit.record({
+        actionType: 'dossier_document_selected',
+        actorId: params.actorId,
+        dossierId: dossier.id,
+        metadata: {
+          documentId: document.id,
+          filename: document.filename,
+          pinnedVersionId,
+          pinnedVersion: pinned?.version ?? null,
+          previouslySelected: before !== null,
+        },
+      })
+    }
+    return { documentId: document.id, pinnedVersionId }
+  }
+
+  // The dossier no longer presents the document: its shares stop showing it at the next request.
+  // The document stays in the library. Nothing happens for a document the dossier did not select.
+  async unselect(params: {
+    dossier: DossierRef
+    documentId: string
+    actorId: string
+  }): Promise<void> {
+    const { dossier, documentId } = params
+    const document = await this.prisma.libraryDocument.findFirst({
+      where: { id: documentId, companyId: dossier.companyId },
+    })
+    if (!document) throw documentNotFound()
+    const { count } = await this.prisma.dossierDocument.deleteMany({
+      where: { dossierId: dossier.id, libraryDocumentId: document.id },
+    })
+    if (count > 0) {
+      await this.audit.record({
+        actionType: 'dossier_document_unselected',
+        actorId: params.actorId,
+        dossierId: dossier.id,
+        metadata: { documentId: document.id, filename: document.filename },
+      })
+    }
+  }
+
+  private async selectionOf(dossier: DossierRef): Promise<Map<string, Selection>> {
+    const rows = await this.prisma.dossierDocument.findMany({
+      where: { dossierId: dossier.id, companyId: dossier.companyId },
+      select: { libraryDocumentId: true, pinnedVersionId: true },
+    })
+    return new Map(rows.map((r) => [r.libraryDocumentId, { pinnedVersionId: r.pinnedVersionId }]))
+  }
+
+  // Whether a version is the one the dossier shows its share recipients: its document is selected,
+  // and the version is the pinned one or, when the document is followed, its latest.
+  private async isShownToShares(dossier: DossierRef, version: Document): Promise<boolean> {
+    const selected = (await this.selectionOf(dossier)).get(version.libraryDocumentId)
+    if (!selected) return false
+    if (selected.pinnedVersionId) return selected.pinnedVersionId === version.id
+    const latest = await this.prisma.document.findFirst({
+      where: { libraryDocumentId: version.libraryDocumentId },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    })
+    return latest?.id === version.id
+  }
+
   private async nextVersion(tx: Prisma.TransactionClient, libraryDocumentId: string) {
     const previous = await tx.document.findFirst({
       where: { libraryDocumentId },
@@ -460,6 +603,17 @@ export class DocumentsService {
       return { availability: 'unavailable', url: null }
     }
   }
+}
+
+interface Selection {
+  pinnedVersionId: string | null
+}
+
+// The versions of a selected document a share recipient reads: the pinned one, or the latest
+// (versions are ordered newest first). A pinned version that no longer exists shows nothing.
+function selectedVersions<T extends { id: string }>(versions: T[], selection: Selection): T[] {
+  if (selection.pinnedVersionId) return versions.filter((v) => v.id === selection.pinnedVersionId)
+  return versions.slice(0, 1)
 }
 
 // A document attached to a field follows that field's read level; any other file requires

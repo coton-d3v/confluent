@@ -14,12 +14,13 @@ import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, financingRequestsDown, sqlStatements } from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261112100000_company_profile/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261112100000_company_profile.down.sql'))
-// The next migration (E05.06, the document library) builds on this one: undone first.
+// The next migrations (E05.06, the document library, then E05.07) build on this one: undone first.
 const BACK_TO_E0504 = [
+  ...financingRequestsDown(),
   ...sqlStatements(join(CHECKS, '20261112200000_document_library.down.sql')),
   ...DOWN,
 ]
@@ -368,9 +369,9 @@ describe('company profile (PostgreSQL)', () => {
         buffer: Buffer.from('%PDF-1.4 test'),
       })
       expect(uploaded.storageKey.startsWith(`companies/${company.id}/`)).toBe(true)
-      expect((await documents.listForDossier(second, 'complet')).map((g) => g.filename)).toEqual([
-        'bp.pdf',
-      ])
+      expect(
+        (await documents.listForDossier(second, 'complet', 'owner')).map((g) => g.filename),
+      ).toEqual(['bp.pdf'])
 
       // A dossier's version is its company's: another one is refused; a new profile version reaches
       // every dossier of the company.

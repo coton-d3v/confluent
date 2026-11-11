@@ -73,7 +73,7 @@ export class AnswerSourcesService {
     const unverifiable = (why: string) =>
       `Extrait invérifiable dans « ${document.filename} » : ${why} Citez le document sans extrait.`
     try {
-      const { content } = await this.documents.readFile(dossier, 'complet', document.id)
+      const { content } = await this.documents.readFile(dossier, 'complet', document.id, 'owner')
       const extracted = await extractDocumentText(content, document.mimetype, DOCUMENT_TEXT_LIMITS)
       return extracted.readable ? extracted.units : unverifiable(extracted.reason)
     } catch (err) {

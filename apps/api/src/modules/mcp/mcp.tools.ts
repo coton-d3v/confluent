@@ -40,7 +40,7 @@ import {
 } from '../documents/text/document-text'
 import { paginate } from '../documents/text/text-collector'
 import { DossiersService } from '../dossiers/dossiers.service'
-import { fieldVisibleAt } from '../dossiers/financeur-access'
+import { fieldVisibleAt, type DossierRelation } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
 import { canDesignForms } from '../questionnaires/form-design-access'
 import { FormDraftsService } from '../questionnaires/form-drafts.service'
@@ -253,8 +253,8 @@ export class McpToolsFactory {
       },
       ({ dossier }) =>
         run('get_dossier', dossier, async (trace) => {
-          const { row, accessLevel } = await this.resolve(caller.user, dossier, trace)
-          return this.describeDossier(row, accessLevel, caller)
+          const { row, accessLevel, relation } = await this.resolve(caller.user, dossier, trace)
+          return this.describeDossier(row, accessLevel, relation, caller)
         }),
     )
 
@@ -518,8 +518,8 @@ export class McpToolsFactory {
       },
       ({ dossier }) =>
         run('list_documents', dossier, async (trace) => {
-          const { row, accessLevel } = await this.resolve(caller.user, dossier, trace)
-          return this.listDocuments(row, accessLevel, caller)
+          const { row, accessLevel, relation } = await this.resolve(caller.user, dossier, trace)
+          return this.listDocuments(row, accessLevel, relation, caller)
         }),
     )
 
@@ -554,8 +554,8 @@ export class McpToolsFactory {
       },
       ({ dossier, documentId, part }) =>
         run('read_document', dossier, async (trace) => {
-          const { row, accessLevel } = await this.resolve(caller.user, dossier, trace)
-          return this.readDocument(row, accessLevel, caller, documentId, part ?? 1, trace)
+          const { row, accessLevel, relation } = await this.resolve(caller.user, dossier, trace)
+          return this.readDocument(row, accessLevel, relation, caller, documentId, part ?? 1, trace)
         }),
     )
 
@@ -819,12 +819,17 @@ export class McpToolsFactory {
       if (!bySlug) throw new NotFoundException()
       id = bySlug.id
     }
-    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(id, user)
+    const { dossier, accessLevel, relation } = await this.dossiers.resolveReadAccess(id, user)
     trace.dossierId = dossier.id
-    return { row: dossier, accessLevel }
+    return { row: dossier, accessLevel, relation }
   }
 
-  private async describeDossier(dossier: Dossier, accessLevel: AccessLevel, caller: McpCaller) {
+  private async describeDossier(
+    dossier: Dossier,
+    accessLevel: AccessLevel,
+    relation: DossierRelation,
+    caller: McpCaller,
+  ) {
     const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
     const allFields = structure?.fields ?? []
     const fields = allFields.filter((f) => fieldVisibleAt(f, accessLevel))
@@ -833,7 +838,7 @@ export class McpToolsFactory {
     const [answerRows, documents, attached, form] = await Promise.all([
       // Provenance (E04.04) for the owner only, like in the site.
       this.answers.listViews(dossier, isOwner ? 'provenance' : 'value'),
-      this.documents.listForDossier(dossier, accessLevel),
+      this.documents.listForDossier(dossier, accessLevel, relation),
       attachedFieldIds(this.prisma, dossier.companyId),
       structure ? this.describeFormOf(structure.version) : null,
     ])
@@ -1107,7 +1112,12 @@ export class McpToolsFactory {
 
   // E04.03: the documents a dossier expects (attachment questions) and those deposited, as the
   // caller's level may read them (same rule as the site, DocumentsService.listForDossier).
-  private async listDocuments(dossier: Dossier, accessLevel: AccessLevel, caller: McpCaller) {
+  private async listDocuments(
+    dossier: Dossier,
+    accessLevel: AccessLevel,
+    relation: DossierRelation,
+    caller: McpCaller,
+  ) {
     const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
     const fileFields = (structure?.sections ?? []).flatMap((section) =>
       (structure?.fields ?? [])
@@ -1117,7 +1127,7 @@ export class McpToolsFactory {
         )
         .map((field) => ({ section, field })),
     )
-    const groups = await this.documents.listForDossier(dossier, accessLevel)
+    const groups = await this.documents.listForDossier(dossier, accessLevel, relation)
     const expectedIds = new Set(fileFields.map((q) => q.field.id))
     const isOwner = dossier.userId === caller.user.id
     const canUpload = isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write)
@@ -1159,13 +1169,14 @@ export class McpToolsFactory {
   private async readDocument(
     dossier: Dossier,
     accessLevel: AccessLevel,
+    relation: DossierRelation,
     caller: McpCaller,
     documentId: string,
     part: number,
     trace: ToolTrace,
   ) {
     const { document, content } = await userFacing(() =>
-      this.documents.readFile(dossier, accessLevel, documentId),
+      this.documents.readFile(dossier, accessLevel, documentId, relation),
     )
     trace.documentId = document.id
     const field = document.fieldId

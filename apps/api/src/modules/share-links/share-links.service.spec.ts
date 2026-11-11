@@ -286,6 +286,7 @@ describe('ShareLinksService', () => {
       expect(mocks.documents.listForDossier).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'd-1', companyId: 'c-1' }),
         'public',
+        'share',
       )
       // The answers are those of the dossier's company.
       expect(mocks.prisma.dossierAnswer.findMany).toHaveBeenCalledWith({
@@ -302,6 +303,7 @@ describe('ShareLinksService', () => {
       expect(mocks.documents.listForDossier).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'd-1' }),
         'partiel',
+        'share',
       )
     })
 

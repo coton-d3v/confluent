@@ -2,7 +2,7 @@ import { HttpException, PayloadTooLargeException } from '@nestjs/common'
 import { DocumentsService, sanitizeFilename } from './documents.service'
 import type { PrismaService } from '../../prisma/prisma.service'
 import type { AuditService } from '../audit/audit.service'
-import { createFakePrisma, seedDocument } from '../../testing/fake-prisma'
+import { createFakePrisma, seedDocument, selectWholeLibrary } from '../../testing/fake-prisma'
 import {
   StorageQuotaExceededError,
   StoredObjectMissingError,
@@ -280,7 +280,7 @@ describe('DocumentsService.listForDossier', () => {
     await seedDocument(prisma, { companyId: 'c-1', filename: 'deck.pdf', storageKey: 'k-d1' })
     await seedDocument(prisma, { companyId: 'c-other', filename: 'foreign.pdf' })
 
-    const groups = await svc.listForDossier(D1, 'complet')
+    const groups = await svc.listForDossier(D1, 'complet', 'owner')
 
     expect(groups.map((g) => [g.filename, g.type])).toEqual([
       ['deck.pdf', 'other'],
@@ -327,7 +327,7 @@ describe('DocumentsService.listForDossier', () => {
       },
     })
 
-    const [bp] = await svc.listForDossier(D1, 'complet')
+    const [bp] = await svc.listForDossier(D1, 'complet', 'owner')
 
     expect(bp.versions.map((v) => [v.version, v.restoredFromVersion, v.url])).toEqual([
       [3, 1, 'memory://k-1'],
@@ -355,7 +355,7 @@ describe('DocumentsService.listForDossier', () => {
     }
 
     const byName = Object.fromEntries(
-      (await svc.listForDossier(D1, 'complet')).map((g) => [g.filename, g.current]),
+      (await svc.listForDossier(D1, 'complet', 'owner')).map((g) => [g.filename, g.current]),
     )
 
     expect(byName['deck.pdf']).toMatchObject({ availability: 'available', url: 'memory://k-ok' })
@@ -397,8 +397,10 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
     return ctx
   }
   const names = async (level: 'public' | 'partiel' | 'complet') => {
-    const { svc, storage } = await library()
-    const groups = await svc.listForDossier(D1, level)
+    const { svc, storage, prisma } = await library()
+    // A share recipient, the dossier selecting the whole library (as migrated, E05.07).
+    await selectWholeLibrary(prisma, D1)
+    const groups = await svc.listForDossier(D1, level, 'share')
     return { names: groups.map((g) => g.filename).sort(), storage, groups }
   }
 
@@ -414,13 +416,11 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
     ])
   })
 
-  it('never signs a URL for a hidden document', async () => {
+  it('never signs a URL for a hidden document, nor for a version the share does not show', async () => {
     const { storage, groups } = await names('public')
-    expect(groups[0].versions).toHaveLength(2)
-    expect(storage.getSignedUrl.mock.calls.map((c) => c[0]).sort()).toEqual([
-      'k-kbis-2',
-      'k-kbis.pdf',
-    ])
+    // A followed document shows its latest version only (E05.07).
+    expect(groups[0].versions.map((v) => v.version)).toEqual([2])
+    expect(storage.getSignedUrl.mock.calls.map((c) => c[0]).sort()).toEqual(['k-kbis-2'])
   })
 
   it('gives each document the question it answers', async () => {
@@ -438,7 +438,8 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
     await field(prisma, 'f-public', 'public')
     await seedDocument(prisma, { companyId: 'c-1', filename: 'statuts.pdf', fieldId: 'f-full' })
     await seedDocument(prisma, { companyId: 'c-1', filename: 'statuts.pdf', fieldId: 'f-public' })
-    const groups = await svc.listForDossier(D1, 'public')
+    await selectWholeLibrary(prisma, D1)
+    const groups = await svc.listForDossier(D1, 'public', 'share')
     expect(groups.map((g) => g.fieldId)).toEqual(['f-public'])
     expect(storage.getSignedUrl).toHaveBeenCalledTimes(1)
   })
@@ -455,7 +456,8 @@ describe('DocumentsService.readFile (E04.03)', () => {
       type: 'company_registration',
       storageKey: 'k-kbis',
     })
-    const { document, content } = await svc.readFile(D1, 'public', v.id)
+    await selectWholeLibrary(prisma, D1)
+    const { document, content } = await svc.readFile(D1, 'public', v.id, 'share')
     expect(document).toMatchObject({
       filename: 'kbis.pdf',
       fieldId: 'f-public',
@@ -476,10 +478,21 @@ describe('DocumentsService.readFile (E04.03)', () => {
       fieldId: 'f-odd',
     })
     const foreign = await seedDocument(prisma, { companyId: 'c-2', filename: 'x.pdf' })
-    await expect(svc.readFile(D1, 'partiel', annexe.id)).rejects.toMatchObject({ status: 404 })
-    await expect(svc.readFile(D1, 'partiel', odd.id)).rejects.toMatchObject({ status: 404 })
-    await expect(svc.readFile(D1, 'complet', foreign.id)).rejects.toMatchObject({ status: 404 })
-    await expect(svc.readFile(D1, 'complet', 'unknown')).rejects.toMatchObject({ status: 404 })
+    await selectWholeLibrary(prisma, D1)
+    await expect(svc.readFile(D1, 'partiel', annexe.id, 'share')).rejects.toMatchObject({
+      status: 404,
+    })
+    await expect(svc.readFile(D1, 'partiel', odd.id, 'share')).rejects.toMatchObject({
+      status: 404,
+    })
+    for (const relation of ['owner', 'share'] as const) {
+      await expect(svc.readFile(D1, 'complet', foreign.id, relation)).rejects.toMatchObject({
+        status: 404,
+      })
+      await expect(svc.readFile(D1, 'complet', 'unknown', relation)).rejects.toMatchObject({
+        status: 404,
+      })
+    }
     expect(storage.read).not.toHaveBeenCalled()
   })
 
@@ -487,9 +500,9 @@ describe('DocumentsService.readFile (E04.03)', () => {
     const { svc, prisma, storage } = await setup()
     const v = await seedDocument(prisma, { companyId: 'c-1', filename: 'a.pdf' })
     storage.read.mockRejectedValueOnce(new StoredObjectMissingError('k'))
-    await expect(svc.readFile(D1, 'complet', v.id)).rejects.toMatchObject({ status: 410 })
+    await expect(svc.readFile(D1, 'complet', v.id, 'owner')).rejects.toMatchObject({ status: 410 })
     storage.read.mockRejectedValueOnce(new Error('ECONNREFUSED'))
-    await expect(svc.readFile(D1, 'complet', v.id)).rejects.toMatchObject({ status: 503 })
+    await expect(svc.readFile(D1, 'complet', v.id, 'owner')).rejects.toMatchObject({ status: 503 })
   })
 })
 
@@ -577,7 +590,7 @@ describe('DocumentsService.setType (E05.06)', () => {
   it('reads an unknown stored type as `other` (closed by default)', async () => {
     const { svc, prisma } = await setup()
     await seedDocument(prisma, { companyId: 'c-1', filename: 'x.pdf', type: 'legacy' })
-    const [listed] = await svc.listForDossier(D1, 'complet')
+    const [listed] = await svc.listForDossier(D1, 'complet', 'owner')
     expect(listed.type).toBe('other')
   })
 

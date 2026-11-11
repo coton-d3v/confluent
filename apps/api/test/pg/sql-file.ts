@@ -35,3 +35,12 @@ export function sqlStatements(path: string): string[] {
   if (current.trim()) statements.push(current.trim())
   return statements
 }
+
+// The revert of E05.07 (financing requests), as the tests of earlier migrations run it before their
+// own: it accepts that shares then show the whole library again (SET LOCAL, test transactions only).
+export function financingRequestsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_wider_shares = 'on'",
+    ...sqlStatements(join(CHECKS, '20261113000000_financing_requests.down.sql')),
+  ]
+}

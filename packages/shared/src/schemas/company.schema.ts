@@ -1,9 +1,11 @@
 import { z } from 'zod'
+import { dossierPublicationStatusSchema, financingTypeSchema } from './financing.schema.js'
 
 // Companies (ROADMAP E05.04): the company an entrepreneur presents, owner of the common profile and,
 // from E05.06, of the document library; its financing dossiers are attached to it. Since E05.05 the
-// profile's answers and documents are the company's, presented by each of its dossiers; until
-// E05.07 each new dossier still comes with its own company.
+// profile's answers and documents are the company's, presented by each of its dossiers. Since
+// E05.07 a company makes several financing requests (its dossiers), each created on its page
+// without entering the profile again.
 
 // The single rule of who may own a company, hence its financing dossiers: an entrepreneur, or an
 // administrator (who could already create dossiers). Closed by default: any other global role,
@@ -22,11 +24,16 @@ export const companySummarySchema = z.object({
   name: z.string().min(1).max(COMPANY_NAME_MAX_LENGTH),
 })
 
-// A financing dossier as listed under its company.
+// A financing dossier (request) as listed under its company, with what tells it apart (E05.07).
 export const companyDossierSchema = z.object({
   id: z.string().uuid(),
   slug: z.string().min(1),
   name: z.string(),
+  summary: z.string().nullable(),
+  amountEur: z.number().int().nullable(),
+  financingTypes: z.array(financingTypeSchema),
+  publicationStatus: dossierPublicationStatusSchema,
+  publishedAt: z.string().datetime().nullable(),
   submittedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 })

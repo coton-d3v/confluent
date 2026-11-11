@@ -273,7 +273,7 @@ describe('DossiersService', () => {
     })
     const svc = await instantiate(prisma)
 
-    const result = await svc.update({ userId: 'u-1', id: 'd-1', name: 'New Name' })
+    const result = await svc.update({ userId: 'u-1', id: 'd-1', changes: { name: 'New Name' } })
     expect(result.slug).toBe('new-name')
     expect(prisma.dossier.update).toHaveBeenCalledWith({
       where: { id: 'd-1' },

@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common'
-import { DossiersController } from './dossiers.controller'
+import { CompanyDossiersController, DossiersController } from './dossiers.controller'
 import { DossiersService } from './dossiers.service'
 import { ClassificationModule } from '../classification/classification.module'
 import { CompaniesModule } from '../companies/companies.module'
 
 @Module({
   imports: [ClassificationModule, CompaniesModule],
-  controllers: [DossiersController],
+  controllers: [DossiersController, CompanyDossiersController],
   providers: [DossiersService],
   exports: [DossiersService],
 })

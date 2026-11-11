@@ -33,7 +33,9 @@ export const createShareLinkSchema = z.object({
 })
 
 // What a financeur sees through a share link, already filtered server-side by `share.accessLevel`:
-// `fields`/`answers` only contain fields the level may read, `documents` only lists the versions the level may read (an attachment follows its field, any other document requires `complet`).
+// `fields`/`answers` only contain fields the level may read, `documents` only lists the documents the
+// dossier selects (E05.07), at the version selected, among those the level may read (an attachment
+// follows its field, any other document requires `complet`).
 export const financeurShareResponseSchema = z.object({
   dossier: dossierSchema.pick({
     id: true,
@@ -48,6 +50,14 @@ export const financeurShareResponseSchema = z.object({
     axe3Origine: true,
     deeptechScore: true,
     preCreation: true,
+    // E05.07: the request's presentation, empty while it is a draft.
+    summary: true,
+    objective: true,
+    description: true,
+    amountEur: true,
+    financingTypes: true,
+    publicationStatus: true,
+    publishedAt: true,
   }),
   share: z.object({
     recipientEmail: z.string().email(),

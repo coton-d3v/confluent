@@ -80,7 +80,7 @@ describe('document versions under concurrency (PostgreSQL)', () => {
         .sort()
     expect(byField(kbis)).toEqual([1, 2])
     expect(byField(statuts)).toEqual([1])
-    const listed = await documents.listForDossier(dossier, 'complet')
+    const listed = await documents.listForDossier(dossier, 'complet', 'owner')
     expect(listed.map((g) => [g.fieldId, g.versions.length]).sort()).toEqual(
       [
         [kbis, 2],

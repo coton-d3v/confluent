@@ -76,6 +76,10 @@ enum audit_action {
   workspace_member_reactivated
   document_type_changed
   document_version_restored
+  dossier_published
+  dossier_unpublished
+  dossier_document_selected
+  dossier_document_unselected
 
   @@map("audit_action")
 }
@@ -257,8 +261,11 @@ model Company {
   @@map("companies")
 }
 
-// A financing dossier of a company (ROADMAP E05.04). It presents its company's profile (answers and
-// documents, E05.05); it keeps its own name, slug, submission, classification, shares and journal.
+// A financing dossier of a company (ROADMAP E05.04): one precise financing request (E05.07), several
+// per company. It presents its company's profile (answers, E05.05) and the documents of the library
+// it selects (`documentSelection`); it keeps its own title (`name`), slug, presentation, publication,
+// submission, classification, shares and journal. Formats and closed values: CHECK constraints
+// (migration 20261113000000_financing_requests).
 model Dossier {
   id                     String    @id @default(uuid())
   // The owner of the company, never set on its own: the (company_id, user_id) foreign key keeps it
@@ -283,6 +290,18 @@ model Dossier {
   // review R31): what a share may see is judged on them, not on the rules as they are now.
   classificationSources  Json?     @map("classification_sources")
   submittedAt            DateTime? @map("submitted_at")
+  // The request's presentation (E05.07), plain text never rendered as HTML; shown to the recipients
+  // of the dossier's shares once it is published.
+  summary                String?
+  objective              String?
+  description            String?
+  // Whole euros.
+  amountEur              Int?      @map("amount_eur")
+  // FINANCING_TYPES of @confluent/shared, without duplicates.
+  financingTypes         String[]  @default([]) @map("financing_types")
+  // `draft` | `published`; `publishedAt` is set exactly while published.
+  publicationStatus      String    @default("draft") @map("publication_status")
+  publishedAt            DateTime? @map("published_at")
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
@@ -294,7 +313,10 @@ model Dossier {
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
   shareLinks           ShareLink[]
   auditLogs            AuditLog[]
+  documentSelection    DossierDocument[]
 
+  // Target of the selection's (dossier, company) foreign key.
+  @@unique([id, companyId])
   @@index([userId])
   @@index([companyId])
   @@index([slug])
@@ -316,14 +338,17 @@ model LibraryDocument {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // The field's read level applies to every version (E03.11).
-  field    QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
-  versions Document[]
+  field      QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  versions   Document[]
+  selections DossierDocument[]
 
   @@unique([companyId, fieldId, filename])
   // Target of the versions' (document, company, name) foreign key.
   @@unique([id, companyId, filename])
+  // Target of the selections' (document, company) foreign key.
+  @@unique([id, companyId])
   @@index([fieldId])
   @@map("library_documents")
 }
@@ -352,11 +377,38 @@ model Document {
   restorations     Document[]              @relation("DocumentRestorations")
   citedBy          DossierAnswer[]
   citedByRevisions DossierAnswerRevision[]
+  pinnedBy         DossierDocument[]
 
   @@unique([libraryDocumentId, version])
+  // Target of the selections' (pinned version, document) foreign key.
+  @@unique([id, libraryDocumentId])
   @@index([companyId])
   @@index([restoredFromId])
   @@map("documents")
+}
+
+// A document of the company's library selected by one of its dossiers (ROADMAP E05.07): following
+// its latest version (`pinnedVersionId` null) or pinned to one of its versions. Only selected
+// documents, at that version, reach the recipients of the dossier's shares; the owner keeps the whole
+// library. Composite foreign keys hold the dossier, the document and the pinned version in the same
+// company and document.
+model DossierDocument {
+  id                String   @id @default(uuid())
+  dossierId         String   @map("dossier_id")
+  companyId         String   @map("company_id")
+  libraryDocumentId String   @map("library_document_id")
+  pinnedVersionId   String?  @map("pinned_version_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  dossier         Dossier         @relation(fields: [dossierId, companyId], references: [id, companyId], onDelete: Cascade, onUpdate: Cascade)
+  libraryDocument LibraryDocument @relation(fields: [libraryDocumentId, companyId], references: [id, companyId], onDelete: Cascade, onUpdate: Cascade)
+  pinnedVersion   Document?       @relation(fields: [pinnedVersionId, libraryDocumentId], references: [id, libraryDocumentId], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([dossierId, libraryDocumentId])
+  @@index([libraryDocumentId])
+  @@index([pinnedVersionId])
+  @@map("dossier_documents")
 }
 
 // An answer of a company's profile (E05.05: moved from the dossier to its company, same rows, same
