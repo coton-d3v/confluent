@@ -1,14 +1,5 @@
-import type { AnswerInput } from '@confluent/shared'
+import type { AnswerInput, AnswerRow } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
-
-export interface AnswerRow {
-  id: string
-  dossierId: string
-  fieldId: string
-  value: string
-  createdAt: string
-  updatedAt: string
-}
 
 export function listAnswers(dossierId: string): Promise<AnswerRow[]> {
   return apiRequest<AnswerRow[]>(

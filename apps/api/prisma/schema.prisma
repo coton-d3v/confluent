@@ -88,6 +88,7 @@ model User {
   refreshSessions  RefreshSession[]
   oauthGrants      OAuthGrant[]
   auditLogsAsActor AuditLog[]       @relation("AuditLogActor")
+  answersWritten   DossierAnswer[]
 
   @@map("users")
 }
@@ -260,6 +261,7 @@ model Document {
 
   dossier Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
   field   QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  citedBy DossierAnswer[]
 
   @@unique([dossierId, fieldId, filename, version])
   @@index([dossierId])
@@ -268,17 +270,32 @@ model Document {
 }
 
 model DossierAnswer {
-  id        String   @id @default(uuid())
-  dossierId String   @map("dossier_id")
-  fieldId   String   @map("field_id")
-  value     String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  dossierId        String   @map("dossier_id")
+  fieldId          String   @map("field_id")
+  value            String
+  // Provenance of the current value (E04.04), rewritten with it; all null for an answer saved
+  // before it was recorded. `updatedAt` is its date. Closed values: see the CHECK constraints.
+  origin           String? // human | ai
+  confirmation     String? // confirmed | pending
+  channel          String? // site | admin | mcp
+  authorId         String?  @map("author_id")
+  clientName       String?  @map("client_name")
+  // Document version the value was taken from, and where Confluent found the cited excerpt.
+  sourceDocumentId String?  @map("source_document_id")
+  sourceLocation   String?  @map("source_location")
+  sourceExcerpt    String?  @map("source_excerpt")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
-  dossier Dossier            @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  field   QuestionnaireField @relation(fields: [fieldId], references: [id])
+  dossier        Dossier            @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  field          QuestionnaireField @relation(fields: [fieldId], references: [id])
+  author         User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceDocument Document?          @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
 
   @@unique([dossierId, fieldId])
+  @@index([authorId])
+  @@index([sourceDocumentId])
   @@map("dossier_answers")
 }
 

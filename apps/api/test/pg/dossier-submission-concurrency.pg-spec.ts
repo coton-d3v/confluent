@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { UnprocessableEntityException } from '@nestjs/common'
+import { AnswerSourcesService } from '../../src/modules/answers/answer-sources.service'
 import { AnswersService } from '../../src/modules/answers/answers.service'
 import { InvalidAnswersException } from '../../src/modules/answers/invalid-answers.exception'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
+import type { DocumentsService } from '../../src/modules/documents/documents.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { testDatabase } from './database'
@@ -13,7 +15,11 @@ import { testDatabase } from './database'
 describe('dossier answers and submission under concurrency (PostgreSQL)', () => {
   const prisma = testDatabase()
   const classification = new ClassificationService(prisma)
-  const answers = new AnswersService(prisma, classification)
+  const answers = new AnswersService(
+    prisma,
+    classification,
+    new AnswerSourcesService(prisma, {} as DocumentsService),
+  )
   const dossiers = new DossiersService(prisma, new QuestionnairesService(prisma), classification)
 
   afterAll(() => prisma.$disconnect())
@@ -51,7 +57,10 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
         questionnaireVersionId: version.id,
       },
     })
-    await answers.saveForDossier(dossier, [{ fieldId: field.id, value: 'Alpha' }])
+    await answers.saveForDossier(dossier, [{ fieldId: field.id, value: 'Alpha' }], {
+      userId: user.id,
+      channel: 'site',
+    })
     return { user, field, dossier }
   }
 
@@ -71,7 +80,10 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     await dossiers.submit(dossier.id, user.id)
 
     await expect(
-      answers.saveForDossier(readBeforeSubmission, [{ fieldId: field.id, value: '' }]),
+      answers.saveForDossier(readBeforeSubmission, [{ fieldId: field.id, value: '' }], {
+        userId: user.id,
+        channel: 'site',
+      }),
     ).rejects.toBeInstanceOf(InvalidAnswersException)
     expect(await state(dossier.id, field.id)).toEqual({ submitted: true, answer: 'Alpha' })
   })

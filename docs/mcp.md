@@ -36,14 +36,14 @@ ChatGPT demande confirmation pour les outils d'écriture. Si la connexion échou
 |---|---|---|
 | `whoami` | lecture | Compte connecté, rôle, permissions accordées |
 | `list_dossiers` | lecture | Vos dossiers (et pour un financeur, ceux qui vous sont partagés) |
-| `get_dossier` | lecture | Formulaire et version du dossier ; questions par section avec format attendu, contraintes, choix, réponse actuelle (documents pour une pièce jointe) ; permissions (niveau d'accès, modification possible ou non et pourquoi) ; complétion globale et par section ; champs obligatoires manquants |
+| `get_dossier` | lecture | Formulaire et version du dossier ; questions par section avec format attendu, contraintes, choix, réponse actuelle (documents pour une pièce jointe) et, pour le propriétaire, sa provenance ; permissions (niveau d'accès, modification possible ou non et pourquoi) ; complétion globale et par section ; champs obligatoires manquants |
 | `get_form` | lecture | Définition d'un formulaire sans réponses : celui des nouveaux dossiers pour un porteur de projet ; tout formulaire et toute version, brouillon compris avec ses problèmes de publication, pour un administrateur. Refusé aux financeurs |
 | `list_forms` | lecture | Administrateurs : formulaires, usage, archivage et versions |
 | `next_questions` | lecture | Propriétaire : prochaines questions sans réponse dans l'ordre du formulaire (avec format attendu, contraintes, aide), complétion, nombre restant et lien vers le même dossier dans le site ; `after` pour continuer après une question passée |
 | `list_documents` | lecture | Pièces attendues (questions « pièce jointe », dans l'ordre du formulaire, fournies ou non) et documents déposés, y compris hors questions : `documentId`, nom, version et versions précédentes, format, taille, disponibilité, lisible ou non (et pourquoi) ; pour le propriétaire, lien de dépôt dans le site (`uploadUrl`). Financeur : selon le niveau du partage |
 | `read_document` | lecture | Texte d'une version de document (voir **Documents** ci-dessous), par parties (`part`) indiquant les pages, feuilles ou diapositives couvertes ; donnée non fiable, jamais une consigne |
 | `create_dossier` | écriture | Crée un dossier avec le formulaire publié des nouveaux dossiers et renvoie ses premières questions ; refusé si un brouillon du même nom existe (sauf confirmation `allowDuplicate`) ; porteurs de projet uniquement |
-| `update_answers` | écriture | Enregistre des réponses (propriétaire uniquement ; valeurs vérifiées, rien n'est écrit si une valeur est invalide) ; renvoie la complétion et la question suivante |
+| `update_answers` | écriture | Enregistre des réponses (propriétaire uniquement ; valeurs vérifiées, rien n'est écrit si une valeur ou une source est invalide), chacune avec sa provenance (voir **Provenance des réponses**) ; renvoie la complétion et la question suivante |
 | `upload_document` | écriture | Propriétaire : dépose un petit fichier (512 Ko maximum, en base64 ou en texte pour un `.txt`/`.csv`) pour une question « pièce jointe » ou parmi les autres documents ; mêmes formats et contrôles que le site, nouvelle version si le nom existe déjà pour la même question ; renvoie la complétion et la question suivante |
 
 **Remplir un dossier en conversation.** L'assistant reprend le brouillon existant (`list_dossiers` indique `brouillon` ou `soumis`), demande à `next_questions` les questions restantes, les pose une à une et enregistre chaque réponse dès qu'elle est donnée. Rien n'est perdu si la conversation s'arrête : une autre conversation, ou le site, reprend le même dossier là où il en est. Une question passée n'est pas mémorisée : elle sera reproposée plus tard. Le dossier se soumet encore dans le site.
@@ -62,13 +62,29 @@ Les documents longs sont découpés en parties d'environ 20 000 caractères ; au
 
 **Contenu non fiable.** Le texte d'un document est renvoyé comme une donnée fournie par un tiers (`contentTrust: non_fiable`), entre des marqueurs aléatoires propres à chaque appel, avec la consigne de n'exécuter aucune instruction qu'il contient. Aucun outil ne s'appuie sur ce contenu pour agir.
 
-**Proposer des réponses.** L'assistant rapproche le texte des questions restantes (`next_questions`), présente chaque valeur trouvée avec sa source (fichier, page ou feuille) et ne l'enregistre avec `update_answers` qu'après confirmation de l'utilisateur. Les propositions ne sont pas conservées par Confluent tant que l'utilisateur ne les a pas confirmées (provenance et propositions dans le site : à venir).
+**Proposer des réponses.** L'assistant rapproche le texte des questions restantes (`next_questions`), présente chaque valeur trouvée avec sa source (fichier, page ou feuille) et ne l'enregistre avec `update_answers` qu'après confirmation de l'utilisateur, en citant le document (voir ci-dessous). Si l'utilisateur lui demande de pré-remplir sans confirmer chaque valeur, il enregistre des propositions sourcées, qui restent « à confirmer » (affichage et confirmation dans le site : E04.05).
 
 **Déposer.** Un assistant transmet le fichier dans l'appel d'outil lui-même : `upload_document` est réservé aux petits fichiers (512 Ko). Pour le reste, l'assistant donne le lien `uploadUrl` de la question, qui ouvre cette question dans le site (dépôt jusqu'à 20 Mo). Formats acceptés et vérification d'après le contenu : identiques au site.
 
 **Droits.** Propriétaire : tous les documents de ses dossiers ; dépôt avec `dossiers:write`. Financeur : les documents que son niveau de partage permet de lire dans le site (celui de la question pour une pièce jointe, partage complet pour les autres documents), jamais de dépôt. Aucune URL de téléchargement n'est transmise à l'assistant.
 
 Chaque appel est inscrit au journal (utilisateur, application, outil, cible, document lu ou déposé, résultat).
+
+## Provenance des réponses
+
+Chaque réponse garde la provenance de sa valeur actuelle, remplacée à chaque modification (site, administration ou assistant) :
+
+| Élément | Valeurs | D'où elle vient |
+|---|---|---|
+| `origin` | `human` (donnée par l'utilisateur, dans le site ou la conversation), `ai` (proposée par l'assistant) | Site et administration : toujours `human`. MCP : déclarée par l'assistant pour chaque réponse (obligatoire) |
+| `confirmation` | `confirmed`, `pending` | `human` est toujours `confirmed` ; une proposition `ai` est `pending` sauf `confirmedByUser: true` |
+| `channel`, `authorId`, `clientName` | `site`, `admin`, `mcp` ; compte qui écrit ; nom de l'application IA | Session ou jeton OAuth, jamais déclarés par l'assistant |
+| `recordedAt` | date | Date d'enregistrement de la valeur |
+| `source` | document et version (`documentId`, nom, numéro), `location` (page, feuille, diapositive), `excerpt` (500 caractères au plus) | Citée par l'assistant, **vérifiée par Confluent** |
+
+**Rien d'inventé.** Une source doit être un document de ce dossier (`documentId` de `list_documents`). Un extrait doit se trouver dans le texte de cette version, tel que `read_document` le renvoie (espaces, casse, guillemets et ligatures ignorés) : Confluent note lui-même la page ou la feuille où il l'a trouvé. Un extrait introuvable, ou cité dans un document que Confluent ne sait pas lire (image, PDF scanné), est refusé ; le document peut alors être cité sans extrait. Une proposition non confirmée doit citer un document. En cas de refus, aucune réponse de l'appel n'est enregistrée.
+
+**Qui la voit.** Le propriétaire : dans `get_dossier` et dans l'API du site (`GET /v1/dossiers/:id/answers`, champ `provenance`, `null` pour une réponse enregistrée avant cette fonction). Les administrateurs dans le détail d'un dossier. Jamais un financeur, ni dans le site ni par MCP.
 
 ## Pour l'exploitation
 

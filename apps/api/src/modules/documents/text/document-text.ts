@@ -87,6 +87,10 @@ export interface ExtractionLimits {
 
 const OFFICE_TIME_LIMIT_MS = 2_000
 
+// What is read of a document at most, for MCP clients (read_document) and to find a cited excerpt:
+// both see the same text.
+export const DOCUMENT_TEXT_LIMITS: ExtractionLimits = { maxChars: 400_000, maxPdfPages: 300 }
+
 export type ExtractedText =
   | {
       readable: true

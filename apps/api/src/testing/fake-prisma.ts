@@ -43,6 +43,11 @@ function flattenWhere(where: Where = {}): Where {
   return out
 }
 
+// Tables whose `updatedAt` matters to a test (an answer's date is its provenance's, E04.04), set on
+// every write like Prisma's `@updatedAt`.
+const UPDATED_AT = new Set(['dossierAnswer'])
+const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
+
 // Like Prisma, an `undefined` value in `data` leaves the column unchanged.
 const defined = (data: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined))
@@ -94,7 +99,13 @@ export function createFakePrisma() {
       Promise.resolve([...table(name).values()].filter((r) => matches(r, where)).length),
     ),
     create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
-      const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...data } as Row
+      const row = {
+        id: randomUUID(),
+        createdAt: new Date(),
+        ...stamp(name),
+        ...defaults(),
+        ...data,
+      } as Row
       table(name).set(row.id, row)
       return Promise.resolve({ ...row })
     }),
@@ -118,7 +129,7 @@ export function createFakePrisma() {
     update: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       const row = [...table(name).values()].find((r) => matches(r, where))
       if (!row) return Promise.reject(new Error(`${name} not found`))
-      return Promise.resolve({ ...Object.assign(row, defined(data)) })
+      return Promise.resolve({ ...Object.assign(row, defined(data), stamp(name)) })
     }),
     updateMany: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       let count = 0
@@ -141,8 +152,14 @@ export function createFakePrisma() {
         update: Record<string, unknown>
       }) => {
         const row = [...table(name).values()].find((r) => matches(r, flattenWhere(where)))
-        if (row) return Promise.resolve({ ...Object.assign(row, defined(update)) })
-        const created = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...create } as Row
+        if (row) return Promise.resolve({ ...Object.assign(row, defined(update), stamp(name)) })
+        const created = {
+          id: randomUUID(),
+          createdAt: new Date(),
+          ...stamp(name),
+          ...defaults(),
+          ...create,
+        } as Row
         table(name).set(created.id, created)
         return Promise.resolve({ ...created })
       },
