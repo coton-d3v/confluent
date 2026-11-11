@@ -103,6 +103,9 @@ function AdminDossiersList() {
                   <h2 className="min-w-0 break-words text-base font-medium text-foreground">
                     {d.name}
                   </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Entreprise : {d.companyName}
+                  </p>
                   <p className="text-xs text-muted-foreground">{d.ownerEmail}</p>
                   <p className="text-xs text-muted-foreground">
                     {d.sector ?? 'Non classifié'}
@@ -118,6 +121,7 @@ function AdminDossiersList() {
               <thead>
                 <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <th scope="col" className="px-4 py-3 font-medium">Dossier</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Entreprise</th>
                   <th scope="col" className="px-4 py-3 font-medium">Entrepreneur</th>
                   <th scope="col" className="px-4 py-3 font-medium">Secteur</th>
                   <th scope="col" className="px-4 py-3 font-medium">Stade</th>
@@ -144,6 +148,7 @@ function AdminDossiersList() {
                         {d.name}
                       </Link>
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground">{d.companyName}</td>
                     <td className="px-4 py-3 text-muted-foreground">{d.ownerEmail}</td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {d.sector ?? '—'}
