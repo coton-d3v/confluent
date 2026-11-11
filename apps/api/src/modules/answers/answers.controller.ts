@@ -44,20 +44,24 @@ export class AnswersController {
       'canal, auteur, application IA, date, document source, emplacement et extrait ; `null` pour ' +
       'une réponse enregistrée avant E04.04) et son historique (`history`, du plus récent au plus ' +
       'ancien : les états remplacés quand une IA est en jeu — proposition corrigée, remplacée ou ' +
-      'confirmée, ou valeur remplacée par une proposition). Financeur : seulement les champs autorisés par le ' +
-      'niveau d’accès de son partage (`questionnaire_fields.min_access_level`), sans provenance ni ' +
-      'historique.',
+      'confirmée, ou valeur remplacée par une proposition). Destinataire d’un partage nominatif : seulement les réponses aux ' +
+      'questions de la version du dossier que le niveau de son partage permet de lire ' +
+      '(`questionnaire_fields.min_access_level`), sans provenance ni historique — exactement celles ' +
+      'de `GET /v1/shares/:token`.',
   })
   @ApiOkResponse({ description: 'Liste des réponses.' })
   async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<AnswerView[]> {
-    const user = currentUser(req)
-    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(dossierId, user)
-    const answers = await this.answers.listViews(
-      dossier,
-      dossier.userId === user.id ? 'history' : 'value',
+    const { dossier, accessLevel, relation } = await this.dossiers.resolveReadAccess(
+      dossierId,
+      currentUser(req),
     )
-    if (accessLevel === 'complet') return answers
-    const visible = await this.dossiers.visibleFieldIds(dossier, accessLevel)
+    if (relation === 'owner') return this.answers.listViews(dossier, 'history')
+    // E07.04: a recipient reads the answers of the share projection (`recipientView`), at every
+    // level — `complet` included: never an answer to a question the request's version does not ask.
+    const [answers, visible] = await Promise.all([
+      this.answers.listViews(dossier, 'value'),
+      this.dossiers.visibleFieldIds(dossier, accessLevel),
+    ])
     return answers.filter((a) => visible.has(a.fieldId))
   }
 

@@ -135,8 +135,10 @@ const fieldInput = {
       'max, integer } ; date { min, max } en AAAA-MM-JJ. {} les retire. Aucune pour les autres types.',
   ),
   readLevel: accessLevelSchema.describe(
-    'Niveau de partage minimal pour qu’un financeur lise la réponse : public, partiel ou ' +
-      'complet (le plus restrictif, par défaut pour un nouveau champ).',
+    'Niveau de partage minimal pour qu’un lecteur identifié (destinataire d’un partage ' +
+      'nominatif, investisseur d’un vivier) lise la réponse : public (lue à tout niveau de ' +
+      'partage, jamais rendue publique ni anonyme), partiel ou complet (le plus restrictif, par ' +
+      'défaut pour un nouveau champ).',
   ),
   key: fieldKeySchema.describe(
     'Clé technique stable (snake_case), dérivée du libellé si absente. Une clé explicite évite ' +

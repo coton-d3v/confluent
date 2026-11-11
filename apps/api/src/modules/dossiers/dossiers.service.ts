@@ -66,6 +66,13 @@ const COMPANY_SUMMARY = {
 // What decides who works on a dossier as its owner: its company's holder (E05.08).
 const HOLDING = { company: { select: { ownerId: true, preparedInWorkspaceId: true } } } as const
 
+// The shares sent to an address, whatever its case: the share link's own rule (`ShareLinksService`,
+// E02.08) and the opportunities' (E07.03), so that every channel reaches the same shares (E07.04).
+// The query narrows; the comparison decides, whatever the query matched.
+const sharedWith = (email: string) => ({ equals: email, mode: 'insensitive' as const })
+const sentTo = (email: string) => (link: { recipientEmail: string }) =>
+  link.recipientEmail.trim().toLowerCase() === email.trim().toLowerCase()
+
 const dossierNotFound = () =>
   new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
 
@@ -258,25 +265,30 @@ export class DossiersService {
     const rows = await this.prisma.dossier.findMany({
       where: {
         shareLinks: {
-          some: { recipientEmail: user.email, status: 'active' },
+          some: { recipientEmail: sharedWith(user.email), status: 'active' },
         },
       },
       include: {
         user: { select: { email: true, firstName: true, lastName: true } },
         shareLinks: {
-          where: { recipientEmail: user.email, status: 'active' },
-          select: { accessLevel: true },
+          where: { recipientEmail: sharedWith(user.email), status: 'active' },
+          select: { accessLevel: true, recipientEmail: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     })
+    const reached = rows.flatMap(({ shareLinks, ...row }) => {
+      const level = highestAccessLevel(
+        shareLinks.filter(sentTo(user.email)).map((l) => grantedLevel(l.accessLevel)),
+      )
+      return level ? [{ ...row, level }] : []
+    })
     return Promise.all(
-      rows.map(async ({ user: owner, shareLinks, ...d }) => {
+      reached.map(async ({ user: owner, level, ...d }) => {
         const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
         const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
-        const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
         return {
-          ...presentationForShare(await this.projectForLevel(d, level ?? 'public')),
+          ...presentationForShare(await this.projectForLevel(d, level)),
           ownerEmail: owner.email,
           ownerName,
         }
@@ -324,10 +336,12 @@ export class DossiersService {
     }
     if (user.role === 'financeur') {
       const links = await this.prisma.shareLink.findMany({
-        where: { dossierId: id, recipientEmail: user.email, status: 'active' },
-        select: { accessLevel: true },
+        where: { dossierId: id, recipientEmail: sharedWith(user.email), status: 'active' },
+        select: { accessLevel: true, recipientEmail: true },
       })
-      const accessLevel = highestAccessLevel(links.map((l) => grantedLevel(l.accessLevel)))
+      const accessLevel = highestAccessLevel(
+        links.filter(sentTo(user.email)).map((l) => grantedLevel(l.accessLevel)),
+      )
       if (!accessLevel) {
         throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
       }
@@ -348,9 +362,16 @@ export class DossiersService {
   async getWithQuestionnaire(id: string, user: { id: string; email: string; role: string }) {
     const { dossier, accessLevel, relation } = await this.resolveReadAccess(id, user)
     const snapshot = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
+    const fields = snapshot?.fields.filter((f) => fieldVisibleAt(f, accessLevel)) ?? []
     const questionnaireVersion = snapshot && {
       ...snapshot,
-      fields: snapshot.fields.filter((f) => fieldVisibleAt(f, accessLevel)),
+      // E07.04: as in the share projection (`recipientView`), a recipient is not told the title of
+      // a section none of whose questions their level reads.
+      sections:
+        relation === 'owner'
+          ? snapshot.sections
+          : snapshot.sections.filter((s) => fields.some((f) => f.sectionId === s.id)),
+      fields,
     }
     // The company is its owner's: a share shows the dossier only (E05.04).
     const company =

@@ -99,7 +99,8 @@ const GUIDES: Record<ConversationGuideId, GuideDefinition> = {
       'Construire par petites étapes. Appelle add_form_section, puis add_form_field pour chaque ' +
         'question : libellé, type (text, textarea, email, number, date, select, checkbox, file), ' +
         'obligatoire ou non, aide, choix pour une liste, limites de saisie, et niveau de lecture ' +
-        'par un financeur (readLevel : public, partiel ou complet ; complet, le plus restrictif, ' +
+        'par les destinataires identifiés des partages (readLevel : public — lue à tout niveau de ' +
+        'partage, jamais rendue publique —, partiel ou complet ; complet, le plus restrictif, ' +
         'sauf si je demande autre chose). Pour corriger : update_form_section, update_form_field, ' +
         'remove_form_section, remove_form_field, reorder_form_sections, reorder_form_fields.',
       'Ne rien écraser. Passe à chaque appel la revision renvoyée par l’appel précédent. Si le ' +

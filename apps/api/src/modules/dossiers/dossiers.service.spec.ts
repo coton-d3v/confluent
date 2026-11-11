@@ -175,7 +175,10 @@ describe('DossiersService', () => {
           axe2Financier: ['stade_financement'],
         },
         user: { email: 'owner@example.com', firstName: 'Sophie', lastName: null },
-        shareLinks: [{ accessLevel: 'public' }, { accessLevel: 'partiel' }],
+        shareLinks: [
+          { accessLevel: 'public', recipientEmail: 'fin@example.com' },
+          { accessLevel: 'partiel', recipientEmail: 'Fin@Example.com' },
+        ],
       },
     ])
     // Source fields of the classification columns in the dossier's version.
@@ -192,7 +195,14 @@ describe('DossiersService', () => {
     )
     expect(prisma.dossier.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { shareLinks: { some: { recipientEmail: 'fin@example.com', status: 'active' } } },
+        where: {
+          shareLinks: {
+            some: {
+              recipientEmail: { equals: 'fin@example.com', mode: 'insensitive' },
+              status: 'active',
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       }),
     )
@@ -220,16 +230,22 @@ describe('DossiersService', () => {
     it('grants a financeur the highest level among their active links', async () => {
       const prisma = buildPrisma()
       prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+      // Addresses compared without case (E07.04); whatever else the query matched is ignored.
       prisma.shareLink.findMany.mockResolvedValue([
-        { accessLevel: 'public' },
-        { accessLevel: 'complet' },
+        { accessLevel: 'public', recipientEmail: 'fin@example.com' },
+        { accessLevel: 'partiel', recipientEmail: 'FIN@example.com' },
+        { accessLevel: 'complet', recipientEmail: 'fin_x@example.com' },
       ])
       const svc = await instantiate(prisma)
       const res = await svc.resolveReadAccess('d-1', financeur)
-      expect(res.accessLevel).toBe('complet')
+      expect(res.accessLevel).toBe('partiel')
       expect(prisma.shareLink.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { dossierId: 'd-1', recipientEmail: 'fin@example.com', status: 'active' },
+          where: {
+            dossierId: 'd-1',
+            recipientEmail: { equals: 'fin@example.com', mode: 'insensitive' },
+            status: 'active',
+          },
         }),
       )
     })

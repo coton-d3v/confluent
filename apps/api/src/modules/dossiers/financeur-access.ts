@@ -25,6 +25,20 @@ const CLASSIFICATION_MIN_LEVEL: Record<ClassificationColumn, AccessLevel> = {
 
 export const DOCUMENTS_MIN_LEVEL: AccessLevel = 'complet'
 
+// E07.04: what the three levels are, said once for the API documentation of every route that
+// chooses or applies one. A level always qualifies an identified reading — the signed-in recipient
+// of a nominative link, an active investor of a pool —: `public` is its narrowest level, not a
+// publication to anyone, and its projection keeps the request's real title and answers. The
+// anonymous showcase card of a workspace (E09: pseudonym, no real name) is another projection, never
+// this one.
+export const ACCESS_LEVELS_DOC =
+  'Niveaux : `public` < `partiel` < `complet`, toujours une lecture **nominative** par un compte ' +
+  'identifié et connecté (destinataire du lien, investisseur actif du vivier). `public`, le plus ' +
+  'restreint, montre le titre, la présentation une fois publiée, et les réponses, la ' +
+  'classification et les pièces jointes que ce niveau permet de lire : ce n’est ni une ' +
+  'publication ouverte à tous ni une fiche anonyme (la vitrine publique d’un workspace, E09, ' +
+  'aura sa propre fiche sous pseudonyme).'
+
 // How a reader reaches a dossier: its owner, or a recipient of one of its shares. A share recipient
 // reads the documents the dossier selects (E05.07), the owner the company's whole library.
 export type DossierRelation = 'owner' | 'share'

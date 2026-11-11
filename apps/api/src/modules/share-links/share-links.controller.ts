@@ -46,6 +46,7 @@ import {
   type SharePreview,
 } from './share-links.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
 
 class CreateShareLinkDto extends createZodDto(createShareLinkSchema) {}
 class ShareAccessRequestDto extends createZodDto(shareAccessRequestSchema) {}
@@ -130,7 +131,8 @@ export class ShareLinksController {
       'connecté avec cette adresse (E02.08). Refus : demande archivée ou entreprise en préparation ' +
       '(`409`), adresse ayant déjà un accès actif à cette demande (`409`, `details.shareLinkId` : ' +
       'changer son niveau), sa propre adresse (`422`). Journal ' +
-      '`share_link_created` (niveau compris). L’échec d’envoi du mail n’annule pas la création.',
+      '`share_link_created` (niveau compris). L’échec d’envoi du mail n’annule pas la création.\n\n' +
+      ACCESS_LEVELS_DOC,
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiCreatedResponse({
@@ -215,7 +217,8 @@ export class ShareLinksController {
       'documents sélectionnés à leur version, présentation selon la publication), sans créer de ' +
       'lien ni compter de consultation. Aucun fichier n’est délivré (`url` nulle). `preview` : ' +
       'le niveau et ce que la demande pourrait montrer au total (questions de sa version, ' +
-      'documents sélectionnés).',
+      'documents sélectionnés).\n\n' +
+      ACCESS_LEVELS_DOC,
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiOkResponse({ description: 'Vue du destinataire au niveau demandé.' })

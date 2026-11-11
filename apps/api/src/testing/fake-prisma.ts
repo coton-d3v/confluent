@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto'
 // In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
 // Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
-// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`, `{ notIn }`.
+// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`, `{ notIn }`,
+// `{ equals, mode: 'insensitive' }`.
 type Row = Record<string, unknown> & { id: string }
 type Where = Record<string, unknown>
 
@@ -11,7 +12,18 @@ function matches(row: Row, where: Where = {}): boolean {
   return Object.entries(where).every(([k, cond]) => {
     const v = row[k]
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
-      const c = cond as { gt?: Date; not?: unknown; in?: unknown[]; notIn?: unknown[] }
+      const c = cond as {
+        gt?: Date
+        not?: unknown
+        in?: unknown[]
+        notIn?: unknown[]
+        equals?: unknown
+        mode?: 'insensitive'
+      }
+      if ('equals' in c) {
+        if (c.mode !== 'insensitive' || typeof v !== 'string') return v === c.equals
+        return v.toLowerCase() === String(c.equals).toLowerCase()
+      }
       if ('gt' in c) return v instanceof Date && v.getTime() > c.gt!.getTime()
       if ('not' in c) return v !== c.not
       if ('in' in c) return c.in!.includes(v)
