@@ -30,6 +30,8 @@ export interface QuestionnaireStepProps {
     count: number
     uploading: boolean
   }
+  // The current value is an AI proposal to confirm (E04.05): shown above the answer.
+  proposal?: ReactNode
 }
 
 const CHECKBOX_CHOICES: Choice[] = [
@@ -61,6 +63,7 @@ export function QuestionnaireStep({
   busy = false,
   returnToSummary,
   attachment,
+  proposal,
 }: QuestionnaireStepProps) {
   const [rawError, setError] = useState<string | null>(null)
   // « Déposez au moins un fichier » no longer applies once a file answers the question.
@@ -160,6 +163,8 @@ export function QuestionnaireStep({
       </h1>
 
       {question.hint && <p className="text-sm text-muted-foreground">{question.hint}</p>}
+
+      {proposal}
 
       {question.fieldType === 'file' ? (
         attachment ? (

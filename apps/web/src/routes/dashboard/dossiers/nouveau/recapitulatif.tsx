@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { missingRequiredAnswers } from '@confluent/shared'
 import { Button } from '@/components/ui/button'
-import { listAnswers } from '@/features/dossiers/answers.api'
 import { getDossier, submitDossier } from '@/features/dossiers/api'
+import { useDossierAnswers } from '@/features/dossiers/hooks'
 import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
+import { AnswerOrigin } from '@/features/questionnaire/components/AnswerProvenance'
+import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/provenance'
 import { useAsync } from '@/lib/useAsync'
 import type { ApiError } from '@/lib/api-client'
 
@@ -23,12 +25,13 @@ const questionPath = (dossierId: string, fieldId: string) =>
   `/dashboard/dossiers/nouveau/questionnaire?dossierId=${encodeURIComponent(dossierId)}&question=${encodeURIComponent(fieldId)}`
 
 // Final recap (E03.10): every answer, what is still required, then the submission — which the API
-// verifies again.
+// verifies again. AI proposals not confirmed yet are counted and marked, to confirm or correct
+// (E04.05); they do not block the submission (D02).
 function FinalReview({ dossierId }: { dossierId: string }) {
   const navigate = useNavigate()
   const headingRef = useRef<HTMLHeadingElement>(null)
   const dossierQuery = useAsync(() => getDossier(dossierId), [dossierId])
-  const answersQuery = useAsync(() => listAnswers(dossierId), [dossierId])
+  const answersQuery = useDossierAnswers(dossierId)
   // Attachment questions are answered by their files (E03.11).
   const documentsQuery = useDossierDocuments(dossierId)
   const attachedFiles = useMemo(() => filenamesByField(documentsQuery.data), [documentsQuery.data])
@@ -45,6 +48,10 @@ function FinalReview({ dossierId }: { dossierId: string }) {
     () => Object.fromEntries((answersQuery.data ?? []).map((a) => [a.fieldId, a.value])),
     [answersQuery.data],
   )
+  const rows = useMemo(
+    () => new Map((answersQuery.data ?? []).map((a) => [a.fieldId, a])),
+    [answersQuery.data],
+  )
 
   if (dossierQuery.isLoading || answersQuery.isLoading || (documentsQuery.isLoading && !documentsQuery.data)) {
     return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
@@ -55,6 +62,7 @@ function FinalReview({ dossierId }: { dossierId: string }) {
   }
 
   const missing = missingRequiredAnswers(questionnaire.flat, answers, new Set(attachedFiles.keys()))
+  const toConfirm = questionnaire.flat.filter((q) => q.fieldType !== 'file' && isPendingProposal(rows.get(q.id)))
   const submitted = dossier.submittedAt !== null
 
   async function handleSubmit() {
@@ -110,6 +118,31 @@ function FinalReview({ dossierId }: { dossierId: string }) {
           </div>
         )}
 
+        {toConfirm.length > 0 && (
+          <div
+            role="status"
+            className="rounded-md border border-status-pending/50 bg-status-pending/10 px-4 py-3 text-sm"
+          >
+            <p className="font-medium text-foreground">
+              {toConfirm.length === 1
+                ? 'Une réponse proposée par un assistant IA reste à confirmer :'
+                : `${toConfirm.length} réponses proposées par un assistant IA restent à confirmer :`}
+            </p>
+            <ul className="mt-2 flex flex-col gap-1">
+              {toConfirm.map((q) => (
+                <li key={q.id}>
+                  <a href={`#reponse-${q.id}`} className="text-foreground underline underline-offset-4">
+                    {q.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-muted-foreground">
+              Confirmez-les ou corrigez-les ci-dessous. Elles comptent déjà comme des réponses.
+            </p>
+          </div>
+        )}
+
         {questionnaire.sections.map((section, i) => (
           <section key={section.id}>
             <h2 className="font-heading text-lg font-semibold text-foreground">
@@ -120,7 +153,11 @@ function FinalReview({ dossierId }: { dossierId: string }) {
                 const isFile = q.fieldType === 'file'
                 const value = isFile ? (attachedFiles.get(q.id) ?? []).join('\n') : (answers[q.id] ?? '')
                 return (
-                  <div key={q.id} className="flex flex-wrap items-start justify-between gap-4 py-3">
+                  <div
+                    key={q.id}
+                    id={`reponse-${q.id}`}
+                    className="flex scroll-mt-20 flex-wrap items-start justify-between gap-4 py-3"
+                  >
                     <div className="min-w-0 flex-1">
                       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{q.label}</dt>
                       <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium text-foreground">
@@ -136,6 +173,18 @@ function FinalReview({ dossierId }: { dossierId: string }) {
                           </span>
                         )}
                       </dd>
+                      {!isFile && hasOriginToShow(rows.get(q.id)) && (
+                        <dd className="mt-2">
+                          <AnswerOrigin
+                            dossierId={dossierId}
+                            label={q.label}
+                            row={rows.get(q.id)}
+                            onConfirmed={answersQuery.replace}
+                            correctHref={questionPath(dossierId, q.id)}
+                            formatValue={(v) => answerLabel(q, v)}
+                          />
+                        </dd>
+                      )}
                     </div>
                     <Link
                       to={questionPath(dossierId, q.id)}
@@ -152,6 +201,12 @@ function FinalReview({ dossierId }: { dossierId: string }) {
         ))}
 
         <div className="flex flex-col gap-2 border-t border-border pt-6">
+          {!submitted && toConfirm.length > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Vous pouvez soumettre sans les confirmer : les propositions non confirmées seront
+              transmises telles quelles.
+            </p>
+          )}
           {submitError && (
             <p className="text-sm text-destructive" role="alert">
               {submitError}

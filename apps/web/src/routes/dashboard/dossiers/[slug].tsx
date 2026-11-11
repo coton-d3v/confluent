@@ -22,7 +22,9 @@ import { MetricCard } from '@/components/confluent/MetricCard'
 import { RevokeAccessDialog } from '@/components/confluent/RevokeAccessDialog'
 import { SharePanel } from '@/components/confluent/SharePanel'
 import { getDossier, listDossiers, deleteDossier } from '@/features/dossiers/api'
-import { listAnswers } from '@/features/dossiers/answers.api'
+import { useDossierAnswers } from '@/features/dossiers/hooks'
+import { AnswerOrigin } from '@/features/questionnaire/components/AnswerProvenance'
+import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/provenance'
 import { listShares, createShare, revokeShare } from '@/features/shares/api'
 import { getAnalytics } from '@/features/analytics/api'
 import { buildAccessEntries } from '@/features/shares/build-access-entries'
@@ -116,7 +118,8 @@ function DossierView({
   const deletingRef = useRef(false)
 
   const dossierQuery = useAsync(() => getDossier(dossierId), [dossierId])
-  const answersQuery = useAsync(() => listAnswers(dossierId), [dossierId])
+  // The owner's answers carry their provenance and history (E04.05); a financeur's never do.
+  const answersQuery = useDossierAnswers(dossierId)
   // Attachment questions show the files that answer them (E03.11).
   const documentsQuery = useDossierDocuments(dossierId)
   const sharesQuery = useAsync(
@@ -209,9 +212,17 @@ function DossierView({
     ? buildDynamicQuestionnaire(dossierQuery.data.questionnaireVersion)
     : null
   const answersByFieldId: Record<string, string> = {}
+  const rowsByFieldId = new Map((answersQuery.data ?? []).map((row) => [row.fieldId, row]))
   for (const row of answersQuery.data ?? []) {
     answersByFieldId[row.fieldId] = row.value
   }
+  const toConfirm = isOwner
+    ? (questionnaire?.flat ?? []).filter(
+        (q) => q.fieldType !== 'file' && isPendingProposal(rowsByFieldId.get(q.id)),
+      ).length
+    : 0
+  const questionPath = (fieldId: string) =>
+    `/dashboard/dossiers/nouveau/questionnaire?dossierId=${encodeURIComponent(dossierId)}&question=${encodeURIComponent(fieldId)}`
   const attachedFiles = filenamesByField(documentsQuery.data)
   const attachmentLabels = new Map(
     (questionnaire?.flat ?? []).filter((q) => q.fieldType === 'file').map((q) => [q.id, q.label]),
@@ -322,6 +333,16 @@ function DossierView({
             <p className="text-sm text-muted-foreground">Chargement du contenu…</p>
           ) : questionnaire ? (
             <div className="flex flex-col gap-10">
+              {toConfirm > 0 && (
+                <p
+                  role="status"
+                  className="rounded-md border border-status-pending/50 bg-status-pending/10 px-4 py-3 text-sm text-foreground"
+                >
+                  {toConfirm === 1
+                    ? 'Une réponse proposée par un assistant IA reste à confirmer : vérifiez-la ci-dessous.'
+                    : `${toConfirm} réponses proposées par un assistant IA restent à confirmer : vérifiez-les ci-dessous.`}
+                </p>
+              )}
               {questionnaire.sections.map((section, i) => {
                 const sectionMetas = questionnaire.flat.filter(
                   (q) => q.sectionId === section.id,
@@ -340,6 +361,18 @@ function DossierView({
                             q.fieldType === 'file'
                               ? (attachedFiles.get(q.id) ?? []).join('\n')
                               : answerLabel(q, answersByFieldId[q.id] ?? '')
+                          }
+                          details={
+                            isOwner && q.fieldType !== 'file' && hasOriginToShow(rowsByFieldId.get(q.id)) ? (
+                              <AnswerOrigin
+                                dossierId={dossierId}
+                                label={q.label}
+                                row={rowsByFieldId.get(q.id)}
+                                onConfirmed={answersQuery.replace}
+                                correctHref={questionPath(q.id)}
+                                formatValue={(v) => answerLabel(q, v)}
+                              />
+                            ) : undefined
                           }
                         />
                       ))}
