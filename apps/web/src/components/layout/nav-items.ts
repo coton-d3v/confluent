@@ -1,4 +1,5 @@
 import {
+  Building2,
   ClipboardList,
   FolderOpen,
   LayoutDashboard,
@@ -27,5 +28,6 @@ export const ADMIN_NAV_ITEMS: NavItemSpec[] = [
   { to: '/admin/formulaires', label: 'Formulaires', icon: ClipboardList },
   { to: '/admin/classification', label: 'Classification', icon: Tags },
   { to: '/admin/utilisateurs', label: 'Utilisateurs', icon: Users },
+  { to: '/admin/workspaces', label: 'Workspaces', icon: Building2 },
   { to: '/dashboard/applications', label: 'Applications IA', icon: Plug },
 ]
