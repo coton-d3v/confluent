@@ -19,7 +19,7 @@ import {
 } from '../classification/classification.service'
 import { lockProfile } from './dossier-profile'
 import { isPendingProposal } from '../answers/answer-provenance'
-import { type ActionOrigin, originMetadata } from '../audit/action-origin'
+import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { attachedFieldIds } from '../documents/attached-fields'
 import { CompaniesService } from '../companies/companies.service'
@@ -381,8 +381,8 @@ export class DossiersService {
   // (summary, objective, amount, at least one type) and its company profile submitted for this
   // dossier — the submission checks the profile; publication presents the request. Its shares then
   // show the presentation; it opens or closes no share. Publishing a published request changes
-  // nothing. Journaled (`dossier_published`).
-  async publish(id: string, userId: string): Promise<Dossier> {
+  // nothing. Journaled (`dossier_published`), with the channel it was asked through (E04.08, E05.10).
+  async publish(id: string, userId: string, origin: ActionOrigin = SITE_ORIGIN): Promise<Dossier> {
     const { id: dossierId } = await this.getForDiffusion(id, userId)
     const { dossier, changed } = await this.prisma.$transaction(async (tx) => {
       const current = await lockDossier(tx, dossierId, userId)
@@ -400,7 +400,11 @@ export class DossiersService {
         actionType: 'dossier_published',
         actorId: userId,
         dossierId,
-        metadata: { publishedAt: dossier.publishedAt?.toISOString() ?? null },
+        // E05.10: the site, or an AI application on the owner's explicit instruction.
+        metadata: {
+          ...originMetadata(origin),
+          publishedAt: dossier.publishedAt?.toISOString() ?? null,
+        },
       })
     }
     return dossier

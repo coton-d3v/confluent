@@ -24,6 +24,7 @@ import {
   type DossierDocumentSelected,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { lockProfile, type DossierRef } from '../dossiers/dossier-profile'
 import {
@@ -424,6 +425,8 @@ export class DocumentsService {
     documentId: string
     pinnedVersionId: string | null
     actorId: string
+    // E05.10: the site, or an AI application on the owner's explicit instruction.
+    origin?: ActionOrigin
   }): Promise<DossierDocumentSelected> {
     const { dossier, documentId, pinnedVersionId } = params
     const { document, pinned, before } = await this.prisma.$transaction(async (tx) => {
@@ -456,6 +459,7 @@ export class DocumentsService {
         actorId: params.actorId,
         dossierId: dossier.id,
         metadata: {
+          ...originMetadata(params.origin ?? SITE_ORIGIN),
           documentId: document.id,
           filename: document.filename,
           pinnedVersionId,

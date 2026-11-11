@@ -89,6 +89,7 @@ export function mountMcpEndpoint(app: INestApplication): void {
       clientId: req.auth!.clientId,
       clientName: extra.clientName,
       grantId: extra.grantId,
+      workspaceIds: extra.workspaceIds ?? [],
     })
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

@@ -20,6 +20,11 @@ export class OAuthGrantsService {
       include: { client: true },
       orderBy: { createdAt: 'desc' },
     })
+    const workspaces = await this.prisma.workspace.findMany({
+      where: { id: { in: [...new Set(grants.flatMap((g) => g.workspaceIds))] } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
     const byClient = new Map<string, typeof grants>()
     for (const grant of grants)
       byClient.set(grant.clientId, [...(byClient.get(grant.clientId) ?? []), grant])
@@ -27,6 +32,7 @@ export class OAuthGrantsService {
       const { client } = clientGrants[0]
       const metadata = client.metadata as { client_uri?: unknown }
       const scopes = new Set(clientGrants.flatMap((g) => [...expandScopes(g.scopes)]))
+      const workspaceIds = new Set(clientGrants.flatMap((g) => g.workspaceIds))
       const times = (pick: (g: (typeof clientGrants)[number]) => Date | null) =>
         clientGrants
           .map(pick)
@@ -40,6 +46,10 @@ export class OAuthGrantsService {
           clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
         },
         scopes: [...scopes].sort().map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
+        // E05.10: the workspaces it was allowed to reach (each still checked at every call).
+        workspaces: workspaces
+          .filter((w) => workspaceIds.has(w.id))
+          .map((w) => ({ id: w.id, name: w.name })),
         connections: clientGrants.length,
         connectedAt: new Date(Math.min(...times((g) => g.createdAt))).toISOString(),
         lastUsedAt: lastUsed.length ? new Date(Math.max(...lastUsed)).toISOString() : null,

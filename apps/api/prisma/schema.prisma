@@ -704,15 +704,19 @@ model OAuthAuthorizationRequest {
 
 // A user's consent to one client = one "connected application". Revoking it kills every token.
 model OAuthGrant {
-  id         String    @id @default(uuid())
-  userId     String    @map("user_id")
-  clientId   String    @map("client_id")
-  scopes     String[]
-  resource   String
-  expiresAt  DateTime  @map("expires_at")
-  lastUsedAt DateTime? @map("last_used_at")
-  revokedAt  DateTime? @map("revoked_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  clientId     String    @map("client_id")
+  scopes       String[]
+  // E05.10: the workspaces the person allowed the application to reach, among their active
+  // memberships at consent time. Never widened afterwards (a refresh keeps the grant); empty for an
+  // authorization given before this choice existed (closed by default).
+  workspaceIds String[]  @default([]) @map("workspace_ids")
+  resource     String
+  expiresAt    DateTime  @map("expires_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   client OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)

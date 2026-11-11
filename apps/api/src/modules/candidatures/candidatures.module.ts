@@ -11,5 +11,7 @@ import { CandidaturesService } from './candidatures.service'
   imports: [AnswersModule, DossiersModule, WorkspacesModule],
   controllers: [CandidaturesController, ReceivedCandidaturesController],
   providers: [CandidaturesService],
+  // E05.10: used by the MCP tools.
+  exports: [CandidaturesService],
 })
 export class CandidaturesModule {}
