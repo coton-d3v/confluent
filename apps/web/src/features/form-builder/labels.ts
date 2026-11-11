@@ -11,9 +11,10 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   file: 'Pièce jointe',
 }
 
-// Who can read a field's answers through a share (E03.07).
+// Who can read a field's answers through a share (E03.07): always identified readers, a nominative
+// link's recipient or a pool's investor (E07.04).
 export const ACCESS_LEVEL_LABELS: Record<AccessLevel, string> = {
-  public: 'Public — tout partage',
+  public: 'Public — tout partage (jamais mis en ligne)',
   partiel: 'Partiel — partage partiel ou complet',
   complet: 'Complet — partage complet uniquement',
 }

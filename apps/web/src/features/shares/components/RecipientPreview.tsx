@@ -7,6 +7,7 @@ import {
   type SharePreview,
 } from '@confluent/shared'
 import { RecipientDossierView } from '@/features/share-access/components/RecipientDossierView'
+import { PUBLIC_IS_NOT_PUBLISHED } from '@/features/shares/levels'
 import { PREVIEW_LEVEL_PARAM } from '@/features/shares/preview'
 import { useAsync } from '@/lib/useAsync'
 import { cn } from '@/lib/utils'
@@ -96,7 +97,7 @@ export function RecipientPreview({
         Aperçu en accès « {ACCESS_LEVEL_LABELS[level]} » : exactement les questions, réponses,
         classification et documents qu’un {pool ? 'investisseur du vivier' : 'destinataire'} lit à
         ce niveau. Aucun lien n’est créé, aucune consultation n’est comptée et les fichiers ne se
-        téléchargent pas depuis l’aperçu.
+        téléchargent pas depuis l’aperçu. {PUBLIC_IS_NOT_PUBLISHED}
       </p>
 
       {query.error ? (

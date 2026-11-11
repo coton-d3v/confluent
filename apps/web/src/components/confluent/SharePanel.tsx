@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ACCESS_LEVEL_LABELS, ACCESS_LEVELS as SHARE_LEVELS } from '@confluent/shared'
 import { StatusDot } from '@/components/confluent/StatusDot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import type { AccessEntry, AccessLevel } from '@/features/shares/access-entry'
+import { ACCESS_LEVEL_DESCRIPTIONS, PUBLIC_IS_NOT_PUBLISHED } from '@/features/shares/levels'
 
 const shareFormSchema = z.object({
   email: z
@@ -29,23 +31,12 @@ const shareFormSchema = z.object({
 })
 type ShareFormValues = z.infer<typeof shareFormSchema>
 
-const ACCESS_LEVELS: { value: AccessLevel; label: string; description: string }[] = [
-  {
-    value: 'public',
-    label: 'Public',
-    description: 'Informations de base du profil uniquement',
-  },
-  {
-    value: 'partiel',
-    label: 'Partiel',
-    description: 'Détails du projet, données financières masquées',
-  },
-  {
-    value: 'complet',
-    label: 'Complet',
-    description: 'Accès intégral au dossier',
-  },
-]
+const ACCESS_LEVELS: { value: AccessLevel; label: string; description: string }[] =
+  SHARE_LEVELS.map((value) => ({
+    value,
+    label: ACCESS_LEVEL_LABELS[value],
+    description: ACCESS_LEVEL_DESCRIPTIONS[value],
+  }))
 
 export interface SharePanelProps {
   existingEntries: readonly AccessEntry[]
@@ -106,8 +97,8 @@ export function SharePanel({
       <SheetHeader>
         <SheetTitle>Partager le dossier</SheetTitle>
         <SheetDescription>
-          Entrez l&apos;adresse email du destinataire et choisissez le niveau
-          d&apos;accès.
+          Invitez une personne par son adresse email : elle seule lira la demande, une
+          fois connectée, au niveau choisi.
         </SheetDescription>
       </SheetHeader>
 
@@ -141,6 +132,7 @@ export function SharePanel({
             <legend className="mb-1 text-sm font-medium text-foreground">
               Niveau d&apos;accès
             </legend>
+            <p className="mb-1 text-xs text-muted-foreground">{PUBLIC_IS_NOT_PUBLISHED}</p>
             {ACCESS_LEVELS.map((level) => (
               <button
                 key={level.value}
@@ -205,7 +197,8 @@ export function SharePanel({
           <ul role="list" className="m-0 flex list-none flex-col gap-1.5 p-0">
             {existingEntries.map((entry) => (
               <li
-                key={entry.email}
+                // A recipient invited again after a revocation has two entries.
+                key={entry.id}
                 className="flex min-w-0 items-center gap-2"
               >
                 <StatusDot status={entry.status} />
