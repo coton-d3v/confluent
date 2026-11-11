@@ -10,8 +10,8 @@ import { buttonVariants } from '@/components/ui/button'
 import { listMyWorkspaceMemberships } from '@/features/workspaces/api'
 import { useAsync } from '@/lib/useAsync'
 
-// The workspaces the signed-in person belongs to (ROADMAP E05.02), with their role in each; the
-// ones they manage lead to their settings and members.
+// The workspaces the signed-in person belongs to (ROADMAP E05.02), with their role in each: each one
+// opens (E05.03); the ones they manage also lead to their settings and members.
 export default function MyWorkspacesRoute() {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const memberships = useAsync(() => listMyWorkspaceMemberships(), [])
@@ -72,10 +72,17 @@ function MembershipRow({ membership }: { membership: MyWorkspaceMembership }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="break-words text-base font-medium text-foreground">
+          <span className="min-w-0 text-base font-medium text-foreground wrap-anywhere">
             {workspace.name}
           </span>
-          {workspace.programName && <Badge variant="outline">{workspace.programName}</Badge>}
+          {workspace.programName && (
+            <Badge
+              variant="outline"
+              className="h-auto max-w-full whitespace-normal text-left wrap-anywhere"
+            >
+              {workspace.programName}
+            </Badge>
+          )}
         </div>
         <p className="mt-1 text-sm text-foreground">
           {WORKSPACE_MEMBER_ROLE_LABELS[membership.role]}
@@ -83,24 +90,33 @@ function MembershipRow({ membership }: { membership: MyWorkspaceMembership }) {
           {details.length > 0 ? ` · ${details.join(' · ')}` : ''}
         </p>
       </div>
-      {membership.canManageWorkspace && (
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <Link
-            to={`/admin/workspaces/${workspace.id}`}
-            aria-label={`Réglages de ${workspace.name}`}
-            className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >
-            Réglages
-          </Link>
-          <Link
-            to={`/admin/workspaces/${workspace.id}/membres`}
-            aria-label={`Membres de ${workspace.name}`}
-            className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >
-            Membres
-          </Link>
-        </div>
-      )}
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <Link
+          to={`/workspaces/${workspace.id}`}
+          aria-label={`Ouvrir ${workspace.name}`}
+          className={buttonVariants({ size: 'sm' })}
+        >
+          Ouvrir
+        </Link>
+        {membership.canManageWorkspace && (
+          <>
+            <Link
+              to={`/admin/workspaces/${workspace.id}`}
+              aria-label={`Réglages de ${workspace.name}`}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              Réglages
+            </Link>
+            <Link
+              to={`/admin/workspaces/${workspace.id}/membres`}
+              aria-label={`Membres de ${workspace.name}`}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              Membres
+            </Link>
+          </>
+        )}
+      </div>
     </li>
   )
 }

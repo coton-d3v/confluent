@@ -10,7 +10,7 @@ export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
   const base = `/admin/workspaces/${workspace.id}`
   return (
     <>
-      <nav aria-label="Fil d’Ariane" className="text-xs text-muted-foreground">
+      <nav aria-label="Fil d’Ariane" className="wrap-anywhere text-xs text-muted-foreground">
         {me.role === 'admin' ? (
           <>
             <Link to="/admin" className="hover:underline">
@@ -29,7 +29,7 @@ export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
         {' / '}
         <span className="text-foreground">{workspace.name}</span>
       </nav>
-      <h1 className="mt-4 break-words font-heading text-2xl font-semibold text-foreground md:text-[28px]">
+      <h1 className="mt-4 wrap-anywhere font-heading text-2xl font-semibold text-foreground md:text-[28px]">
         {workspace.name}
       </h1>
       <p className="mt-1 break-all font-mono text-sm text-muted-foreground">/w/{workspace.slug}</p>

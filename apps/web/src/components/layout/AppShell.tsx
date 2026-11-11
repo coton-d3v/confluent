@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { LoaderCircleIcon } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
@@ -20,6 +20,8 @@ import { NavItem } from './NavItem'
 import { VersionBadge } from './VersionBadge'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { useMyWorkspaceMemberships } from '@/features/workspaces/useMyWorkspaceMemberships'
+import { WorkspaceMembershipsContext } from '@/features/workspaces/memberships-context'
+import { WorkspaceSwitcher } from '@/features/workspaces/components/WorkspaceSwitcher'
 import { ADMIN_NAV_ITEMS, MY_WORKSPACES_NAV_ITEM, NAV_ITEMS, type NavItemSpec } from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
 
@@ -136,11 +138,9 @@ function DesktopSidebar({
       <div className="px-4 py-6 text-lg font-heading font-medium text-sidebar-foreground">
         Confluent
       </div>
+      <WorkspaceSwitcher className="px-4 pb-4" />
       <Separator />
-      <nav
-        aria-label="Navigation principale"
-        className="flex-1 px-2 py-4"
-      >
+      <nav aria-label="Navigation principale" className="flex-1 px-2 py-4">
         <ul className="space-y-1">
           {navItems.map((item) => (
             <li key={item.to}>
@@ -163,13 +163,7 @@ function DesktopSidebar({
             {user.email}
           </div>
         </button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={onLogout}
-        >
+        <Button type="button" variant="outline" size="sm" className="w-full" onClick={onLogout}>
           Se déconnecter
         </Button>
       </div>
@@ -190,10 +184,7 @@ function TabletRail({ user, navItems }: { user: CurrentUser; navItems: NavItemSp
         C
       </div>
       <Separator />
-      <nav
-        aria-label="Navigation principale"
-        className="flex-1 py-4"
-      >
+      <nav aria-label="Navigation principale" className="flex-1 py-4">
         <ul className="flex flex-col items-center gap-1">
           {navItems.map((item) => (
             <li key={item.to}>
@@ -242,8 +233,12 @@ export function AppShell() {
   const needsOnboarding = !!user && !user.firstName
   // Only the voluntary "edit my profile" opening is local state.
   const [editingProfile, setEditingProfile] = useState(false)
-  const memberships = useMyWorkspaceMemberships(
-    user && user.role !== 'admin' ? user.id : null,
+  // Every account's memberships: the workspaces it can switch between (an administrator may be a
+  // member too); none for most accounts, whose journeys stay as they were.
+  const memberships = useMyWorkspaceMemberships(user ? user.id : null)
+  const workspaceMemberships = useMemo(
+    () => ({ memberships: memberships.data ?? [], refresh: memberships.refetch }),
+    [memberships.data, memberships.refetch],
   )
 
   if (loading) {
@@ -280,26 +275,34 @@ export function AppShell() {
   const currentLastName = authUser?.lastName ?? ''
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <SkipLink />
-      <DesktopSidebar user={user} navItems={navItems} onLogout={handleLogout} onEditProfile={() => setEditingProfile(true)} />
-      <TabletRail user={user} navItems={navItems} />
-      <ProfileSheet
-        open={needsOnboarding || editingProfile}
-        onOpenChange={setEditingProfile}
-        required={needsOnboarding}
-        currentFirstName={currentFirstName}
-        currentLastName={currentLastName}
-      />
-      <main
-        id="main-content"
-        tabIndex={-1}
-        className="flex-1 px-6 py-8 pb-16 md:pb-0 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]"
-      >
-        <Breadcrumbs />
-        <Outlet />
-      </main>
-      <MobileBottomNav navItems={navItems} />
-    </div>
+    <WorkspaceMembershipsContext value={workspaceMemberships}>
+      <div className="flex min-h-screen bg-background">
+        <SkipLink />
+        <DesktopSidebar
+          user={user}
+          navItems={navItems}
+          onLogout={handleLogout}
+          onEditProfile={() => setEditingProfile(true)}
+        />
+        <TabletRail user={user} navItems={navItems} />
+        <ProfileSheet
+          open={needsOnboarding || editingProfile}
+          onOpenChange={setEditingProfile}
+          required={needsOnboarding}
+          currentFirstName={currentFirstName}
+          currentLastName={currentLastName}
+        />
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="min-w-0 flex-1 px-6 py-8 pb-16 md:pb-0 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]"
+        >
+          <WorkspaceSwitcher className="mb-6 max-w-sm lg:hidden" />
+          <Breadcrumbs />
+          <Outlet />
+        </main>
+        <MobileBottomNav navItems={navItems} />
+      </div>
+    </WorkspaceMembershipsContext>
   )
 }
