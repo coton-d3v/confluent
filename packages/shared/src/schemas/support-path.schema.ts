@@ -11,7 +11,8 @@ import { z } from 'zod'
 // workspace alone — its active conseillers and Confluent administrators —, each change dated and
 // kept in its history. The owner of the request reads the path and what was validated (when, by the
 // structure: never who among its members); nobody else reads it: no other workspace, no investor, no
-// share recipient, no MCP tool yet (E06.09). The phase computed from the validated steps is E06.07's.
+// share recipient, no MCP tool yet (E06.09). Its phase is computed from the validated steps
+// (E06.07, below).
 //
 // The default steps, limits and closed values are kept equal to the backfill and CHECK constraints
 // of migration 20261121000000_support_paths.
@@ -147,6 +148,62 @@ export const supportStepSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 
+// ── The phase of a candidature (E06.07) ─────────────────────────────────────────────────────────
+
+// Where a candidature stands in its workspace's support path, computed — never stored — from the
+// path's active steps in their order and the candidature's validations, by `supportProgress` only:
+// - `in_progress` (« En préparation »): at least one active step is not validated; the current step
+//   is the first of them in the path's order (the order is indicative: a later step may be
+//   validated first, the current step stays the first one left);
+// - `ready` (« Prête à lever »): every active step is validated;
+// - `no_path` (« Sans parcours »): the workspace uses no active step — readiness is never claimed
+//   without a single validation.
+// A deactivated step counts for nothing, validated or not (its validation stays shown, E06.06); a
+// step added to the path, or reactivated, applies to every candidature at once, a ready one going
+// back to preparation. The financing status (E06.01) is another axis: a funded or refused
+// candidature keeps its phase, and both filter the portfolio together.
+export const SUPPORT_PHASES = ['in_progress', 'ready', 'no_path'] as const
+export const supportPhaseSchema = z.enum(SUPPORT_PHASES)
+export type SupportPhase = z.infer<typeof supportPhaseSchema>
+
+export const SUPPORT_PHASE_LABELS: Record<SupportPhase, string> = {
+  in_progress: 'En préparation',
+  ready: 'Prête à lever',
+  no_path: 'Sans parcours',
+}
+
+export const supportProgressSchema = z.object({
+  phase: supportPhaseSchema,
+  // Active steps validated, out of the active steps of the path.
+  validatedSteps: z.number().int().min(0),
+  totalSteps: z.number().int().min(0),
+  // The first active step not validated, in the path's order; `null` unless `in_progress`.
+  currentStep: z.object({ id: z.string().uuid(), label: z.string() }).nullable(),
+})
+export type SupportProgress = z.infer<typeof supportProgressSchema>
+
+// THE phase rule. `steps`: the workspace's steps in the path's order, each with this candidature's
+// validation date (`null` when not validated); deactivated steps may be included, they are ignored.
+export function supportProgress(
+  steps: ReadonlyArray<{
+    id: string
+    label: string
+    active: boolean
+    validatedAt: string | Date | null
+  }>,
+): SupportProgress {
+  const inPath = steps.filter((s) => s.active)
+  const validatedSteps = inPath.filter((s) => s.validatedAt !== null).length
+  const current = inPath.find((s) => s.validatedAt === null)
+  const phase: SupportPhase = inPath.length === 0 ? 'no_path' : current ? 'in_progress' : 'ready'
+  return {
+    phase,
+    validatedSteps,
+    totalSteps: inPath.length,
+    currentStep: current ? { id: current.id, label: current.label } : null,
+  }
+}
+
 // ── A candidature's path ────────────────────────────────────────────────────────────────────────
 
 // The two changes of a step's validation, kept in its history.
@@ -173,11 +230,13 @@ export const candidatureSupportStepSchema = z.object({
 })
 
 // A candidature's path in the workspace's order: its active steps, and the deactivated ones still
-// validated.
+// validated; and its phase.
 export const candidatureSupportPathSchema = z.object({
   candidatureId: z.string().uuid(),
   workspaceId: z.string().uuid(),
   steps: z.array(candidatureSupportStepSchema),
+  // E06.07: its phase, by `supportProgress`.
+  progress: supportProgressSchema,
 })
 
 const memberSchema = z.object({

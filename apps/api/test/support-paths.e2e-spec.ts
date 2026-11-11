@@ -5,7 +5,9 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import request from 'supertest'
 import type { App } from 'supertest/types'
 import {
+  PORTFOLIO_PAGE_SIZE,
   candidatureSupportPathSchema,
+  portfolioSchema,
   receivedSupportPathSchema,
   supportStepSchema,
 } from '@confluent/shared'
@@ -416,5 +418,121 @@ describe('Support paths (e2e)', () => {
     // Nothing was written by the refused calls.
     expect(fake.table('candidatureStepValidation').size).toBe(1)
     expect(fake.table('candidatureStepValidationChange').size).toBe(1)
+  })
+
+  // ── E06.07: the phase and the portfolio ──────────────────────────────────────────────────────
+
+  const portfolio = (workspaceId: string, query = '') =>
+    `/v1/workspaces/${workspaceId}/portfolio${query ? `?${query}` : ''}`
+
+  it('states the phase to the owner and the conseillers, and gives the conseillers their portfolio by phase', async () => {
+    await openToCandidatures(MARIE, cci)
+    await openToCandidatures(PAUL, club)
+    const bio = await present(SOPHIE, 'Biosensio')
+    const agro = await present(MARC, 'Agrotech')
+    // The owner sees the phase of a draft: in preparation, at the first step.
+    const draft = (await as(SOPHIE).get(own(bio.toCci)).expect(200)).body
+    valid(candidatureSupportPathSchema)(draft)
+    expect(draft.progress).toMatchObject({
+      phase: 'in_progress',
+      validatedSteps: 0,
+      totalSteps: 3,
+      currentStep: { label: 'Diagnostic' },
+    })
+    await bio.send(bio.toCci, bio.toClub)
+    await agro.send(agro.toCci)
+    const jean = as(JEAN)
+    for (const key of ['diagnostic', 'business_plan', 'pitch']) {
+      const path = (
+        await jean
+          .patch(`${received(cci, bio.toCci)}/steps/${await stepId(cci, key)}`, {
+            validated: true,
+            version: 0,
+          })
+          .expect(200)
+      ).body
+      valid(receivedSupportPathSchema)(path)
+    }
+    expect((await as(SOPHIE).get(own(bio.toCci)).expect(200)).body.progress).toEqual({
+      phase: 'ready',
+      validatedSteps: 3,
+      totalSteps: 3,
+      currentStep: null,
+    })
+    // The club's path of the same request is its own: nothing validated there.
+    expect((await as(SOPHIE).get(own(bio.toClub)).expect(200)).body.progress.phase).toBe(
+      'in_progress',
+    )
+
+    const all = (await jean.get(portfolio(cci)).expect(200)).body
+    valid(portfolioSchema)(all)
+    expect(all.counts).toMatchObject({
+      total: 2,
+      phases: { in_progress: 1, ready: 1, no_path: 0 },
+    })
+    expect(
+      all.counts.steps.map((x: { label: string; count: number }) => [x.label, x.count]),
+    ).toEqual([
+      ['Diagnostic', 1],
+      ['Business plan', 0],
+      ['Pitch', 0],
+    ])
+    expect(all).toMatchObject({ total: 2, page: 1, pageSize: PORTFOLIO_PAGE_SIZE })
+    expect(
+      all.items.map((i: { id: string; progress: { phase: string } }) => [i.id, i.progress.phase]),
+    ).toEqual([
+      [agro.toCci, 'in_progress'],
+      [bio.toCci, 'ready'],
+    ])
+    const ready = (await as(MARIE).get(portfolio(cci, 'phase=ready')).expect(200)).body
+    expect(ready.items.map((i: { id: string }) => i.id)).toEqual([bio.toCci])
+    expect(ready.counts.total).toBe(2)
+    const diagnostic = await stepId(cci, 'diagnostic')
+    expect(
+      (await jean.get(portfolio(cci, `step=${diagnostic}`)).expect(200)).body.items.map(
+        (i: { id: string }) => i.id,
+      ),
+    ).toEqual([agro.toCci])
+    expect(
+      (await jean.get(portfolio(cci, 'financingStatus=in_committee')).expect(200)).body.counts
+        .total,
+    ).toBe(0)
+    expect((await jean.get(portfolio(cci, 'page=2')).expect(200)).body).toMatchObject({
+      page: 2,
+      total: 2,
+      items: [],
+    })
+    for (const query of ['phase=prete', 'step=diagnostic', 'page=0', 'page=x', 'sort=name']) {
+      await jean.get(portfolio(cci, query)).expect(400)
+    }
+    // The administrator reads it too.
+    expect((await as(ADMIN).get(portfolio(cci)).expect(200)).body.counts.total).toBe(2)
+  })
+
+  it('keeps the portfolio to the workspace’s conseillers, over its own candidatures only', async () => {
+    await openToCandidatures(MARIE, cci)
+    await openToCandidatures(PAUL, club)
+    await as(MARIE).post(managed(cci), { label: 'Revue juridique 4242' }).expect(201)
+    const bio = await present(SOPHIE, 'Biosensio 4343')
+    await bio.send(bio.toClub)
+    const agro = await present(MARC, 'Agrotech')
+    await agro.send(agro.toCci)
+    // Sophie's request was sent to the club only: its draft to the CCI stays out of the CCI's.
+    const cciView = (await as(JEAN).get(portfolio(cci)).expect(200)).body
+    expect(cciView.items.map((i: { id: string }) => i.id)).toEqual([agro.toCci])
+    expect(JSON.stringify(cciView)).not.toContain('4343')
+    // The club sees its own candidature, its own steps, nothing of the CCI.
+    const clubView = (await as(PAUL).get(portfolio(club)).expect(200)).body
+    expect(clubView.items.map((i: { id: string }) => i.id)).toEqual([bio.toClub])
+    expect(JSON.stringify(clubView)).not.toMatch(/4242|Agrotech/)
+    // An investisseur of the CCI: 403; the club's manager, the entrepreneurs, a stranger: 404;
+    // nobody signed in: 401.
+    await as(CLAIRE).get(portfolio(cci)).expect(403)
+    for (const outsider of [PAUL, SOPHIE, MARC, BOB]) {
+      await as(outsider).get(portfolio(cci)).expect(404)
+    }
+    await request(app.getHttpServer()).get(portfolio(cci)).expect(401)
+    // An unknown workspace answers like a workspace one is not in.
+    await as(JEAN).get(portfolio('7d3c1b0e-0000-4000-8000-0000000013ff')).expect(404)
   })
 })

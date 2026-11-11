@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { SupportStepChange } from '@confluent/shared'
+import { supportProgress, type SupportProgress, type SupportStepChange } from '@confluent/shared'
 import {
   Prisma,
   type Candidature,
@@ -35,6 +35,8 @@ export interface SupportPathView {
   candidatureId: string
   workspaceId: string
   steps: SupportPathStepView[]
+  // E06.07: its phase.
+  progress: SupportProgress
 }
 
 // @confluent/shared `receivedSupportPathSchema`: who validated, and the history.
@@ -69,11 +71,12 @@ export class SupportPathsService {
 
   async getForOwner(userId: string, candidatureId: string): Promise<SupportPathView> {
     const candidature = await this.candidatures.reachAs({ side: 'owner', userId }, candidatureId)
-    const { shown, byStep } = await this.state(candidature)
+    const { steps, shown, byStep } = await this.state(candidature)
     return {
       candidatureId: candidature.id,
       workspaceId: candidature.workspaceId,
       steps: shown.map((step) => stepView(step, byStep.get(step.id))),
+      progress: progressOf(steps, byStep),
     }
   }
 
@@ -215,6 +218,7 @@ export class SupportPathsService {
           validatedBy: validation?.validatedAt ? member(validation.validatedById) : null,
         }
       }),
+      progress: progressOf(steps, byStep),
       history: changes.map((c) => {
         const step = stepById.get(validationById.get(c.validationId)!.stepId)!
         return {
@@ -242,4 +246,14 @@ function stepView(
     validatedAt: validation?.validatedAt ?? null,
     version: validation?.version ?? 0,
   }
+}
+
+// E06.07: the candidature's phase, by the shared rule, from every step of the workspace's path.
+function progressOf(
+  steps: SupportStep[],
+  byStep: Map<string, CandidatureStepValidation>,
+): SupportProgress {
+  return supportProgress(
+    steps.map((step) => ({ ...step, validatedAt: byStep.get(step.id)?.validatedAt ?? null })),
+  )
 }

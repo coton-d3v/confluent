@@ -461,6 +461,16 @@ export class CandidaturesService {
     workspaceId: string,
     filter: ReceivedCandidaturesFilter = {},
   ): Promise<ReceivedCandidatureListItemView[]> {
+    return this.receivedListItems(workspaceId, await this.receivedRows(actor, workspaceId, filter))
+  }
+
+  // The rows of `listReceived`, after the workspace's read rule (`404`/`403`), the latest sent first:
+  // E06.07's portfolio computes their phases before describing a page of them.
+  async receivedRows(
+    actor: WorkspaceActor,
+    workspaceId: string,
+    filter: ReceivedCandidaturesFilter = {},
+  ): Promise<Candidature[]> {
     await this.assertCanReview(actor, workspaceId)
     const where: Prisma.CandidatureWhereInput = { workspaceId, submittedAt: { not: null } }
     if (filter.financingStatus) where.financingStatus = filter.financingStatus
@@ -475,10 +485,16 @@ export class CandidaturesService {
       })
       where.id = { in: [...new Set(eligible.map((e) => e.candidatureId))] }
     }
-    const rows = await this.prisma.candidature.findMany({
-      where,
-      orderBy: { submittedAt: 'desc' },
-    })
+    return this.prisma.candidature.findMany({ where, orderBy: { submittedAt: 'desc' } })
+  }
+
+  // Received candidatures of `workspaceId` (rows of `receivedRows`) as the workspace lists them: its
+  // company, request, financing status and eligibilities to the workspace's schemes.
+  async receivedListItems(
+    workspaceId: string,
+    rows: Candidature[],
+  ): Promise<ReceivedCandidatureListItemView[]> {
+    if (rows.length === 0) return []
     const ids = rows.map((r) => r.id)
     const [dossiers, eligibilities, schemes] = await Promise.all([
       this.prisma.dossier.findMany({ where: { id: { in: rows.map((r) => r.dossierId) } } }),

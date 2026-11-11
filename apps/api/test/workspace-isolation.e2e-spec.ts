@@ -198,6 +198,8 @@ describe('workspace isolation (e2e)', () => {
           method: 'patch',
           path: '/workspaces/:workspaceId/candidatures/:candidatureId/support-path/steps/:stepId',
         },
+        // E06.07: its portfolio by phase.
+        { method: 'get', path: '/workspaces/:workspaceId/portfolio' },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

@@ -31,7 +31,10 @@ const PATH =
   'Le parcours d’accompagnement de la candidature : les étapes actives du parcours de son ' +
   'workspace dans leur ordre, avec leur explication, et pour chacune la date de sa validation par ' +
   'la structure (`validatedAt`, `null` sinon) et sa `version` (`0` : jamais validée) ; une étape ' +
-  'désactivée n’apparaît plus que si sa validation tient (`active: false`).'
+  'désactivée n’apparaît plus que si sa validation tient (`active: false`). `progress` : la ' +
+  'phase d’avancement calculée sur les seules étapes actives — `in_progress` (en préparation, ' +
+  '`currentStep` = première étape active à valider), `ready` (prête à lever : toutes validées) ou ' +
+  '`no_path` (aucune étape active) — et le nombre d’étapes actives validées sur leur total.'
 
 // The owner of the request reads the path of each of its candidatures, a draft included (`404`
 // alike for another account's candidature and an unknown one). The owner never validates, and never
