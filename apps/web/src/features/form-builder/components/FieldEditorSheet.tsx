@@ -11,6 +11,7 @@ import { z } from 'zod'
 import {
   accessLevelSchema,
   constraintsProblem,
+  fieldTypeAllowedInWorkspaceForms,
   fieldTypeSchema,
   MAX_NUMBER_DIGITS,
   parseNumber,
@@ -130,11 +131,14 @@ export interface FieldEditorRequest {
 export function FieldEditorSheet({
   request,
   sections,
+  workspaceForm = false,
   onClose,
   onSubmit,
 }: {
   request: FieldEditorRequest | null
   sections: QuestionnaireSection[]
+  // E05.09: a workspace's form asks for no attachment, and its answers never reach a share.
+  workspaceForm?: boolean
   onClose: () => void
   // Resolves to true when saved (the sheet then closes).
   onSubmit: (values: FieldFormValues, field: QuestionnaireField | null) => Promise<boolean>
@@ -147,6 +151,7 @@ export function FieldEditorSheet({
             key={request.field?.id ?? `new-${request.sectionId}`}
             request={request}
             sections={sections}
+            workspaceForm={workspaceForm}
             onClose={onClose}
             onSubmit={onSubmit}
           />
@@ -183,11 +188,13 @@ function initialValues({ field, sectionId }: FieldEditorRequest): FieldFormValue
 function FieldForm({
   request,
   sections,
+  workspaceForm,
   onClose,
   onSubmit,
 }: {
   request: FieldEditorRequest
   sections: QuestionnaireSection[]
+  workspaceForm: boolean
   onClose: () => void
   onSubmit: (values: FieldFormValues, field: QuestionnaireField | null) => Promise<boolean>
 }) {
@@ -213,7 +220,9 @@ function FieldForm({
       <SheetHeader>
         <SheetTitle>{isNew ? 'Nouveau champ' : 'Modifier le champ'}</SheetTitle>
         <SheetDescription>
-          Les modifications s’appliquent au brouillon ; les dossiers existants gardent leur version.
+          {workspaceForm
+            ? 'Les modifications s’appliquent au brouillon ; les candidatures déjà ouvertes gardent leur version.'
+            : 'Les modifications s’appliquent au brouillon ; les dossiers existants gardent leur version.'}
         </SheetDescription>
       </SheetHeader>
       <Separator />
@@ -229,7 +238,9 @@ function FieldForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <FormRow id="field-type" label="Type">
             <NativeSelect id="field-type" {...register('fieldType')}>
-              {fieldTypeSchema.options.map((type) => (
+              {fieldTypeSchema.options
+                .filter((type) => !workspaceForm || fieldTypeAllowedInWorkspaceForms(type))
+                .map((type) => (
                 <option key={type} value={type}>
                   {FIELD_TYPE_LABELS[type]}
                 </option>
@@ -252,15 +263,22 @@ function FieldForm({
           Réponse obligatoire
         </label>
 
-        <FormRow id="field-level" label="Lisible par un financeur avec un partage">
-          <NativeSelect id="field-level" {...register('minAccessLevel')}>
-            {accessLevelSchema.options.map((level) => (
-              <option key={level} value={level}>
-                {ACCESS_LEVEL_LABELS[level]}
-              </option>
-            ))}
-          </NativeSelect>
-        </FormRow>
+        {workspaceForm ? (
+          <p className="text-xs text-muted-foreground">
+            Les réponses ne sont lues que par les conseillers de ce workspace, jamais par un
+            partage ni par une autre structure.
+          </p>
+        ) : (
+          <FormRow id="field-level" label="Lisible par un financeur avec un partage">
+            <NativeSelect id="field-level" {...register('minAccessLevel')}>
+              {accessLevelSchema.options.map((level) => (
+                <option key={level} value={level}>
+                  {ACCESS_LEVEL_LABELS[level]}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormRow>
+        )}
 
         <LimitInputs fieldType={fieldType} register={register} errors={errors} />
 

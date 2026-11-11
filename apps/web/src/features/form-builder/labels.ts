@@ -26,6 +26,8 @@ export const VERSION_STATUS_LABELS: Record<QuestionnaireVersionStatus, string> =
 
 export const USAGE_LABELS: Record<string, string> = {
   dossier: 'Formulaire des dossiers',
+  // E05.09: a workspace's complementary form.
+  candidature: 'Formulaire des candidatures',
 }
 
 export function formatDate(iso: string): string {

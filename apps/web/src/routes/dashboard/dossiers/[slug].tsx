@@ -37,6 +37,7 @@ import { DocumentsPanel } from '@/features/documents/components/DocumentsPanel'
 import { getCompany } from '@/features/companies/api'
 import { RequestEditor } from '@/features/dossiers/components/RequestEditor'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { DossierCandidatures } from '@/features/candidatures/components/DossierCandidatures'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { Dossier } from '@confluent/shared'
 
@@ -44,6 +45,7 @@ const TAB_VALUES = {
   request: 'demande',
   content: 'content',
   documents: 'documents',
+  candidatures: 'candidatures',
   analytics: 'analytics',
 } as const
 
@@ -171,7 +173,8 @@ function DossierView({
   const activeTab: TabValue =
     requestedTab === TAB_VALUES.analytics ||
     requestedTab === TAB_VALUES.documents ||
-    requestedTab === TAB_VALUES.request
+    requestedTab === TAB_VALUES.request ||
+    (isOwner && requestedTab === TAB_VALUES.candidatures)
       ? requestedTab
       : TAB_VALUES.content
 
@@ -182,7 +185,8 @@ function DossierView({
         if (
           value === TAB_VALUES.analytics ||
           value === TAB_VALUES.documents ||
-          value === TAB_VALUES.request
+          value === TAB_VALUES.request ||
+          value === TAB_VALUES.candidatures
         ) {
           prev.set('tab', value)
         } else {
@@ -400,11 +404,15 @@ function DossierView({
       )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
-        {/* Four tabs do not fit on a phone: they wrap instead of widening the page. */}
+        {/* The tabs do not fit on a phone: they wrap instead of widening the page. */}
         <TabsList className="h-auto max-w-full flex-wrap">
           <TabsTrigger value={TAB_VALUES.request}>Demande</TabsTrigger>
           <TabsTrigger value={TAB_VALUES.content}>Contenu</TabsTrigger>
           <TabsTrigger value={TAB_VALUES.documents}>Documents</TabsTrigger>
+          {/* E05.09: the structures the request is presented to, its owner's only. */}
+          {isOwner && (
+            <TabsTrigger value={TAB_VALUES.candidatures}>Candidatures</TabsTrigger>
+          )}
           {isOwner && (
             <TabsTrigger value={TAB_VALUES.analytics}>
               Accès &amp; analytics
@@ -499,6 +507,16 @@ function DossierView({
             requestName={displayName}
           />
         </TabsContent>
+
+        {isOwner && (
+          <TabsContent value={TAB_VALUES.candidatures}>
+            <DossierCandidatures
+              dossierId={dossierId}
+              profileSubmitted={dossierQuery.data?.submittedAt != null}
+              inPreparation={inPreparation}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value={TAB_VALUES.analytics}>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
