@@ -93,6 +93,8 @@ enum audit_action {
   candidature_status_changed
   funding_source_categories_updated
   funding_plan_updated
+  eligibility_schemes_updated
+  candidature_eligibility_updated
 
   @@map("audit_action")
 }
@@ -126,6 +128,8 @@ model User {
   candidatureRevisionsWritten CandidatureAnswerRevision[]
   candidatureStatusChanges    CandidatureStatusChange[]
   fundingPlanLinesWritten     FundingPlanLine[]
+  eligibilitiesWritten        CandidatureEligibility[]    @relation("EligibilityWriter")
+  eligibilitiesVerified       CandidatureEligibility[]    @relation("EligibilityVerifier")
 
   @@map("users")
 }
@@ -575,9 +579,11 @@ model Candidature {
   answers       CandidatureAnswer[]
   statusChanges CandidatureStatusChange[]
   planLines     FundingPlanLine[]
+  eligibilities CandidatureEligibility[]
 
   @@unique([dossierId, workspaceId])
-  // Target of the plan lines' (candidature, workspace) foreign key (E06.03).
+  // Target of the plan lines' and eligibilities' (candidature, workspace) foreign keys (E06.03,
+  // E06.05).
   @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([formVersionId])
@@ -823,12 +829,13 @@ model Workspace {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  memberships       WorkspaceMembership[]
-  preparedCompanies Company[]
-  companyTransfers  CompanyTransfer[]
-  forms             Questionnaire[]
-  candidatures      Candidature[]
-  fundingSources    FundingSourceCategory[]
+  memberships        WorkspaceMembership[]
+  preparedCompanies  Company[]
+  companyTransfers   CompanyTransfer[]
+  forms              Questionnaire[]
+  candidatures       Candidature[]
+  fundingSources     FundingSourceCategory[]
+  eligibilitySchemes EligibilityScheme[]
 
   @@map("workspaces")
 }
@@ -886,6 +893,65 @@ model FundingPlanLine {
   @@index([categoryId, workspaceId])
   @@index([updatedById])
   @@map("funding_plan_lines")
+}
+
+// ROADMAP E06.05: the schemes (« dispositifs » — JEIR, JEI, CIR…) a workspace records the
+// eligibility of its candidatures to, as declarative information and a filter — never a tax
+// simulation. Its default list: @confluent/shared `eligibility.schema.ts`. Like the funding source
+// categories (E06.02), `key` is fixed at creation; `label`, `description`, `position` and `active`
+// are the managers' configuration; deactivated, never deleted. CHECK: key pattern, label and
+// description trimmed and bounded, position ≥ 0.
+model EligibilityScheme {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  key         String
+  label       String
+  description String?
+  position    Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  eligibilities CandidatureEligibility[]
+
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, label])
+  // Target of the eligibilities' (scheme, workspace) foreign key.
+  @@unique([id, workspaceId])
+  @@map("eligibility_schemes")
+}
+
+// ROADMAP E06.05: a candidature's eligibility to one scheme of its workspace, declared by its owner
+// or by the workspace (`declaredBySide`), with an optional note; `verifiedAt`/`verifiedById` once
+// the workspace says it checked it. Both foreign keys carry `workspace_id`: an eligibility never uses
+// another workspace's scheme. One per candidature and scheme; `version` grows at each change (a
+// change made meanwhile is refused); `updatedBySide` says which side wrote it last, `updatedById` who.
+model CandidatureEligibility {
+  id             String    @id @default(uuid())
+  candidatureId  String    @map("candidature_id")
+  workspaceId    String    @map("workspace_id")
+  schemeId       String    @map("scheme_id")
+  note           String?
+  declaredBySide String    @map("declared_by_side")
+  verifiedAt     DateTime? @map("verified_at")
+  verifiedById   String?   @map("verified_by_id")
+  version        Int       @default(1)
+  updatedBySide  String    @map("updated_by_side")
+  updatedById    String?   @map("updated_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  candidature Candidature       @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  scheme      EligibilityScheme @relation(fields: [schemeId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction)
+  verifiedBy  User?             @relation("EligibilityVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  updatedBy   User?             @relation("EligibilityWriter", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([candidatureId, schemeId])
+  @@index([schemeId, workspaceId])
+  @@index([verifiedById])
+  @@index([updatedById])
+  @@map("candidature_eligibilities")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

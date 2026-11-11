@@ -164,6 +164,27 @@ describe('workspace isolation (e2e)', () => {
           method: 'delete',
           path: '/workspaces/:workspaceId/candidatures/:candidatureId/funding-plan/lines/:lineId',
         },
+        // E06.05: its schemes, and the eligibilities of a candidature it receives.
+        { method: 'get', path: '/workspaces/:workspaceId/eligibility-schemes' },
+        { method: 'post', path: '/admin/workspaces/:workspaceId/eligibility-schemes' },
+        { method: 'put', path: '/admin/workspaces/:workspaceId/eligibility-schemes/order' },
+        { method: 'patch', path: '/admin/workspaces/:workspaceId/eligibility-schemes/:schemeId' },
+        {
+          method: 'get',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/eligibilities',
+        },
+        {
+          method: 'post',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/eligibilities',
+        },
+        {
+          method: 'patch',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/eligibilities/:eligibilityId',
+        },
+        {
+          method: 'delete',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/eligibilities/:eligibilityId',
+        },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

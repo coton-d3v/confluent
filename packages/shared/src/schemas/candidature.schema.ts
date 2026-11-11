@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { answerProvenanceSchema, answerRevisionSchema } from './answer.schema.js'
+import { eligibilityBadgeSchema } from './eligibility.schema.js'
 import { financingTypeSchema } from './financing.schema.js'
 import {
   dossierPublicationStatusSchema,
@@ -129,6 +130,27 @@ export const receivedCandidatureSummarySchema = z.object({
   }),
 })
 
+// E06.05: in the workspace's list, each candidature's eligibilities to its schemes (in the order of
+// the schemes), declarative information — no tax amount.
+export const receivedCandidatureListItemSchema = receivedCandidatureSummarySchema.extend({
+  eligibilities: z.array(eligibilityBadgeSchema),
+})
+
+// E06.05 (and E06.01's status): the filters of that list, each optional, combined with AND. `scheme`:
+// eligible to that scheme of the workspace (any other id matches nothing); `verified`: only
+// eligibilities the workspace verified (to `scheme`, or to any scheme without it);
+// `financingStatus`: the status in this workspace.
+export const receivedCandidaturesQuerySchema = z
+  .object({
+    scheme: z.string().uuid('Dispositif inconnu.').optional(),
+    verified: z
+      .enum(['true', 'false'], { message: 'Indiquez true ou false.' })
+      .transform((v) => v === 'true')
+      .optional(),
+    financingStatus: financingStatusSchema.optional(),
+  })
+  .strict()
+
 // A submitted candidature, as the workspace's conseillers read it: the request's presentation, the
 // common profile (attachments aside) and the candidature's own answers.
 export const receivedCandidatureSchema = receivedCandidatureSummarySchema.extend({
@@ -156,4 +178,6 @@ export type CandidatureForm = z.infer<typeof candidatureFormSchema>
 export type Candidature = z.infer<typeof candidatureSchema>
 export type ReceivedAnswer = z.infer<typeof receivedAnswerSchema>
 export type ReceivedCandidatureSummary = z.infer<typeof receivedCandidatureSummarySchema>
+export type ReceivedCandidatureListItem = z.infer<typeof receivedCandidatureListItemSchema>
+export type ReceivedCandidaturesQuery = z.input<typeof receivedCandidaturesQuerySchema>
 export type ReceivedCandidature = z.infer<typeof receivedCandidatureSchema>

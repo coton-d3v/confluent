@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common'
 import {
@@ -28,6 +29,7 @@ import {
 import {
   changeFinancingStatusSchema,
   createCandidatureSchema,
+  receivedCandidaturesQuerySchema,
   upsertAnswersSchema,
 } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
@@ -40,13 +42,14 @@ import {
   type CandidatureSummaryView,
   type CandidatureView,
   type CandidatureWorkspaceView,
-  type ReceivedCandidatureSummaryView,
+  type ReceivedCandidatureListItemView,
   type ReceivedCandidatureView,
 } from './candidatures.service'
 
 class CreateCandidatureDto extends createZodDto(createCandidatureSchema) {}
 class UpsertCandidatureAnswersDto extends createZodDto(upsertAnswersSchema) {}
 class ChangeFinancingStatusDto extends createZodDto(changeFinancingStatusSchema) {}
+class ReceivedCandidaturesQueryDto extends createZodDto(receivedCandidaturesQuerySchema) {}
 
 // E06.01 (decision D03, to be confirmed): what both sides' routes say of the financing status.
 const FINANCING_STATUS_RULES =
@@ -263,15 +266,20 @@ export class ReceivedCandidaturesController {
     summary: 'Candidatures reçues',
     description:
       'Les candidatures envoyées au workspace, la plus récente d’abord : entreprise, demande ' +
-      '(titre, montant, types), statut de financement dans ce workspace. Les brouillons restent ' +
-      'invisibles.',
+      '(titre, montant, types), statut de financement dans ce workspace et éligibilités aux ' +
+      'dispositifs du workspace (`eligibilities`, informations déclaratives). Filtres facultatifs, ' +
+      'combinés : `scheme` (UUID d’un dispositif du workspace ; tout autre identifiant ne trouve ' +
+      'rien), `verified=true` (éligibilités vérifiées par la structure seulement), ' +
+      '`financingStatus`. Les brouillons restent invisibles.',
   })
   @ApiOkResponse({ description: 'Candidatures reçues.' })
+  @ApiBadRequestResponse({ description: 'Filtre inconnu ou invalide.' })
   list(
     @Param('workspaceId', uuid) workspaceId: string,
+    @Query() query: ReceivedCandidaturesQueryDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<ReceivedCandidatureSummaryView[]> {
-    return this.candidatures.listReceived(user, workspaceId)
+  ): Promise<ReceivedCandidatureListItemView[]> {
+    return this.candidatures.listReceived(user, workspaceId, query)
   }
 
   @Get(':candidatureId')

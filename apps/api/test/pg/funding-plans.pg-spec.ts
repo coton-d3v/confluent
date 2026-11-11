@@ -17,11 +17,13 @@ import { createDefaultFundingSourceCategories } from '../../src/modules/funding-
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { fundingPlansDown, fundingPlansUp } from './sql-file'
+import { eligibilitiesDown, fundingPlansDown, fundingPlansUp } from './sql-file'
 
 const UP = fundingPlansUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = fundingPlansDown().slice(1)
+// E06.05's eligibilities use E06.03's unique index on candidatures: undone first.
+const LATER_DOWN = eligibilitiesDown()
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'off'"
@@ -184,7 +186,7 @@ describe('financing plans (PostgreSQL)', () => {
       const bpi = await category('bpifrance')
       await rolledBack(async (tx) => {
         // As E06.02 leaves it.
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(await rows(tx, `SELECT to_regclass('funding_plan_lines')::text AS t`)).toEqual([
           { t: null },
         ])
@@ -237,7 +239,7 @@ describe('financing plans (PostgreSQL)', () => {
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await sentCandidature()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)

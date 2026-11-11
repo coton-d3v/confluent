@@ -57,6 +57,8 @@ const UPDATED_AT = new Set([
   'candidatureAnswer',
   'fundingSourceCategory',
   'fundingPlanLine',
+  'eligibilityScheme',
+  'candidatureEligibility',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -505,6 +507,13 @@ export function createFakePrisma() {
     workspace: model('workspace', () => ({ logoKey: null })),
     fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     fundingPlanLine: model('fundingPlanLine', () => ({ version: 1, label: null })),
+    eligibilityScheme: model('eligibilityScheme', () => ({ active: true, description: null })),
+    candidatureEligibility: model('candidatureEligibility', () => ({
+      version: 1,
+      note: null,
+      verifiedAt: null,
+      verifiedById: null,
+    })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,
