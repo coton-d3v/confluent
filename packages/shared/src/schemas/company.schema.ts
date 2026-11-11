@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { companyOwnerEmailSchema, companyPreparationSchema } from './company-transfer.schema.js'
-import { dossierPublicationStatusSchema, financingTypeSchema } from './financing.schema.js'
+import { financingTypeSchema } from './financing.schema.js'
+import { dossierPublicationStatusSchema } from './status.schema.js'
 
 // Companies (ROADMAP E05.04): the company an entrepreneur presents, owner of the common profile and,
 // from E05.06, of the document library; its financing dossiers are attached to it. Since E05.05 the
@@ -54,6 +55,7 @@ export const companyDossierSchema = z.object({
   financingTypes: z.array(financingTypeSchema),
   publicationStatus: dossierPublicationStatusSchema,
   publishedAt: z.string().datetime().nullable(),
+  archivedAt: z.string().datetime().nullable(),
   submittedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 })

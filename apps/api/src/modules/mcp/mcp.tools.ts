@@ -84,6 +84,7 @@ import {
   builderCall,
   canOwnDossiers,
   mcpOrigin,
+  publicationName,
   refuseInstructionFromDocument,
   requireScope,
   sameName as sameDossierName,
@@ -266,7 +267,7 @@ export class McpToolsFactory {
               relation: d.userId === caller.user.id ? 'proprietaire' : 'partage',
               // E05.07: a financing request of a company (list_companies), published or not.
               ...(d.userId === caller.user.id ? { companyId: d.companyId } : {}),
-              publication: d.publicationStatus === 'published' ? 'publiee' : 'brouillon',
+              publication: publicationName(d),
               // A draft is resumed (next_questions), not started again (E04.02).
               status: d.submittedAt ? 'soumis' : 'brouillon',
               submittedAt: d.submittedAt,
@@ -883,7 +884,7 @@ export class McpToolsFactory {
         // The company is its owner's (list_companies): a share shows the request only (E05.04).
         ...(isOwner ? { companyId: dossier.companyId } : {}),
         presentation: {
-          publication: isPublished(presented) ? 'publiee' : 'brouillon',
+          publication: publicationName(presented),
           publishedAt: isPublished(presented) ? presented.publishedAt : null,
           summary: presented.summary,
           objective: presented.objective,

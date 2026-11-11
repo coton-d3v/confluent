@@ -51,25 +51,12 @@ export function financingTypesOf(raw: ReadonlyArray<string> | null | undefined):
   return FINANCING_TYPES.filter((t) => known.has(t))
 }
 
-// Publication (D03, first two states; « archivé » and the per-workspace financing status come with
-// E06.01): `draft` while the request is being prepared, `published` once its owner declares it
-// ready. Distinct from the submission, which checks the company profile and classifies the dossier.
-// While a draft, the recipients of the dossier's shares do not see its presentation; once published
-// they do, and the request becomes eligible for the diffusions to come (workspace pool E07.02,
-// showcase E09). Publication never opens nor closes a share.
-export const DOSSIER_PUBLICATION_STATUSES = ['draft', 'published'] as const
-export const dossierPublicationStatusSchema = z.enum(DOSSIER_PUBLICATION_STATUSES)
-export type DossierPublicationStatus = z.infer<typeof dossierPublicationStatusSchema>
-
-export const DOSSIER_PUBLICATION_STATUS_LABELS: Record<DossierPublicationStatus, string> = {
-  draft: 'Brouillon',
-  published: 'Publiée',
-}
-
-// Closed by default: anything but `published` is a draft.
-export function isPublished(dossier: { publicationStatus: string | null | undefined }): boolean {
-  return dossier.publicationStatus === 'published'
-}
+// Publication (D03): `draft` while the request is being prepared, `published` once its owner
+// declares it ready, `archived` once closed — its statuses and transitions are in status.schema.ts
+// (E06.01). Distinct from the submission, which checks the company profile and classifies the
+// dossier. While not published, the recipients of the dossier's shares do not see its presentation;
+// once published they do, and the request becomes eligible for the diffusions to come (workspace pool
+// E07.02, showcase E09). Publication never opens nor closes a share.
 
 // What a request needs before it can be published, and while it stays published.
 export const PUBLICATION_REQUIREMENTS = [

@@ -297,10 +297,174 @@ describe('Workspace forms and candidatures (e2e)', () => {
     const profile = (await sophie.get(`/v1/dossiers/${dossier.id}/answers`).expect(200)).body
     expect(JSON.stringify(profile)).not.toMatch(/Secret pour/)
 
-    // Withdrawn: the CCI no longer reads it.
-    await as(MARC).delete(`/v1/candidatures/${toCci.id}`).expect(404)
-    await sophie.delete(`/v1/candidatures/${toCci.id}`).expect(204)
-    expect((await as(MARIE).get(`/v1/workspaces/${cci}/candidatures`).expect(200)).body).toEqual([])
-    await as(MARIE).get(`/v1/workspaces/${cci}/candidatures/${toCci.id}`).expect(404)
+    // A draft is withdrawn; a sent candidature is kept by the CCI, which follows it (E06.01).
+    await as(MARC).delete(`/v1/candidatures/${toClub.id}`).expect(404)
+    await sophie.delete(`/v1/candidatures/${toClub.id}`).expect(204)
+    await sophie.get(`/v1/candidatures/${toClub.id}`).expect(404)
+    const kept = await sophie.delete(`/v1/candidatures/${toCci.id}`).expect(409)
+    expect(kept.body.error.message).toMatch(/Abandonnez-la/)
+    await as(MARIE).get(`/v1/workspaces/${cci}/candidatures/${toCci.id}`).expect(200)
+  })
+
+  // ROADMAP E06.01 (D03 to be confirmed): the request's financing status in each workspace, on its
+  // candidature, apart from its publication; who changes what, and what nobody else sees.
+  it('follows a financing status per workspace, changed by the side each transition names, seen by its parties only', async () => {
+    await complementaryForm(MARIE, cci, 'Pourquoi la CCI ?')
+    await complementaryForm(PAUL, club, 'Pourquoi le club ?')
+    const sophie = as(SOPHIE)
+    const dossier = (await sophie.post('/v1/dossiers', { name: 'Biosensio' }).expect(201)).body
+    const candidaturesOf = `/v1/dossiers/${dossier.id}/candidatures`
+    const toCci = (await sophie.post(candidaturesOf, { workspaceId: cci }).expect(201)).body
+    const toClub = (await sophie.post(candidaturesOf, { workspaceId: club }).expect(201)).body
+    expect(toCci).toMatchObject({ financingStatus: 'preparing', statusHistory: [] })
+    // Fill in the required question of each form, then send both.
+    for (const c of [toCci, toClub]) {
+      await sophie
+        .put(`/v1/candidatures/${c.id}/answers`, {
+          answers: [{ fieldId: c.form.fields[0].id, value: 'Réponse' }],
+        })
+        .expect(200)
+    }
+    const ownStatus = (id: string, body: object, who = SOPHIE) =>
+      as(who).post(`/v1/candidatures/${id}/financing-status`, body)
+    const wsStatus = (ws: string, id: string, body: object, who: { id: string }) =>
+      as(who).post(`/v1/workspaces/${ws}/candidatures/${id}/financing-status`, body)
+
+    // A draft does not move.
+    expect(
+      (await ownStatus(toCci.id, { from: 'preparing', to: 'abandoned' }).expect(409)).body.error
+        .message,
+    ).toMatch(/une fois la candidature envoyée/)
+    await wsStatus(cci, toCci.id, { from: 'preparing', to: 'in_committee' }, MARIE).expect(404)
+    await sophie.post(`/v1/dossiers/${dossier.id}/submit`).expect(200)
+    await sophie.post(`/v1/candidatures/${toCci.id}/submit`).expect(200)
+    await sophie.post(`/v1/candidatures/${toClub.id}/submit`).expect(200)
+
+    // Malformed bodies: 400, nothing written.
+    for (const body of [
+      { from: 'preparing', to: 'preparing' },
+      { from: 'preparing', to: 'financé' },
+      { to: 'in_committee' },
+      { from: 'preparing', to: 'in_committee', by: 'owner' },
+    ]) {
+      await wsStatus(cci, toCci.id, body, MARIE).expect(400)
+    }
+
+    // The CCI: Jean (conseiller without the right to manage) takes it to committee, Marie funds it.
+    const committee = (
+      await wsStatus(cci, toCci.id, { from: 'preparing', to: 'in_committee' }, JEAN).expect(200)
+    ).body
+    valid(receivedCandidatureSchema, committee)
+    const funded = (
+      await wsStatus(cci, toCci.id, { from: 'in_committee', to: 'funded' }, MARIE).expect(200)
+    ).body
+    expect(
+      funded.statusHistory.map((c: { to: string; actor: { email: string } }) => [
+        c.to,
+        c.actor.email,
+      ]),
+    ).toEqual([
+      ['funded', MARIE.email],
+      ['in_committee', JEAN.email],
+    ])
+    // Two clicks from the same screen: the second one is refused, not applied over the first.
+    const stale = await wsStatus(
+      cci,
+      toCci.id,
+      { from: 'in_committee', to: 'refused' },
+      JEAN,
+    ).expect(409)
+    expect(stale.body.error).toMatchObject({
+      message: expect.stringMatching(/a changé entre-temps/),
+      details: { current: 'funded' },
+    })
+
+    // The club refuses; the entrepreneur cannot decide that, but abandons elsewhere.
+    expect(
+      (await ownStatus(toClub.id, { from: 'preparing', to: 'refused' }).expect(403)).body.error
+        .message,
+    ).toMatch(/décidé par la structure/)
+    await wsStatus(club, toClub.id, { from: 'preparing', to: 'refused' }, PAUL).expect(200)
+    expect(
+      (await wsStatus(club, toClub.id, { from: 'refused', to: 'funded' }, PAUL).expect(409)).body
+        .error.message,
+    ).toMatch(/ne peut pas passer/)
+
+    // Nobody else: investisseur 403; other workspace, entrepreneur, share recipient: 404.
+    await wsStatus(cci, toCci.id, { from: 'funded', to: 'preparing' }, CLAIRE).expect(403)
+    await wsStatus(club, toCci.id, { from: 'funded', to: 'preparing' }, PAUL).expect(404)
+    await wsStatus(cci, toCci.id, { from: 'funded', to: 'preparing' }, PAUL).expect(404)
+    await wsStatus(cci, toClub.id, { from: 'refused', to: 'preparing' }, MARIE).expect(404)
+    for (const outsider of [MARC, SOPHIE]) {
+      await wsStatus(cci, toCci.id, { from: 'funded', to: 'preparing' }, outsider).expect(404)
+    }
+    await ownStatus(toCci.id, { from: 'funded', to: 'preparing' }, MARC).expect(404)
+
+    // The entrepreneur sees each workspace's status, the side that decided, never who.
+    const mine = (await sophie.get(candidaturesOf).expect(200)).body
+    mine.forEach((c: unknown) => valid(candidatureSummarySchema, c))
+    expect(
+      mine
+        .map((c: { workspace: { name: string }; financingStatus: string }) => [
+          c.workspace.name,
+          c.financingStatus,
+        ])
+        .sort(),
+    ).toEqual([
+      ['CCI Touraine', 'funded'],
+      ['Club deal', 'refused'],
+    ])
+    const own = (await sophie.get(`/v1/candidatures/${toCci.id}`).expect(200)).body
+    valid(candidatureSchema, own)
+    expect(own.statusHistory.map((c: { to: string; by: string }) => [c.to, c.by])).toEqual([
+      ['funded', 'workspace'],
+      ['in_committee', 'workspace'],
+    ])
+    expect(JSON.stringify(own)).not.toMatch(/marie@|jean@/)
+
+    // Each workspace sees its own status only.
+    const clubView = (await as(PAUL).get(`/v1/workspaces/${club}/candidatures`).expect(200)).body
+    valid(receivedCandidatureSummarySchema, clubView[0])
+    expect(clubView.map((c: { financingStatus: string }) => c.financingStatus)).toEqual(['refused'])
+    const clubRead = (
+      await as(PAUL).get(`/v1/workspaces/${club}/candidatures/${toClub.id}`).expect(200)
+    ).body
+    expect(JSON.stringify(clubRead)).not.toMatch(/funded|in_committee|marie@|jean@/)
+
+    // A share recipient reads none of it.
+    const token = (
+      await sophie
+        .post(`/v1/dossiers/${dossier.id}/shares`, {
+          recipientEmail: BOB.email,
+          accessLevel: 'complet',
+        })
+        .expect(201)
+    ).body.token as string
+    for (const body of [
+      (await as(BOB).get(`/v1/shares/${token}`).expect(200)).body,
+      (await as(BOB).get(`/v1/dossiers/${dossier.id}`).expect(200)).body,
+      (await as(BOB).get('/v1/dossiers').expect(200)).body,
+    ]) {
+      expect(JSON.stringify(body)).not.toMatch(
+        /financingStatus|funded|refused|in_committee|statusHistory/,
+      )
+    }
+
+    // The publication is the entrepreneur's apart: archiving the request changes no workspace's status.
+    const archived = (await sophie.post(`/v1/dossiers/${dossier.id}/archive`).expect(200)).body
+    expect(archived).toMatchObject({ publicationStatus: 'archived', publishedAt: null })
+    await as(MARIE).post(`/v1/dossiers/${dossier.id}/archive`).expect(404)
+    expect(
+      (await as(MARIE).get(`/v1/workspaces/${cci}/candidatures/${toCci.id}`).expect(200)).body,
+    ).toMatchObject({
+      financingStatus: 'funded',
+      dossier: { publicationStatus: 'archived' },
+    })
+    expect(
+      (await sophie.post(`/v1/dossiers/${dossier.id}/publish`).expect(409)).body.error.message,
+    ).toMatch(/archivée/)
+    await sophie.patch(`/v1/dossiers/${dossier.id}`, { summary: 'Nouveau' }).expect(409)
+    const reopened = (await sophie.post(`/v1/dossiers/${dossier.id}/unarchive`).expect(200)).body
+    expect(reopened).toMatchObject({ publicationStatus: 'draft', archivedAt: null })
   })
 })

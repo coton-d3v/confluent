@@ -88,6 +88,9 @@ enum audit_action {
   candidature_created
   candidature_submitted
   candidature_withdrawn
+  dossier_archived
+  dossier_unarchived
+  candidature_status_changed
 
   @@map("audit_action")
 }
@@ -119,6 +122,7 @@ model User {
 
   candidatureAnswersWritten   CandidatureAnswer[]
   candidatureRevisionsWritten CandidatureAnswerRevision[]
+  candidatureStatusChanges    CandidatureStatusChange[]
 
   @@map("users")
 }
@@ -363,9 +367,11 @@ model Dossier {
   amountEur              Int?      @map("amount_eur")
   // FINANCING_TYPES of @confluent/shared, without duplicates.
   financingTypes         String[]  @default([]) @map("financing_types")
-  // `draft` | `published`; `publishedAt` is set exactly while published.
+  // DOSSIER_PUBLICATION_STATUSES of @confluent/shared (D03, E06.01): `draft` | `published` |
+  // `archived`; `publishedAt` is set exactly while published, `archivedAt` exactly while archived.
   publicationStatus      String    @default("draft") @map("publication_status")
   publishedAt            DateTime? @map("published_at")
+  archivedAt             DateTime? @map("archived_at")
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
@@ -547,23 +553,48 @@ model DossierAnswerRevision {
 // own and private to it. A draft (`submittedAt` null) is its owner's alone; once submitted, the
 // workspace's conseillers read it. It goes with its dossier.
 model Candidature {
-  id            String    @id @default(uuid())
-  dossierId     String    @map("dossier_id")
-  workspaceId   String    @map("workspace_id")
-  formVersionId String    @map("form_version_id")
-  submittedAt   DateTime? @map("submitted_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                       String    @id @default(uuid())
+  dossierId                String    @map("dossier_id")
+  workspaceId              String    @map("workspace_id")
+  formVersionId            String    @map("form_version_id")
+  submittedAt              DateTime? @map("submitted_at")
+  // The request's financing status in this workspace (D03, E06.01): FINANCING_STATUSES of
+  // @confluent/shared, `preparing` until the candidature is sent; changed only through
+  // `CandidaturesService.changeFinancingStatus`, each change kept in `candidature_status_changes`.
+  financingStatus          String    @default("preparing") @map("financing_status")
+  financingStatusChangedAt DateTime  @default(now()) @map("financing_status_changed_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  dossier     Dossier              @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  formVersion QuestionnaireVersion @relation(fields: [formVersionId], references: [id])
-  answers     CandidatureAnswer[]
+  dossier       Dossier                   @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  formVersion   QuestionnaireVersion      @relation(fields: [formVersionId], references: [id])
+  answers       CandidatureAnswer[]
+  statusChanges CandidatureStatusChange[]
 
   @@unique([dossierId, workspaceId])
   @@index([workspaceId])
   @@index([formVersionId])
   @@map("candidatures")
+}
+
+// One change of a candidature's financing status (E06.01): from, to, which side (`owner` |
+// `workspace`), who and when. Written with the change, under the candidature's lock; never updated.
+model CandidatureStatusChange {
+  id            String   @id @default(uuid())
+  candidatureId String   @map("candidature_id")
+  fromStatus    String   @map("from_status")
+  toStatus      String   @map("to_status")
+  actorSide     String   @map("actor_side")
+  actorId       String?  @map("actor_id")
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  candidature Candidature @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  actor       User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([candidatureId])
+  @@index([actorId])
+  @@map("candidature_status_changes")
 }
 
 // An answer of a candidature to its workspace's complementary form (E05.09), with the provenance of

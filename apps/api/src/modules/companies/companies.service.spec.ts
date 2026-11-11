@@ -94,6 +94,7 @@ describe('companies', () => {
         financingTypes: [],
         publicationStatus: 'draft',
         publishedAt: null,
+        archivedAt: null,
         submittedAt: null,
         createdAt: own.createdAt,
       },

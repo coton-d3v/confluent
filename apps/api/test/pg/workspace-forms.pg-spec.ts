@@ -12,11 +12,14 @@ import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, sqlStatements, statusesDown, statusesUp } from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261115000000_workspace_forms/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261115000000_workspace_forms.down.sql'))
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_workspace_forms_loss = 'on'"
+// E06.01 builds on the candidatures: undone first, applied again last.
+const LATER_DOWN = statusesDown()
+const LATER_UP = statusesUp()
 
 class RolledBack extends Error {}
 
@@ -181,6 +184,7 @@ describe('workspace forms and candidatures (PostgreSQL)', () => {
       })
       await rolledBack(async (tx) => {
         const before = await fingerprint(tx)
+        await run(tx, LATER_DOWN)
         await tx.$executeRawUnsafe('SAVEPOINT refused')
         const refusal = await run(tx, DOWN).then(
           () => null,
@@ -206,13 +210,14 @@ describe('workspace forms and candidatures (PostgreSQL)', () => {
           await rows(tx, `SELECT count(*)::int AS n FROM dossiers WHERE id = '${dossier.id}'`),
         ).toEqual([{ n: 1 }])
         await run(tx, UP)
+        await run(tx, LATER_UP)
         expect(await fingerprint(tx)).toBe(before)
       })
     })
 
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN])
         await run(tx, UP)
         const expected = await fingerprint(tx)
         for (let n = 1; n < UP.length; n++) {

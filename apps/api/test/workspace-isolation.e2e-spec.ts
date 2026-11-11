@@ -134,6 +134,11 @@ describe('workspace isolation (e2e)', () => {
         { method: 'put', path: '/admin/workspaces/:workspaceId/forms/:formId/usage' },
         { method: 'post', path: '/admin/workspaces/:workspaceId/forms/:formId/draft/fields' },
         { method: 'get', path: '/workspaces/:workspaceId/candidatures/:candidatureId' },
+        // E06.01: the financing status it gives a candidature.
+        {
+          method: 'post',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/financing-status',
+        },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

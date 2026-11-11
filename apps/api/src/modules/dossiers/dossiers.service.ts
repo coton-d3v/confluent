@@ -1,13 +1,25 @@
-import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
+import {
+  DOSSIER_PUBLICATION_STATUS_LABELS,
   PUBLICATION_REQUIREMENT_LABELS,
+  PUBLICATION_TRANSITIONS,
   financingTypesOf,
   highestAccessLevel,
+  isArchived,
   isPublished,
   missingForPublication,
   missingRequiredAnswers,
+  publicationStatusOf,
+  publicationTransition,
   type AccessLevel,
+  type AuditAction,
   type FinancingType,
+  type PublicationAction,
 } from '@confluent/shared'
 import type { Dossier, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -102,6 +114,29 @@ const notPublishable = (missing: ReturnType<typeof missingForPublication>, publi
       : `${missing.length} information(s) manquante(s) avant de publier la demande.`,
     details: missing.map((item) => ({ item, label: PUBLICATION_REQUIREMENT_LABELS[item] })),
   })
+
+// E06.01: an archived request is closed — no edit of its presentation, no publication, no new
+// presentation to a structure — until its owner unarchives it.
+export const requestArchived = () =>
+  new ConflictException({
+    code: 'DOSSIER_ARCHIVED',
+    message: 'Cette demande est archivée : désarchivez-la d’abord.',
+  })
+
+const publicationRefused = (current: Dossier, action: PublicationAction) =>
+  isArchived(current)
+    ? requestArchived()
+    : new ConflictException({
+        code: 'PUBLICATION_TRANSITION_REFUSED',
+        message: `Une demande « ${DOSSIER_PUBLICATION_STATUS_LABELS[publicationStatusOf(current.publicationStatus)]} » ne peut pas passer à « ${DOSSIER_PUBLICATION_STATUS_LABELS[PUBLICATION_TRANSITIONS[action].to]} ».`,
+      })
+
+const PUBLICATION_AUDIT_ACTIONS = {
+  publish: 'dossier_published',
+  unpublish: 'dossier_unpublished',
+  archive: 'dossier_archived',
+  unarchive: 'dossier_unarchived',
+} as const satisfies Record<PublicationAction, AuditAction>
 
 @Injectable()
 export class DossiersService {
@@ -347,7 +382,8 @@ export class DossiersService {
   }
 
   // The title (a new slug with it) and the presentation of a request (E05.07). A published request
-  // keeps what publication requires (422 otherwise): its owner unpublishes it first. Under the
+  // keeps what publication requires (422 otherwise): its owner unpublishes it first; an archived one
+  // is closed (409, E06.01): its owner unarchives it first. Under the
   // dossier's lock, like publication, so neither sees the other half done.
   async update(params: UpdateDossierParams): Promise<Dossier> {
     const { id } = await this.getByIdForUser(params.id, params.userId)
@@ -356,6 +392,7 @@ export class DossiersService {
       changes.name !== undefined ? await this.uniqueSlug(slugify(changes.name), id) : undefined
     return this.prisma.$transaction(async (tx) => {
       const dossier = await lockDossier(tx, id, params.userId)
+      if (isArchived(dossier)) throw requestArchived()
       const data: Prisma.DossierUpdateInput = {
         name: changes.name,
         slug,
@@ -381,53 +418,77 @@ export class DossiersService {
   // (summary, objective, amount, at least one type) and its company profile submitted for this
   // dossier — the submission checks the profile; publication presents the request. Its shares then
   // show the presentation; it opens or closes no share. Publishing a published request changes
-  // nothing. Journaled (`dossier_published`), with the channel it was asked through (E04.08, E05.10).
-  async publish(id: string, userId: string, origin: ActionOrigin = SITE_ORIGIN): Promise<Dossier> {
-    const { id: dossierId } = await this.getForDiffusion(id, userId)
-    const { dossier, changed } = await this.prisma.$transaction(async (tx) => {
-      const current = await lockDossier(tx, dossierId, userId)
-      if (isPublished(current)) return { dossier: current, changed: false }
-      const missing = missingForPublication(current)
-      if (missing.length > 0) throw notPublishable(missing, false)
-      const updated = await tx.dossier.update({
-        where: { id: dossierId },
-        data: { publicationStatus: 'published', publishedAt: new Date() },
-      })
-      return { dossier: updated, changed: true }
-    })
-    if (changed) {
-      await this.audit.record({
-        actionType: 'dossier_published',
-        actorId: userId,
-        dossierId,
-        // E05.10: the site, or an AI application on the owner's explicit instruction.
-        metadata: {
-          ...originMetadata(origin),
-          publishedAt: dossier.publishedAt?.toISOString() ?? null,
-        },
-      })
-    }
-    return dossier
+  // nothing; an archived one is unarchived first (409). Journaled (`dossier_published`), with the
+  // channel it was asked through (E04.08, E05.10).
+  publish(id: string, userId: string, origin: ActionOrigin = SITE_ORIGIN): Promise<Dossier> {
+    return this.changePublication(id, userId, 'publish', origin)
   }
 
   // Back to a draft: the shares stop showing the presentation; they stay open. Journaled.
-  async unpublish(id: string, userId: string): Promise<Dossier> {
-    const { id: dossierId } = await this.getByIdForUser(id, userId)
-    const { dossier, publishedAt } = await this.prisma.$transaction(async (tx) => {
+  unpublish(id: string, userId: string): Promise<Dossier> {
+    return this.changePublication(id, userId, 'unpublish')
+  }
+
+  // E06.01 (D03 « archivé »): the owner closes the request, published or not. Journaled.
+  archive(id: string, userId: string): Promise<Dossier> {
+    return this.changePublication(id, userId, 'archive')
+  }
+
+  // E06.01: an archived request goes back to a draft, to be published again if wanted. Journaled.
+  unarchive(id: string, userId: string): Promise<Dossier> {
+    return this.changePublication(id, userId, 'unarchive')
+  }
+
+  // Every change of a request's publication (D03, E06.01), as `PUBLICATION_TRANSITIONS` allows it:
+  // by its owner only — publishing, which diffuses it, never while a conseiller prepares its company
+  // (409, E05.08) —, under the dossier's lock so that two changes never interleave, asking again for
+  // the current status changing nothing; journaled once applied.
+  private async changePublication(
+    id: string,
+    userId: string,
+    action: PublicationAction,
+    origin: ActionOrigin = SITE_ORIGIN,
+  ): Promise<Dossier> {
+    const { id: dossierId } =
+      action === 'publish'
+        ? await this.getForDiffusion(id, userId)
+        : await this.getByIdForUser(id, userId)
+    const { dossier, previous } = await this.prisma.$transaction(async (tx) => {
       const current = await lockDossier(tx, dossierId, userId)
-      if (!isPublished(current)) return { dossier: current, publishedAt: null }
+      const transition = publicationTransition(current.publicationStatus, action)
+      if (transition === 'unchanged') return { dossier: current, previous: null }
+      if (transition === 'refused') throw publicationRefused(current, action)
+      if (action === 'publish') {
+        const missing = missingForPublication(current)
+        if (missing.length > 0) throw notPublishable(missing, false)
+      }
+      const now = new Date()
+      const to = PUBLICATION_TRANSITIONS[action].to
       const updated = await tx.dossier.update({
         where: { id: dossierId },
-        data: { publicationStatus: 'draft', publishedAt: null },
+        data: {
+          publicationStatus: to,
+          publishedAt: to === 'published' ? now : null,
+          archivedAt: to === 'archived' ? now : null,
+        },
       })
-      return { dossier: updated, publishedAt: current.publishedAt }
+      return { dossier: updated, previous: current }
     })
-    if (publishedAt) {
+    if (previous) {
       await this.audit.record({
-        actionType: 'dossier_unpublished',
+        actionType: PUBLICATION_AUDIT_ACTIONS[action],
         actorId: userId,
         dossierId,
-        metadata: { publishedAt: publishedAt.toISOString() },
+        metadata: {
+          // E05.10: the site, or an AI application on the owner's explicit instruction.
+          ...(action === 'publish' ? originMetadata(origin) : {}),
+          from: publicationStatusOf(previous.publicationStatus),
+          to: publicationStatusOf(dossier.publicationStatus),
+          publishedAt: (dossier.publishedAt ?? previous.publishedAt)?.toISOString() ?? null,
+          ...(action === 'unarchive'
+            ? { archivedAt: previous.archivedAt?.toISOString() ?? null }
+            : {}),
+        },
       })
     }
     return dossier

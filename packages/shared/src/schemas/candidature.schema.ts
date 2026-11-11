@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { answerProvenanceSchema, answerRevisionSchema } from './answer.schema.js'
-import { dossierPublicationStatusSchema, financingTypeSchema } from './financing.schema.js'
+import { financingTypeSchema } from './financing.schema.js'
+import {
+  dossierPublicationStatusSchema,
+  financingStatusChangeSchema,
+  financingStatusSchema,
+  receivedFinancingStatusChangeSchema,
+} from './status.schema.js'
 import { activeQuestionnaireSchema, type FieldType } from './questionnaire.schema.js'
 
 // ROADMAP E05.09, decision D01: a company keeps ONE common profile, presented as is to every
@@ -8,7 +14,8 @@ import { activeQuestionnaireSchema, type FieldType } from './questionnaire.schem
 // « Candidature au workspace ») is one financing request (dossier) presented to one workspace: it
 // answers that workspace's complementary form, and those answers are the candidature's own — never
 // shown to another workspace, to the recipients of the dossier's shares, nor reused by another
-// candidature. Its local status, accompaniment and committee workflow come with E06/E08.
+// candidature. Once sent, it carries the request's financing status in that workspace (E06.01,
+// status.schema.ts); its accompaniment and committee workflow come with E06/E08.
 
 // Who reads the candidatures a workspace receives: its active conseillers (the right to manage the
 // workspace is not required), and Confluent administrators. Closed by default: an investisseur, an
@@ -28,7 +35,8 @@ export function fieldTypeAllowedInWorkspaceForms(fieldType: FieldType): boolean 
   return fieldType !== 'file'
 }
 
-// Derived from `submittedAt`: a draft is the owner's alone; once submitted, the workspace reads it.
+// Derived from `submittedAt`: a draft is the owner's alone; once submitted, the workspace reads it
+// and its financing status (`financingStatus`) follows the structure's decisions.
 export const CANDIDATURE_STATUSES = ['draft', 'submitted'] as const
 export const candidatureStatusSchema = z.enum(CANDIDATURE_STATUSES)
 export type CandidatureStatus = z.infer<typeof candidatureStatusSchema>
@@ -71,6 +79,9 @@ export const candidatureSummarySchema = z.object({
   workspace: candidatureWorkspaceSchema.pick({ id: true, name: true, programName: true }),
   status: candidatureStatusSchema,
   submittedAt: z.string().datetime().nullable(),
+  // E06.01: `preparing` while a draft; changes only once sent.
+  financingStatus: financingStatusSchema,
+  financingStatusChangedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -91,6 +102,8 @@ export const candidatureSchema = candidatureSummarySchema.extend({
   }),
   form: candidatureFormSchema,
   answers: z.array(candidatureAnswerSchema),
+  // Every change of the financing status, the latest first.
+  statusHistory: z.array(financingStatusChangeSchema),
 })
 
 // A value as the workspace reads it: no provenance, no history.
@@ -106,6 +119,8 @@ const applicantSchema = z.object({
 export const receivedCandidatureSummarySchema = z.object({
   id: z.string().uuid(),
   submittedAt: z.string().datetime(),
+  financingStatus: financingStatusSchema,
+  financingStatusChangedAt: z.string().datetime(),
   company: z.object({ name: z.string() }),
   dossier: z.object({
     name: z.string(),
@@ -129,6 +144,8 @@ export const receivedCandidatureSchema = receivedCandidatureSummarySchema.extend
   }),
   profile: activeQuestionnaireSchema.extend({ answers: z.array(receivedAnswerSchema) }),
   form: candidatureFormSchema.extend({ answers: z.array(receivedAnswerSchema) }),
+  // Every change of the financing status, the latest first, with who made it.
+  statusHistory: z.array(receivedFinancingStatusChangeSchema),
 })
 
 export type CreateCandidatureInput = z.infer<typeof createCandidatureSchema>

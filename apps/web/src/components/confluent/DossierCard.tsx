@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { DOSSIER_PUBLICATION_STATUS_LABELS, type DossierPublicationStatus } from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { formatRelativeDate } from '@/lib/relative-date'
@@ -14,7 +15,7 @@ export interface DossierCardProps {
   ownerName?: string
   // E05.07: for the owner, the company the request belongs to and its publication.
   companyName?: string
-  publicationStatus?: 'draft' | 'published'
+  publicationStatus?: DossierPublicationStatus
   // E05.08: a company the signed-in conseiller prepares for an entrepreneur.
   inPreparation?: boolean
   createdAt: string
@@ -47,11 +48,7 @@ export function DossierCard({
   const sectorLabel = sector ?? 'Secteur non classifié'
   const maturityLabel = maturity ?? 'À soumettre'
   const publicationLabel =
-    publicationStatus === undefined
-      ? null
-      : publicationStatus === 'published'
-        ? 'Publiée'
-        : 'Brouillon'
+    publicationStatus === undefined ? null : DOSSIER_PUBLICATION_STATUS_LABELS[publicationStatus]
   const ariaLabel = [
     name,
     companyName && `entreprise ${companyName}`,

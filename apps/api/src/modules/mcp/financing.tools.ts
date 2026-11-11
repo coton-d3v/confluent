@@ -9,6 +9,7 @@ import {
   PUBLICATION_REQUIREMENT_LABELS,
   documentTypeSchema,
   financingTypesOf,
+  isArchived,
   isPublished,
   missingForPublication,
   updateDossierSchema,
@@ -27,6 +28,7 @@ import {
   CONSEQUENTIAL_ACTION,
   ToolError,
   mcpOrigin,
+  publicationName,
   refuseInstructionFromDocument,
   requireScope,
   sameName,
@@ -136,7 +138,7 @@ export class FinancingTools {
                 summary: d.summary,
                 amountEur: d.amountEur,
                 financingTypes: d.financingTypes,
-                publication: isPublished(d) ? 'publiee' : 'brouillon',
+                publication: publicationName(d),
                 publishedAt: d.publishedAt,
                 profileSubmittedAt: d.submittedAt,
               })),
@@ -310,6 +312,11 @@ export class FinancingTools {
           )
           if (isPublished(row)) {
             throw new ToolError('Cette demande est déjà publiée : rien n’a été changé.')
+          }
+          if (isArchived(row)) {
+            throw new ToolError(
+              'Cette demande est archivée : son propriétaire la désarchive dans le site avant de la publier.',
+            )
           }
           await refuseInstructionFromDocument(
             this.documents,
@@ -565,7 +572,7 @@ export class FinancingTools {
       description: dossier.description,
       amountEur: dossier.amountEur,
       financingTypes: financingTypesOf(dossier.financingTypes),
-      publication: isPublished(dossier) ? 'publiee' : 'brouillon',
+      publication: publicationName(dossier),
       publishedAt: dossier.publishedAt,
       ...(isPublished(dossier)
         ? {}

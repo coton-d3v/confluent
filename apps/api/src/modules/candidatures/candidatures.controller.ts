@@ -25,7 +25,11 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger'
-import { createCandidatureSchema, upsertAnswersSchema } from '@confluent/shared'
+import {
+  changeFinancingStatusSchema,
+  createCandidatureSchema,
+  upsertAnswersSchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
@@ -42,6 +46,17 @@ import {
 
 class CreateCandidatureDto extends createZodDto(createCandidatureSchema) {}
 class UpsertCandidatureAnswersDto extends createZodDto(upsertAnswersSchema) {}
+class ChangeFinancingStatusDto extends createZodDto(changeFinancingStatusSchema) {}
+
+// E06.01 (decision D03, to be confirmed): what both sides' routes say of the financing status.
+const FINANCING_STATUS_RULES =
+  'Statuts : `preparing` (en préparation), `in_committee` (en comité), `funded` (financé), ' +
+  '`refused` (refusé), `abandoned` (abandonné). Corps `{ from, to }` : `from` est le statut lu ' +
+  'par le client ; s’il a changé entre-temps, `409` `FINANCING_STATUS_CHANGED` et rien n’est ' +
+  'écrit. Chaque changement est daté et conservé (`statusHistory`) et journalisé ' +
+  '(`candidature_status_changed`). Transition que personne ne fait : `409` ' +
+  '`FINANCING_TRANSITION_IMPOSSIBLE` ; réservée à l’autre partie : `403` ' +
+  '`FINANCING_TRANSITION_FORBIDDEN`.'
 
 const uuid = new ParseUUIDPipe()
 
@@ -178,16 +193,44 @@ export class CandidaturesController {
     return this.candidatures.submit(candidatureId, user.id)
   }
 
+  @Post('candidatures/:candidatureId/financing-status')
+  @HttpCode(200)
+  @ApiParam({ name: 'candidatureId', description: 'UUID de la candidature' })
+  @ApiOperation({
+    summary: 'Changer le statut de financement (porteur de projet)',
+    description:
+      'Sur une candidature envoyée (`409` `CANDIDATURE_NOT_SENT` sinon), le porteur de projet ' +
+      'abandonne sa demande auprès de cette structure (`preparing`/`in_committee` → `abandoned`) ' +
+      'ou reprend un abandon (`abandoned` → `preparing`) ; le reste est décidé par la structure. ' +
+      FINANCING_STATUS_RULES,
+  })
+  @ApiOkResponse({ description: 'Candidature, avec son nouveau statut et son historique.' })
+  @ApiBadRequestResponse({ description: 'Statut inconnu, ou identique au statut lu.' })
+  @ApiForbiddenResponse({ description: 'Statut décidé par la structure.' })
+  @ApiConflictResponse({
+    description: 'Candidature non envoyée, statut changé entre-temps ou transition impossible.',
+  })
+  @ApiNotFoundResponse({ description: 'Candidature inexistante ou d’un autre compte.' })
+  changeFinancingStatus(
+    @Param('candidatureId', uuid) candidatureId: string,
+    @Body() body: ChangeFinancingStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<CandidatureView> {
+    return this.candidatures.changeFinancingStatusAsOwner(candidatureId, user.id, body)
+  }
+
   @Delete('candidatures/:candidatureId')
   @HttpCode(204)
   @ApiParam({ name: 'candidatureId', description: 'UUID de la candidature' })
   @ApiOperation({
-    summary: 'Retirer la candidature',
+    summary: 'Retirer une candidature en brouillon',
     description:
-      'La candidature et ses réponses sont supprimées : la structure ne la lit plus. Journalisé ' +
-      '(`candidature_withdrawn`).',
+      'La candidature et ses réponses sont supprimées. Journalisé (`candidature_withdrawn`). Une ' +
+      'candidature envoyée est suivie et gardée par la structure : `409` `CANDIDATURE_SENT`, elle ' +
+      's’abandonne par son statut de financement.',
   })
   @ApiNoContentResponse({ description: 'Candidature retirée.' })
+  @ApiConflictResponse({ description: 'Candidature déjà envoyée.' })
   @ApiNotFoundResponse({ description: 'Candidature inexistante ou d’un autre compte.' })
   withdraw(
     @Param('candidatureId', uuid) candidatureId: string,
@@ -220,7 +263,8 @@ export class ReceivedCandidaturesController {
     summary: 'Candidatures reçues',
     description:
       'Les candidatures envoyées au workspace, la plus récente d’abord : entreprise, demande ' +
-      '(titre, montant, types). Les brouillons restent invisibles.',
+      '(titre, montant, types), statut de financement dans ce workspace. Les brouillons restent ' +
+      'invisibles.',
   })
   @ApiOkResponse({ description: 'Candidatures reçues.' })
   list(
@@ -246,5 +290,33 @@ export class ReceivedCandidaturesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ReceivedCandidatureView> {
     return this.candidatures.getReceived(user, workspaceId, candidatureId)
+  }
+
+  @Post(':candidatureId/financing-status')
+  @HttpCode(200)
+  @ApiParam({ name: 'candidatureId', description: 'UUID de la candidature' })
+  @ApiOperation({
+    summary: 'Changer le statut de financement (structure)',
+    description:
+      'Conseillers actifs du workspace (droit de gestion non requis) et administrateurs, sur une ' +
+      'candidature envoyée à ce workspace : passage en comité et retour en préparation, ' +
+      'financement, refus, abandon constaté, réouverture d’un statut clos. ' +
+      FINANCING_STATUS_RULES,
+  })
+  @ApiOkResponse({ description: 'Candidature reçue, avec son nouveau statut et son historique.' })
+  @ApiBadRequestResponse({ description: 'Statut inconnu, ou identique au statut lu.' })
+  @ApiConflictResponse({ description: 'Statut changé entre-temps ou transition impossible.' })
+  changeFinancingStatus(
+    @Param('workspaceId', uuid) workspaceId: string,
+    @Param('candidatureId', uuid) candidatureId: string,
+    @Body() body: ChangeFinancingStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ReceivedCandidatureView> {
+    return this.candidatures.changeFinancingStatusForWorkspace(
+      user,
+      workspaceId,
+      candidatureId,
+      body,
+    )
   }
 }

@@ -451,6 +451,7 @@ export function createFakePrisma() {
       financingTypes: [],
       publicationStatus: 'draft',
       publishedAt: null,
+      archivedAt: null,
       updatedAt: new Date(),
     })),
     shareLink: model('shareLink'),
@@ -474,7 +475,12 @@ export function createFakePrisma() {
     })),
     dossierAnswer: model('dossierAnswer'),
     dossierAnswerRevision: model('dossierAnswerRevision', () => ({ replacedAt: new Date() })),
-    candidature: model('candidature', () => ({ submittedAt: null })),
+    candidature: model('candidature', () => ({
+      submittedAt: null,
+      financingStatus: 'preparing',
+      financingStatusChangedAt: new Date(),
+    })),
+    candidatureStatusChange: model('candidatureStatusChange', () => ({ changedAt: new Date() })),
     candidatureAnswer: model('candidatureAnswer'),
     candidatureAnswerRevision: model('candidatureAnswerRevision', () => ({
       replacedAt: new Date(),
