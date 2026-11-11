@@ -1,6 +1,7 @@
 import type {
   DocumentGroup,
   DocumentType,
+  DossierDocumentSelected,
   LibraryDocument,
   UploadedDocument,
 } from '@confluent/shared'
@@ -49,5 +50,25 @@ export function restoreDocumentVersion(
   return apiRequest<UploadedDocument>(
     `${documentsPath(dossierId)}/${encodeURIComponent(documentId)}/versions/${encodeURIComponent(versionId)}/restore`,
     { method: 'POST' },
+  )
+}
+
+// E05.07: the request presents this document of the library to its shares, following its latest
+// version (`pinnedVersionId` null) or pinned to one version; or no longer presents it.
+export function selectDocument(
+  dossierId: string,
+  documentId: string,
+  pinnedVersionId: string | null,
+): Promise<DossierDocumentSelected> {
+  return apiRequest<DossierDocumentSelected>(
+    `${documentsPath(dossierId)}/${encodeURIComponent(documentId)}/selection`,
+    { method: 'PUT', body: JSON.stringify({ pinnedVersionId }) },
+  )
+}
+
+export function unselectDocument(dossierId: string, documentId: string): Promise<void> {
+  return apiRequest<void>(
+    `${documentsPath(dossierId)}/${encodeURIComponent(documentId)}/selection`,
+    { method: 'DELETE' },
   )
 }

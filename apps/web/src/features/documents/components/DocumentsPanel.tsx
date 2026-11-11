@@ -20,8 +20,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { restoreDocumentVersion, updateDocumentType } from '../api'
-import { holdsCurrentFile, restoreErrorMessage, typeChangeErrorMessage } from '../library'
+import {
+  restoreDocumentVersion,
+  selectDocument,
+  unselectDocument,
+  updateDocumentType,
+} from '../api'
+import {
+  holdsCurrentFile,
+  restoreErrorMessage,
+  selectionErrorMessage,
+  typeChangeErrorMessage,
+} from '../library'
 import { ACCEPT_ATTRIBUTE, describeVersion, extensionOf } from '../upload-checks'
 import { useDocumentUploads } from '../useDocumentUploads'
 import { useDossierDocuments } from '../useDossierDocuments'
@@ -29,17 +39,21 @@ import { DocumentVersionAction } from './DocumentVersionAction'
 import { UploadList } from './UploadList'
 
 // The company's library as the dossier presents it (E05.06): typed documents, their versions and
-// history. The owner deposits, adds versions, changes types and brings an earlier version back;
-// anyone else reads what their level allows.
+// history. The owner deposits, adds versions, changes types and brings an earlier version back, and
+// chooses which documents this request presents to its shares — following the latest version or
+// pinned to one (E05.07); anyone else reads the documents the request selects, as their level allows.
 export function DocumentsPanel({
   dossierId,
   canUpload,
   fieldLabels,
+  requestName,
 }: {
   dossierId: string
   canUpload: boolean
   // Label of each attachment field of the dossier's form, to say which question a file answers.
   fieldLabels?: ReadonlyMap<string, string>
+  // Title of the request, to say what a document is selected for.
+  requestName?: string
 }) {
   const documents = useDossierDocuments(dossierId)
   const { refetch } = documents
@@ -78,6 +92,30 @@ export function DocumentsPanel({
     }
   }
 
+  async function changeSelection(group: DocumentGroup, choice: string) {
+    setBusy(true)
+    try {
+      if (choice === NOT_SELECTED) {
+        await unselectDocument(dossierId, group.id)
+        toast.success(`« ${group.filename} » n’est plus présenté dans cette demande.`)
+      } else {
+        const pinned = choice === LATEST ? null : choice
+        await selectDocument(dossierId, group.id, pinned)
+        const version = group.versions.find((v) => v.id === pinned)
+        toast.success(
+          version
+            ? `« ${group.filename} » : la version ${version.version} est présentée dans cette demande.`
+            : `« ${group.filename} » : sa dernière version est présentée dans cette demande.`,
+        )
+      }
+    } catch (err) {
+      toast.error(selectionErrorMessage(err))
+    } finally {
+      setBusy(false)
+      refetch()
+    }
+  }
+
   async function confirmRestore() {
     if (!restoring) return
     const { group, version } = restoring
@@ -98,6 +136,7 @@ export function DocumentsPanel({
 
   const groups = documents.data ?? []
   const lost = groups.filter((g) => g.current.availability === 'missing')
+  const selectedCount = groups.filter((g) => g.selection).length
 
   return (
     <section aria-labelledby="documents-heading" className="flex flex-col gap-4">
@@ -111,6 +150,21 @@ export function DocumentsPanel({
             « Nouvelle version », en ajoute une version : les précédentes restent téléchargeables et
             peuvent être restaurées. PDF, images, documents Word, Excel, PowerPoint ou OpenDocument, CSV
             ou texte ; 20 Mo maximum par fichier.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Les destinataires des partages de cette demande ne voient que les documents qu’elle présente
+            (selon leur niveau d’accès) : la dernière version, qui suit vos mises à jour, ou une version
+            figée. Un document déposé ici est présenté dans cette demande ; vos autres demandes le
+            présentent si vous le choisissez.{' '}
+            {groups.length > 0 && (
+              <span className="font-medium text-foreground">
+                {selectedCount === 0
+                  ? 'Aucun document présenté dans cette demande.'
+                  : selectedCount === 1
+                    ? '1 document présenté dans cette demande.'
+                    : `${selectedCount} documents présentés dans cette demande.`}
+              </span>
+            )}
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-0 flex-col gap-1">
@@ -188,6 +242,8 @@ export function DocumentsPanel({
               onNewVersion={() => pick(group)}
               onTypeChange={(type) => void changeType(group, type)}
               onRestore={(version) => setRestoring({ group, version })}
+              onSelectionChange={(choice) => void changeSelection(group, choice)}
+              requestName={requestName}
             />
           ))}
         </ul>
@@ -222,6 +278,9 @@ export function DocumentsPanel({
   )
 }
 
+const NOT_SELECTED = ''
+const LATEST = 'latest'
+
 function LibraryItem({
   group,
   answers,
@@ -231,6 +290,8 @@ function LibraryItem({
   onNewVersion,
   onTypeChange,
   onRestore,
+  onSelectionChange,
+  requestName,
 }: {
   group: DocumentGroup
   answers: string | undefined
@@ -240,8 +301,13 @@ function LibraryItem({
   onNewVersion: () => void
   onTypeChange: (type: DocumentType) => void
   onRestore: (version: DocumentVersion) => void
+  onSelectionChange: (choice: string) => void
+  requestName: string | undefined
 }) {
   const typeId = useId()
+  const selectionId = useId()
+  const selection = group.selection
+  const choice = !selection ? NOT_SELECTED : (selection.pinnedVersionId ?? LATEST)
   const previous = group.versions.slice(1)
   return (
     <li className="flex flex-col gap-3 px-4 py-3">
@@ -272,6 +338,28 @@ function LibraryItem({
           )}
           {answers && <p className="text-xs text-muted-foreground">Pièce jointe : {answers}</p>}
           <p className="text-xs text-muted-foreground">{describeVersion(group.current)}</p>
+          {canEdit && selection !== undefined && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor={selectionId} className="text-xs text-muted-foreground">
+                {requestName ? `Dans « ${requestName} »` : 'Dans cette demande'}
+              </label>
+              <NativeSelect
+                id={selectionId}
+                className="h-9 w-auto max-w-full"
+                value={choice}
+                disabled={busy}
+                onChange={(e) => onSelectionChange(e.target.value)}
+              >
+                <option value={NOT_SELECTED}>Non présenté</option>
+                <option value={LATEST}>Dernière version (suivie)</option>
+                {group.versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    Version {v.version} figée
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <DocumentVersionAction

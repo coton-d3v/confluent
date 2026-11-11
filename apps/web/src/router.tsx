@@ -7,6 +7,7 @@ import DossierNewRoute from '@/routes/dashboard/dossiers/nouveau'
 import QuestionnaireRoute from '@/routes/dashboard/dossiers/nouveau/questionnaire'
 import RecapitulatifRoute from '@/routes/dashboard/dossiers/nouveau/recapitulatif'
 import DossierViewRoute from '@/routes/dashboard/dossiers/[slug]'
+import CompanyRoute from '@/routes/dashboard/entreprises/[companyId]'
 import AdminRoute from '@/routes/admin'
 import AdminDossiersRoute from '@/routes/admin/dossiers'
 import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
@@ -57,6 +58,11 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard/dossiers/view/:slug',
         element: <DossierViewRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'dashboard/entreprises/:companyId',
+        element: <CompanyRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'admin', element: <AdminRoute /> },

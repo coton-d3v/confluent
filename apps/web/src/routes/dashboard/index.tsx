@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { canOwnCompanies } from '@confluent/shared'
 import { Button } from '@/components/ui/button'
 import { DossierCard } from '@/components/confluent/DossierCard'
@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/confluent/EmptyState'
 import { EmptyDossiersIllustration } from '@/components/confluent/illustrations/EmptyDossiersIllustration'
 import { useDossiers } from '@/features/dossiers/hooks'
 import { useCurrentUser } from '@/features/current-user/context'
+import { listCompanies } from '@/features/companies/api'
+import { useAsync } from '@/lib/useAsync'
 
 export default function DashboardRoute() {
   const navigate = useNavigate()
@@ -25,6 +27,12 @@ export default function DashboardRoute() {
   const list = dossiers ?? []
   // Creating a dossier creates its company: offered to whoever may own one (E05.04).
   const canCreate = canOwnCompanies(currentUser)
+  // E05.07: each company and its requests; another request is created on the company's page.
+  const companies = useAsync(
+    () => (canCreate ? listCompanies() : Promise.resolve([])),
+    [canCreate],
+  ).data
+  const companyNames = new Map((companies ?? []).map((c) => [c.id, c.name]))
 
   return (
     <>
@@ -48,6 +56,34 @@ export default function DashboardRoute() {
           </Button>
         )}
       </div>
+      {companies && companies.length > 0 && (
+        <section aria-labelledby="companies-heading" className="mt-6">
+          <h2 id="companies-heading" className="text-sm font-medium text-muted-foreground">
+            Mes entreprises
+          </h2>
+          <ul role="list" className="mt-2 flex flex-wrap gap-2">
+            {companies.map((c) => (
+              <li key={c.id}>
+                <Link
+                  to={`/dashboard/entreprises/${encodeURIComponent(c.id)}`}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:border-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                >
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {c.dossiers.length <= 1
+                      ? `${c.dossiers.length} demande`
+                      : `${c.dossiers.length} demandes`}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Pour une autre demande de financement d’une entreprise existante, ouvrez sa page : son
+            profil n’est pas à ressaisir.
+          </p>
+        </section>
+      )}
       {isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : error ? (
@@ -68,6 +104,8 @@ export default function DashboardRoute() {
                 sector={d.sector}
                 maturity={d.maturityStage}
                 isShared={d.userId !== currentUser.id}
+                companyName={d.company ? companyNames.get(d.company.id) ?? d.company.name : undefined}
+                publicationStatus={d.userId === currentUser.id ? d.publicationStatus : undefined}
                 ownerEmail={d.ownerEmail}
                 ownerName={d.ownerName}
                 createdAt={d.createdAt}
