@@ -1,14 +1,24 @@
-import { Link, NavLink } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Workspace } from '@confluent/shared'
 import { useCurrentUser } from '@/features/current-user/context'
 import { cn } from '@/lib/utils'
 
 // Header of a workspace's management pages: trail, name, address and the Réglages / Membres /
-// Formulaires (E05.09) tabs.
+// Formulaires (E05.09) / Sources de financement (E06.02) tabs, scrolled within their bar on a
+// narrow screen rather than widening the page.
 // An administrator comes from the administration; a manager from « Mes workspaces ».
 export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
   const me = useCurrentUser()
   const base = `/admin/workspaces/${workspace.id}`
+  const tabs = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+  // The current tab stays in sight when the bar scrolls (narrow screen).
+  useEffect(() => {
+    const bar = tabs.current
+    const current = bar?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (bar && current) bar.scrollLeft = current.offsetLeft - bar.offsetLeft - 16
+  }, [pathname])
   return (
     <>
       <nav aria-label="Fil d’Ariane" className="wrap-anywhere text-xs text-muted-foreground">
@@ -34,12 +44,17 @@ export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
         {workspace.name}
       </h1>
       <p className="mt-1 break-all font-mono text-sm text-muted-foreground">/w/{workspace.slug}</p>
-      <nav aria-label="Sections du workspace" className="mt-4 flex gap-1 border-b border-border">
+      <nav
+        ref={tabs}
+        aria-label="Sections du workspace"
+        className="mt-4 flex gap-1 overflow-x-auto border-b border-border"
+      >
         <Tab to={base} end>
           Réglages
         </Tab>
         <Tab to={`${base}/membres`}>Membres</Tab>
         <Tab to={`${base}/formulaires`}>Formulaires</Tab>
+        <Tab to={`${base}/sources`}>Sources de financement</Tab>
       </nav>
     </>
   )
@@ -52,7 +67,7 @@ function Tab({ to, end, children }: { to: string; end?: boolean; children: strin
       end={end}
       className={({ isActive }) =>
         cn(
-          '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]',
+          '-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]',
           isActive
             ? 'border-foreground text-foreground'
             : 'border-transparent text-muted-foreground hover:text-foreground',

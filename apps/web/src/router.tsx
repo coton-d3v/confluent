@@ -22,6 +22,7 @@ import AdminWorkspaceRoute from '@/routes/admin/workspaces/[workspaceId]'
 import AdminWorkspaceMembersRoute from '@/routes/admin/workspaces/[workspaceId]/membres'
 import AdminWorkspaceFormsRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires'
 import AdminWorkspaceFormEditorRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires/[formId]'
+import AdminWorkspaceSourcesRoute from '@/routes/admin/workspaces/[workspaceId]/sources'
 import MyWorkspacesRoute from '@/routes/workspaces'
 import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
@@ -117,6 +118,11 @@ export const router = createBrowserRouter([
       {
         path: 'admin/workspaces/:workspaceId/formulaires/:formId',
         element: <AdminWorkspaceFormEditorRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'admin/workspaces/:workspaceId/sources',
+        element: <AdminWorkspaceSourcesRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'workspaces', element: <MyWorkspacesRoute /> },
