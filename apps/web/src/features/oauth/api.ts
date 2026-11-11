@@ -1,19 +1,13 @@
-import type { ConnectedApplication, ConversationGuide } from '@confluent/shared'
+import type {
+  ConnectedApplication,
+  ConversationGuide,
+  OAuthConsentDecision,
+  OAuthConsentRequest,
+  OAuthConsentWorkspace,
+} from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
-export type { ConnectedApplication, ConversationGuide }
-
-export interface OAuthConsentRequest {
-  id: string
-  client: {
-    name: string
-    redirectHost: string
-    clientUri: string | null
-    verifiedByMetadataDocument: boolean
-  }
-  scopes: Array<{ scope: string; label: string }>
-  expiresAt: string
-}
+export type { ConnectedApplication, ConversationGuide, OAuthConsentRequest, OAuthConsentWorkspace }
 
 export function getConsentRequest(id: string): Promise<OAuthConsentRequest> {
   return apiRequest<OAuthConsentRequest>(`/v1/oauth/requests/${encodeURIComponent(id)}`)
@@ -21,12 +15,11 @@ export function getConsentRequest(id: string): Promise<OAuthConsentRequest> {
 
 export function decideConsentRequest(
   id: string,
-  approve: boolean,
-  scopes?: string[],
+  decision: OAuthConsentDecision,
 ): Promise<{ redirectUrl: string }> {
   return apiRequest<{ redirectUrl: string }>(
     `/v1/oauth/requests/${encodeURIComponent(id)}/decision`,
-    { method: 'POST', body: JSON.stringify({ approve, scopes }) },
+    { method: 'POST', body: JSON.stringify(decision) },
   )
 }
 
