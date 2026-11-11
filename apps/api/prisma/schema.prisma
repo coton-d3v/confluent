@@ -68,6 +68,8 @@ enum audit_action {
   form_draft_discarded
   classification_rules_updated
   dossier_submitted
+  workspace_created
+  workspace_updated
 
   @@map("audit_action")
 }
@@ -467,4 +469,28 @@ model ClassificationRule {
 
   @@unique([dimension, fieldKey, choiceKey])
   @@map("classification_rules")
+}
+
+// The space of one structure (CCI, incubator, investor network, club deal) and its settings
+// (ROADMAP E05.01). Memberships (E05.02) and isolation (E05.03) attach to it later. Formats and
+// closed values are also enforced by CHECK constraints (migration 20261111300000_workspaces).
+model Workspace {
+  id           String   @id @default(uuid())
+  // Public and stable (future `/w/<slug>` page): set at creation, never changed.
+  slug         String   @unique
+  name         String
+  programName  String?  @map("program_name")
+  // `#rrggbb`.
+  color        String?
+  // Plain text, never rendered as HTML or Markdown.
+  presentation String?
+  contactEmail String?  @map("contact_email")
+  // Lower-case ASCII host name the workspace's invitations are restricted to (applied from E05.02).
+  emailDomain  String?  @map("email_domain")
+  // Opaque key of the logo in the private bucket (`workspaces/<id>/logo/<uuid>`), served by signed URL.
+  logoKey      String?  @map("logo_key")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("workspaces")
 }
