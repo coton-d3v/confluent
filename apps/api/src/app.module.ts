@@ -23,6 +23,7 @@ import { FundingSourcesModule } from './modules/funding-sources/funding-sources.
 import { FundingPlansModule } from './modules/funding-plans/funding-plans.module'
 import { EligibilitiesModule } from './modules/eligibilities/eligibilities.module'
 import { SupportPathsModule } from './modules/support-paths/support-paths.module'
+import { InterventionsModule } from './modules/interventions/interventions.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -53,6 +54,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     FundingPlansModule,
     EligibilitiesModule,
     SupportPathsModule,
+    InterventionsModule,
   ],
   controllers: [AppController],
   providers: [

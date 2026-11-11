@@ -200,6 +200,20 @@ describe('workspace isolation (e2e)', () => {
         },
         // E06.07: its portfolio by phase.
         { method: 'get', path: '/workspaces/:workspaceId/portfolio' },
+        // E06.08: its internal notes on a candidature it receives, and its interventions on it.
+        {
+          method: 'get',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/interventions',
+        },
+        { method: 'post', path: '/workspaces/:workspaceId/candidatures/:candidatureId/notes' },
+        {
+          method: 'patch',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/notes/:noteId',
+        },
+        {
+          method: 'delete',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/notes/:noteId',
+        },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 // In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
 // Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
-// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`.
+// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`, `{ notIn }`.
 type Row = Record<string, unknown> & { id: string }
 type Where = Record<string, unknown>
 
@@ -11,10 +11,11 @@ function matches(row: Row, where: Where = {}): boolean {
   return Object.entries(where).every(([k, cond]) => {
     const v = row[k]
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
-      const c = cond as { gt?: Date; not?: unknown; in?: unknown[] }
+      const c = cond as { gt?: Date; not?: unknown; in?: unknown[]; notIn?: unknown[] }
       if ('gt' in c) return v instanceof Date && v.getTime() > c.gt!.getTime()
       if ('not' in c) return v !== c.not
       if ('in' in c) return c.in!.includes(v)
+      if ('notIn' in c) return !c.notIn!.includes(v)
       return true
     }
     return v === cond
@@ -61,6 +62,7 @@ const UPDATED_AT = new Set([
   'candidatureEligibility',
   'supportStep',
   'candidatureStepValidation',
+  'candidatureNote',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -525,6 +527,11 @@ export function createFakePrisma() {
     candidatureStepValidationChange: model('candidatureStepValidationChange', () => ({
       changedAt: new Date(),
       actorId: null,
+    })),
+    candidatureNote: model('candidatureNote', () => ({
+      version: 1,
+      editedAt: null,
+      deletedAt: null,
     })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,

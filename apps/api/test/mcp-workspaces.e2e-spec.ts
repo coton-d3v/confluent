@@ -381,6 +381,51 @@ describe('MCP: workspaces, companies, financing requests and libraries (e2e, E05
       await c.close()
     })
 
+    it('never gives a tool an internal note of the structure (E06.08), on either side', async () => {
+      const candidatureId = await sentCandidatureToNord()
+      const SECRET = 'Associés en désaccord — 5521'
+      const candidature = fake.table('candidature').get(candidatureId)!
+      await fake.prisma.candidatureNote.create({
+        data: { candidatureId, workspaceId: NORD, body: SECRET, authorId: CLAIRE },
+      })
+      await fake.prisma.auditLog.create({
+        data: {
+          actionType: 'candidature_note_updated',
+          actorId: CLAIRE,
+          dossierId: candidature.dossierId,
+          metadata: { candidatureId, workspaceId: NORD, change: 'created', version: 1 },
+        },
+      })
+      const leaks = (value: unknown) => JSON.stringify(value).match(/5521|désaccord|note_updated/)
+      // The structure's conseiller, with every reading tool of the workspace.
+      const c = await client(await connect(CLAIRE, ['dossiers:read'], [NORD]))
+      expect(
+        (await c.listTools()).tools.map((t) => t.name).filter((n) => /note|intervention/.test(n)),
+      ).toEqual([])
+      for (const [tool, args] of [
+        ['list_workspaces', {}],
+        ['get_workspace', { workspace: NORD }],
+        ['list_received_candidatures', { workspace: NORD }],
+        ['get_received_candidature', { workspace: NORD, candidature: candidatureId }],
+      ] as const) {
+        const res = await call(c, tool, args)
+        expect([tool, res.error, leaks(res.result)]).toEqual([tool, null, null])
+      }
+      await c.close()
+      // The entrepreneur, with every reading tool of the request and its candidature.
+      const s = await client(await connect(SOPHIE, ['dossiers:read']))
+      for (const [tool, args] of [
+        ['list_dossiers', {}],
+        ['get_dossier', { dossier: 'biosensio' }],
+        ['list_candidatures', { dossier: 'biosensio' }],
+        ['get_candidature', { candidature: candidatureId }],
+      ] as const) {
+        const res = await call(s, tool, args)
+        expect([tool, res.error, leaks(res.result)]).toEqual([tool, null, null])
+      }
+      await s.close()
+    })
+
     it('a deactivated membership cuts the access at the next call, even though it was allowed', async () => {
       const c = await client(await connect(CLAIRE, ['dossiers:read'], [NORD, SUD]))
       expect((await call(c, 'get_workspace', { workspace: SUD })).error).toBeNull()

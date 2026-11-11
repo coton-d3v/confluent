@@ -17,14 +17,20 @@ import { createDefaultFundingSourceCategories } from '../../src/modules/funding-
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { eligibilitiesDown, fundingPlansDown, fundingPlansUp, supportPathsDown } from './sql-file'
+import {
+  candidatureNotesDown,
+  eligibilitiesDown,
+  fundingPlansDown,
+  fundingPlansUp,
+  supportPathsDown,
+} from './sql-file'
 
 const UP = fundingPlansUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = fundingPlansDown().slice(1)
-// E06.06's validations and E06.05's eligibilities use E06.03's unique index on candidatures: undone
-// first.
-const LATER_DOWN = [...supportPathsDown(), ...eligibilitiesDown()]
+// E06.08's notes, E06.06's validations and E06.05's eligibilities use E06.03's unique index on
+// candidatures: undone first.
+const LATER_DOWN = [...candidatureNotesDown(), ...supportPathsDown(), ...eligibilitiesDown()]
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'off'"

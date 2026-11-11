@@ -113,3 +113,17 @@ export function supportPathsDown(): string[] {
 export function supportPathsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261121000000_support_paths/migration.sql'))
 }
+
+// The revert of E06.08 (internal notes), as the tests of earlier migrations that drop what its table
+// references (E06.03's unique index on candidatures, candidatures) run it before their own: it
+// accepts that notes are lost (SET LOCAL, test transactions only).
+export function candidatureNotesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_candidature_notes_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261122000000_candidature_notes.down.sql')),
+  ]
+}
+
+export function candidatureNotesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261122000000_candidature_notes/migration.sql'))
+}

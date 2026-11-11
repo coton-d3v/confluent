@@ -97,6 +97,7 @@ enum audit_action {
   candidature_eligibility_updated
   support_steps_updated
   candidature_support_step_updated
+  candidature_note_updated
 
   @@map("audit_action")
 }
@@ -134,6 +135,7 @@ model User {
   eligibilitiesVerified       CandidatureEligibility[]          @relation("EligibilityVerifier")
   supportStepsValidated       CandidatureStepValidation[]
   supportStepChanges          CandidatureStepValidationChange[]
+  candidatureNotesWritten     CandidatureNote[]
 
   @@map("users")
 }
@@ -585,10 +587,11 @@ model Candidature {
   planLines       FundingPlanLine[]
   eligibilities   CandidatureEligibility[]
   stepValidations CandidatureStepValidation[]
+  notes           CandidatureNote[]
 
   @@unique([dossierId, workspaceId])
-  // Target of the plan lines' and eligibilities' (candidature, workspace) foreign keys (E06.03,
-  // E06.05).
+  // Target of the (candidature, workspace) foreign keys of plan lines, eligibilities, step
+  // validations and internal notes (E06.03, E06.05, E06.06, E06.08).
   @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([formVersionId])
@@ -1026,6 +1029,31 @@ model CandidatureStepValidationChange {
   @@index([validationId])
   @@index([actorId])
   @@map("candidature_step_validation_changes")
+}
+
+// ROADMAP E06.08: an internal note of the workspace on a candidature it received, read by its
+// conseillers alone — never by the entrepreneur, an investor, another workspace, a share recipient
+// or an MCP tool. Its foreign key carries `workspace_id`: a note stays inside its candidature's
+// workspace. Plain text; rewritten (`editedAt`) or deleted (`deletedAt`, its text erased) by its
+// author only, from the `version` they read.
+model CandidatureNote {
+  id            String    @id @default(uuid())
+  candidatureId String    @map("candidature_id")
+  workspaceId   String    @map("workspace_id")
+  body          String?
+  authorId      String?   @map("author_id")
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  editedAt      DateTime? @map("edited_at")
+  deletedAt     DateTime? @map("deleted_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  candidature Candidature @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  author      User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([candidatureId, workspaceId])
+  @@index([authorId])
+  @@map("candidature_notes")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role
