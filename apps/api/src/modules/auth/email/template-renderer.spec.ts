@@ -1,4 +1,4 @@
-import { clearCacheForTesting, render } from './template-renderer'
+import { clearCacheForTesting, render, templateString } from './template-renderer'
 
 describe('template-renderer', () => {
   beforeEach(() => {
@@ -40,6 +40,31 @@ describe('template-renderer', () => {
     expect(result.html).toContain('Se connecter à Confluent')
     expect(result.text).toContain('CCI <Touraine>')
     expect(result.text).toContain('Se connecter à Confluent : https://confluent.example/auth')
+  })
+
+  it('renders the offer of a prepared company (E05.08), escaped, with the sentence chosen for the account', () => {
+    const vars = {
+      companyName: 'Bio<sensio>',
+      workspaceName: 'CCI Touraine',
+      fromLabel: 'Marie Dupont (marie@cci.fr)',
+      expiresOn: '11 décembre 2026',
+      invitationsUrl: 'https://confluent.example/dashboard/propositions',
+    }
+    const created = render('company-transfer-invite', 'fr', {
+      ...vars,
+      accountLine: templateString('company-transfer-invite', 'fr', 'accountCreated'),
+    })
+    expect(created.subject).toBe('Une entreprise a été préparée pour vous sur Confluent')
+    expect(created.html).toContain('Bio&lt;sensio&gt;')
+    expect(created.html).toContain('href="https://confluent.example/dashboard/propositions"')
+    expect(created.text).toContain('Préparée par Marie Dupont (marie@cci.fr), pour CCI Touraine.')
+    expect(created.text).toContain('Un compte Confluent a été ouvert à cette adresse')
+    const existing = render('company-transfer-invite', 'fr', {
+      ...vars,
+      accountLine: templateString('company-transfer-invite', 'fr', 'accountExisting'),
+    })
+    expect(existing.text).toContain('rattachée à votre compte Confluent existant')
+    expect(() => templateString('company-transfer-invite', 'fr', 'nope')).toThrow(/Missing/)
   })
 
   it('escapes HTML in dynamic variables (XSS-safe)', () => {

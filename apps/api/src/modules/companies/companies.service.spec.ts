@@ -61,7 +61,7 @@ describe('companies', () => {
       const company = fake.table('company').get(d.companyId)!
       expect(company).toMatchObject({ ownerId: SOPHIE.id, name: 'Biosensio' })
       expect(d.userId).toBe(SOPHIE.id)
-      expect(d.company).toEqual({ id: d.companyId, name: 'Biosensio' })
+      expect(d.company).toEqual({ id: d.companyId, name: 'Biosensio', inPreparation: false })
     }
   })
 

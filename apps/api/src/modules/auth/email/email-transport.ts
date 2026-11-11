@@ -26,8 +26,24 @@ export interface SendWorkspaceInviteInput {
   locale: Locale
 }
 
+// ROADMAP E05.08: a company a conseiller prepared, offered to the entrepreneur who will own it. The
+// link opens their pending proposals once signed in (magic link), never a session by itself.
+export interface SendCompanyTransferInviteInput {
+  to: string
+  companyName: string
+  workspaceName: string
+  // The conseiller: « Marie Dupont (marie@cci.fr) », or the address alone.
+  fromLabel: string
+  expiresAt: Date
+  // Whether the address already had an account before this invitation.
+  existingAccount: boolean
+  invitationsUrl: string
+  locale: Locale
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
   sendWorkspaceInvite(input: SendWorkspaceInviteInput): Promise<void>
+  sendCompanyTransferInvite(input: SendCompanyTransferInviteInput): Promise<void>
 }

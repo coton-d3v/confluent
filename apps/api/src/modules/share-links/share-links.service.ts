@@ -162,7 +162,9 @@ export class ShareLinksService {
     recipientEmail: string
     accessLevel?: string
   }): Promise<ShareLink & { shareUrl: string }> {
-    const dossier = await this.dossiers.getByIdForUser(params.dossierId, params.userId)
+    // A company a conseiller prepares for an entrepreneur is shared by that entrepreneur only, once
+    // its owner (E05.08): 409 for its holder.
+    const dossier = await this.dossiers.getForDiffusion(params.dossierId, params.userId)
     const recipientEmail = params.recipientEmail.trim().toLowerCase()
 
     const existingRecipient = await this.prisma.user.findUnique({

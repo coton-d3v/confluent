@@ -80,6 +80,11 @@ enum audit_action {
   dossier_unpublished
   dossier_document_selected
   dossier_document_unselected
+  company_prepared
+  company_transfer_invited
+  company_transfer_accepted
+  company_transfer_declined
+  company_transfer_cancelled
 
   @@map("audit_action")
 }
@@ -106,6 +111,8 @@ model User {
   revisionsWritten DossierAnswerRevision[]
   memberships      WorkspaceMembership[]   @relation("WorkspaceMember")
   membersInvited   WorkspaceMembership[]   @relation("WorkspaceMemberInviter")
+  transfersOffered CompanyTransfer[]       @relation("CompanyTransferFrom")
+  transfersToMe    CompanyTransfer[]       @relation("CompanyTransferTo")
 
   @@map("users")
 }
@@ -235,30 +242,72 @@ model QuestionnaireField {
 // workspace (it applies to several). Since E05.05 the profile is the company's: the form version it
 // answers (`profileVersionId`), its answers and their history, its documents. Name format: CHECK
 // constraint (migration 20261112000000_companies).
+//
+// E05.08: a conseiller may prepare a company for an entrepreneur. While `preparedInWorkspaceId` is
+// set, its owner is that conseiller, who holds it for the workspace and reaches it only while an
+// active conseiller there; the entrepreneur becomes its owner by accepting a transfer (`transfers`),
+// which changes `ownerId` — the dossiers follow by their composite foreign key — and clears
+// `preparedInWorkspaceId`. A prepared company is neither shared nor published.
 model Company {
-  id               String   @id @default(uuid())
-  ownerId          String   @map("owner_id")
-  name             String
+  id                    String   @id @default(uuid())
+  ownerId               String   @map("owner_id")
+  name                  String
   // The version of the company-profile form its answers belong to, kept until an explicit
   // migration of the answers (E03.08). Its dossiers carry a copy the database keeps equal.
-  profileVersionId String   @map("profile_version_id")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  profileVersionId      String   @map("profile_version_id")
+  preparedInWorkspaceId String?  @map("prepared_in_workspace_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
-  owner           User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  profileVersion  QuestionnaireVersion @relation(fields: [profileVersionId], references: [id])
-  dossiers        Dossier[]            @relation("CompanyDossiers")
-  profileDossiers Dossier[]            @relation("CompanyProfileDossiers")
-  answers         DossierAnswer[]
-  library         LibraryDocument[]
-  documents       Document[]
+  owner               User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  profileVersion      QuestionnaireVersion @relation(fields: [profileVersionId], references: [id])
+  preparedInWorkspace Workspace?           @relation(fields: [preparedInWorkspaceId], references: [id], onDelete: Restrict)
+  transfers           CompanyTransfer[]
+  dossiers            Dossier[]            @relation("CompanyDossiers")
+  profileDossiers     Dossier[]            @relation("CompanyProfileDossiers")
+  answers             DossierAnswer[]
+  library             LibraryDocument[]
+  documents           Document[]
 
   // Targets of the dossiers' (company, owner) and (company, profile version) foreign keys.
   @@unique([id, ownerId])
   @@unique([id, profileVersionId])
   @@index([ownerId])
   @@index([profileVersionId])
+  @@index([preparedInWorkspaceId])
   @@map("companies")
+}
+
+// A transfer of a company's ownership offered to an entrepreneur (ROADMAP E05.08), by the conseiller
+// who prepared it in a workspace: the invitation and, once decided, the trace of who gave the company
+// to whom, from which workspace and when. `toEmail` is the address the conseiller typed, `toUserId`
+// the account behind it (created if unknown). `status`: `pending` (at most one per company) →
+// `accepted` | `declined`, or `cancelled` (withdrawn or replaced by the conseiller) | `expired`
+// (replaced after `expiresAt`); a pending one past `expiresAt` can no longer be decided. Closed
+// values and formats: CHECK constraints (migration 20261114000000_company_transfers).
+model CompanyTransfer {
+  id          String    @id @default(uuid())
+  companyId   String    @map("company_id")
+  workspaceId String    @map("workspace_id")
+  // Null once that account is deleted; the journal keeps who it was.
+  fromUserId  String?   @map("from_user_id")
+  toUserId    String    @map("to_user_id")
+  toEmail     String    @map("to_email")
+  status      String    @default("pending")
+  expiresAt   DateTime  @map("expires_at")
+  decidedAt   DateTime? @map("decided_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  fromUser  User?     @relation("CompanyTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser    User      @relation("CompanyTransferTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([workspaceId])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@map("company_transfers")
 }
 
 // A financing dossier of a company (ROADMAP E05.04): one precise financing request (E05.07), several
@@ -631,7 +680,9 @@ model Workspace {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  memberships WorkspaceMembership[]
+  memberships       WorkspaceMembership[]
+  preparedCompanies Company[]
+  companyTransfers  CompanyTransfer[]
 
   @@map("workspaces")
 }

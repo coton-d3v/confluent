@@ -163,7 +163,7 @@ export class DocumentsService {
       // attached or not (the unique index cannot protect files without a question, whose field id
       // is NULL).
       return await this.prisma.$transaction(async (tx) => {
-        await lockProfile(tx, params.dossier.id)
+        await lockProfile(tx, params.dossier)
         let document = await tx.libraryDocument.findFirst({
           where: { companyId, fieldId, filename },
         })
@@ -307,7 +307,9 @@ export class DocumentsService {
   }
 
   // E05.06: the document's type, changed by its owner (the caller checks ownership). Recorded in the
-  // dossier's journal when it changes.
+  // dossier's journal when it changes. Read and written under the profile's lock, like every write
+  // of the library and of the selection: once a company changed hands (E05.08), a change its former
+  // holder sent is refused, never applied to the new owner's library (code review R57).
   async setType(params: {
     dossier: DossierRef
     documentId: string
@@ -315,16 +317,18 @@ export class DocumentsService {
     actorId: string
   }): Promise<LibraryDocument & { type: DocumentType }> {
     const { dossier, documentId, type } = params
-    const found = await this.prisma.libraryDocument.findFirst({
-      where: { id: documentId, companyId: dossier.companyId },
+    const { found, previous, updated } = await this.prisma.$transaction(async (tx) => {
+      await lockProfile(tx, dossier)
+      const found = await tx.libraryDocument.findFirst({
+        where: { id: documentId, companyId: dossier.companyId },
+      })
+      if (!found) throw documentNotFound()
+      const previous = documentTypeOf(found.type)
+      if (previous === type) return { found, previous, updated: null }
+      const updated = await tx.libraryDocument.update({ where: { id: found.id }, data: { type } })
+      return { found, previous, updated }
     })
-    if (!found) throw documentNotFound()
-    const previous = documentTypeOf(found.type)
-    if (previous === type) return { ...found, type }
-    const updated = await this.prisma.libraryDocument.update({
-      where: { id: found.id },
-      data: { type },
-    })
+    if (!updated) return { ...found, type }
     await this.audit.record({
       actionType: 'document_type_changed',
       actorId: params.actorId,
@@ -366,7 +370,7 @@ export class DocumentsService {
       })
     }
     const restored = await this.prisma.$transaction(async (tx) => {
-      await lockProfile(tx, dossier.id)
+      await lockProfile(tx, dossier)
       const document = await tx.libraryDocument.findFirst({
         where: { id: documentId, companyId: dossier.companyId },
       })
@@ -413,7 +417,8 @@ export class DocumentsService {
 
   // E05.07: the dossier selects a document of its company's library, following its latest version
   // (`pinnedVersionId` null) or pinned to one of its versions; selecting it again changes how.
-  // Owner only (the caller checks it). Journaled when something changes.
+  // Owner only (the caller checks it), under the profile's lock (R57, see `setType`). Journaled
+  // when something changes.
   async select(params: {
     dossier: DossierRef
     documentId: string
@@ -421,25 +426,29 @@ export class DocumentsService {
     actorId: string
   }): Promise<DossierDocumentSelected> {
     const { dossier, documentId, pinnedVersionId } = params
-    const document = await this.prisma.libraryDocument.findFirst({
-      where: { id: documentId, companyId: dossier.companyId },
-    })
-    if (!document) throw documentNotFound()
-    const pinned = pinnedVersionId
-      ? await this.prisma.document.findFirst({
-          where: { id: pinnedVersionId, libraryDocumentId: document.id },
-          select: { id: true, version: true },
-        })
-      : null
-    if (pinnedVersionId && !pinned) throw versionNotFound()
-    const key = { dossierId: dossier.id, libraryDocumentId: document.id }
-    const before = await this.prisma.dossierDocument.findUnique({
-      where: { dossierId_libraryDocumentId: key },
-    })
-    await this.prisma.dossierDocument.upsert({
-      where: { dossierId_libraryDocumentId: key },
-      create: { ...key, companyId: dossier.companyId, pinnedVersionId },
-      update: { pinnedVersionId },
+    const { document, pinned, before } = await this.prisma.$transaction(async (tx) => {
+      await lockProfile(tx, dossier)
+      const document = await tx.libraryDocument.findFirst({
+        where: { id: documentId, companyId: dossier.companyId },
+      })
+      if (!document) throw documentNotFound()
+      const pinned = pinnedVersionId
+        ? await tx.document.findFirst({
+            where: { id: pinnedVersionId, libraryDocumentId: document.id },
+            select: { id: true, version: true },
+          })
+        : null
+      if (pinnedVersionId && !pinned) throw versionNotFound()
+      const key = { dossierId: dossier.id, libraryDocumentId: document.id }
+      const before = await tx.dossierDocument.findUnique({
+        where: { dossierId_libraryDocumentId: key },
+      })
+      await tx.dossierDocument.upsert({
+        where: { dossierId_libraryDocumentId: key },
+        create: { ...key, companyId: dossier.companyId, pinnedVersionId },
+        update: { pinnedVersionId },
+      })
+      return { document, pinned, before }
     })
     if (!before || before.pinnedVersionId !== pinnedVersionId) {
       await this.audit.record({
@@ -460,18 +469,23 @@ export class DocumentsService {
 
   // The dossier no longer presents the document: its shares stop showing it at the next request.
   // The document stays in the library. Nothing happens for a document the dossier did not select.
+  // Under the profile's lock (R57, see `setType`).
   async unselect(params: {
     dossier: DossierRef
     documentId: string
     actorId: string
   }): Promise<void> {
     const { dossier, documentId } = params
-    const document = await this.prisma.libraryDocument.findFirst({
-      where: { id: documentId, companyId: dossier.companyId },
-    })
-    if (!document) throw documentNotFound()
-    const { count } = await this.prisma.dossierDocument.deleteMany({
-      where: { dossierId: dossier.id, libraryDocumentId: document.id },
+    const { document, count } = await this.prisma.$transaction(async (tx) => {
+      await lockProfile(tx, dossier)
+      const document = await tx.libraryDocument.findFirst({
+        where: { id: documentId, companyId: dossier.companyId },
+      })
+      if (!document) throw documentNotFound()
+      const { count } = await tx.dossierDocument.deleteMany({
+        where: { dossierId: dossier.id, libraryDocumentId: document.id },
+      })
+      return { document, count }
     })
     if (count > 0) {
       await this.audit.record({

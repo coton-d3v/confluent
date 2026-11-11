@@ -33,5 +33,23 @@
     "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Si vous ne connaissez pas cette structure, ignorez ce message : sans connexion de votre part, aucune information ne vous est communiquée."
+  },
+  "company-transfer-invite": {
+    "lang": "fr",
+    "subject": "Une entreprise a été préparée pour vous sur Confluent",
+    "preheader": "Un conseiller vous propose de devenir propriétaire d’une entreprise qu’il a préparée sur Confluent.",
+    "brandLabel": "Confluent",
+    "title": "Une entreprise vous est proposée",
+    "body": "Un conseiller a préparé sur Confluent le profil et les demandes de financement de l’entreprise suivante, et vous propose d’en devenir propriétaire :",
+    "preparedBy": "Préparée par",
+    "workspaceIntro": "pour",
+    "decision": "Vous pouvez accepter ou refuser cette proposition. Si vous l’acceptez, l’entreprise, ses demandes et ses documents deviennent les vôtres et le conseiller n’y a plus accès ; si vous la refusez, rien ne vous est rattaché.",
+    "expiresIntro": "La proposition est valable jusqu’au",
+    "accountExisting": "Elle sera rattachée à votre compte Confluent existant.",
+    "accountCreated": "Un compte Confluent a été ouvert à cette adresse pour vous permettre de répondre.",
+    "cta": "Voir la proposition",
+    "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Si vous ne connaissez pas cette structure, ignorez ce message ou refusez la proposition : sans acceptation de votre part, aucune donnée n’est rattachée à votre compte."
   }
 }

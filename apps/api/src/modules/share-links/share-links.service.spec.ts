@@ -64,6 +64,8 @@ function buildModule(overrides: {
       getByIdForUser:
         overrides.getByIdForUser ??
         jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
+      // Creating a share is a diffusion (E05.08).
+      getForDiffusion: jest.fn().mockResolvedValue({ id: 'd-1', userId: 'u-1', name: 'Biosensio' }),
     },
     auth: { requestMagicLink: jest.fn().mockResolvedValue(undefined) },
     questionnaires: { getVersion: overrides.getVersion ?? jest.fn().mockResolvedValue(null) },

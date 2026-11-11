@@ -23,7 +23,12 @@ import { type ActionOrigin, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { attachedFieldIds } from '../documents/attached-fields'
 import { CompaniesService } from '../companies/companies.service'
-import { assertCanOwnCompanies } from '../companies/company-access'
+import {
+  CompanyErrors,
+  assertCanOwnCompanies,
+  canOwnCompanies,
+  userHoldsCompany,
+} from '../companies/company-access'
 import {
   fieldVisibleAt,
   grantedLevel,
@@ -39,8 +44,29 @@ export interface CreateDossierParams {
   name: string
 }
 
-// The company a dossier finances, as its owner reads it (E05.04).
-const COMPANY_SUMMARY = { select: { id: true, name: true } } as const
+// The company a dossier finances, as its owner reads it (E05.04), and whether a conseiller holds it
+// for an entrepreneur (E05.08).
+const COMPANY_SUMMARY = {
+  select: { id: true, name: true, ownerId: true, preparedInWorkspaceId: true },
+} as const
+
+// What decides who works on a dossier as its owner: its company's holder (E05.08).
+const HOLDING = { company: { select: { ownerId: true, preparedInWorkspaceId: true } } } as const
+
+const dossierNotFound = () =>
+  new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
+
+function companySummary(company: {
+  id: string
+  name: string
+  preparedInWorkspaceId: string | null
+}) {
+  return {
+    id: company.id,
+    name: company.name,
+    inPreparation: company.preparedInWorkspaceId !== null,
+  }
+}
 
 export interface DossierReadAccess {
   dossier: Dossier
@@ -106,17 +132,23 @@ export class DossiersService {
           questionnaireVersionId: company.profileVersionId,
         },
       })
-      return { ...dossier, company: { id: company.id, name: company.name } }
+      return { ...dossier, company: companySummary(company) }
     })
   }
 
   // E05.07: another financing request of a company its owner already has, presenting the same
   // profile (answers and library) without entering it again. It selects no document yet: its owner
   // chooses what its shares will show (closed by default). Owner only, like the company (404 for
-  // another account's or an unknown company).
+  // another account's or an unknown company). E05.08: the conseiller holding a company prepared for
+  // an entrepreneur adds requests to it too, whatever their global role; any other account that may
+  // not own companies keeps its 403.
   async createForCompany(params: CreateDossierParams & { companyId: string }) {
-    assertCanOwnCompanies(params.owner)
-    const company = await this.companies.findOwned(params.companyId, params.owner)
+    const company = canOwnCompanies(params.owner)
+      ? await this.companies.findOwned(params.companyId, params.owner)
+      : await this.companies.findOwned(params.companyId, params.owner).catch(() => null)
+    if (!company || (!canOwnCompanies(params.owner) && company.preparedInWorkspaceId === null)) {
+      throw CompanyErrors.ownersOnly()
+    }
     const slug = await this.uniqueSlug(slugify(params.name))
     const dossier = await this.prisma.dossier.create({
       data: {
@@ -127,65 +159,132 @@ export class DossiersService {
         questionnaireVersionId: company.profileVersionId,
       },
     })
-    return { ...dossier, company: { id: company.id, name: company.name } }
+    return { ...dossier, company: companySummary(company) }
   }
 
+  // E05.08: a company a conseiller prepares in a workspace for an entrepreneur, with its first
+  // request named after it, inside the caller's transaction (which also records the invitation and
+  // checked the workspace rule). The conseiller owns them until the entrepreneur accepts.
+  async createPrepared(
+    tx: Prisma.TransactionClient,
+    params: { holderId: string; workspaceId: string; name: string },
+  ) {
+    const slug = await this.uniqueSlug(slugify(params.name))
+    const version = await this.questionnaires.ensureBootstrap()
+    const company = await tx.company.create({
+      data: {
+        ownerId: params.holderId,
+        name: params.name,
+        profileVersionId: version.id,
+        preparedInWorkspaceId: params.workspaceId,
+      },
+    })
+    const dossier = await tx.dossier.create({
+      data: {
+        userId: company.ownerId,
+        companyId: company.id,
+        name: params.name,
+        slug,
+        questionnaireVersionId: company.profileVersionId,
+      },
+    })
+    return { company, dossier }
+  }
+
+  // The dossiers the account works on as owner (`holdsCompany`: for a conseiller, the companies
+  // they prepare in a workspace where they still are one), whatever its global role; a financeur
+  // also receives those shared with them.
   async listForUser(user: { id: string; email: string; role: string }): Promise<Dossier[]> {
-    if (user.role === 'financeur') {
-      const rows = await this.prisma.dossier.findMany({
-        where: {
-          shareLinks: {
-            some: { recipientEmail: user.email, status: 'active' },
-          },
-        },
-        include: {
-          user: { select: { email: true, firstName: true, lastName: true } },
-          shareLinks: {
-            where: { recipientEmail: user.email, status: 'active' },
-            select: { accessLevel: true },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      return Promise.all(
-        rows.map(async ({ user: owner, shareLinks, ...d }) => {
-          const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
-          const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
-          const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
-          return {
-            ...presentationForShare(await this.projectForLevel(d, level ?? 'public')),
-            ownerEmail: owner.email,
-            ownerName,
-          }
-        }),
-      )
-    }
-    const owned = await this.prisma.dossier.findMany({
+    const owned = await this.listOwned(user)
+    if (user.role !== 'financeur') return owned
+    const ownedIds = new Set(owned.map((d) => d.id))
+    const shared = (await this.listShared(user)).filter((d) => !ownedIds.has(d.id))
+    return [...owned, ...shared].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
+  private async listOwned(user: { id: string }): Promise<Dossier[]> {
+    const rows = await this.prisma.dossier.findMany({
       where: { userId: user.id },
       include: { company: COMPANY_SUMMARY },
       orderBy: { createdAt: 'desc' },
     })
-    return owned.map(({ company, ...d }) => ({
-      ...d,
-      company: { id: company.id, name: company.name },
-    }))
+    const companies = await this.companies.heldOnly(
+      user,
+      rows.map((r) => r.company),
+    )
+    const held = new Set(companies.map((c) => c.id))
+    return rows
+      .filter((r) => held.has(r.company.id))
+      .map(({ company, ...d }) => ({ ...d, company: companySummary(company) }))
   }
 
+  private async listShared(user: { id: string; email: string }): Promise<Dossier[]> {
+    const rows = await this.prisma.dossier.findMany({
+      where: {
+        shareLinks: {
+          some: { recipientEmail: user.email, status: 'active' },
+        },
+      },
+      include: {
+        user: { select: { email: true, firstName: true, lastName: true } },
+        shareLinks: {
+          where: { recipientEmail: user.email, status: 'active' },
+          select: { accessLevel: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    return Promise.all(
+      rows.map(async ({ user: owner, shareLinks, ...d }) => {
+        const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
+        const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
+        const level = highestAccessLevel(shareLinks.map((l) => grantedLevel(l.accessLevel)))
+        return {
+          ...presentationForShare(await this.projectForLevel(d, level ?? 'public')),
+          ownerEmail: owner.email,
+          ownerName,
+        }
+      }),
+    )
+  }
+
+  // THE owner access to a dossier (every write, the owner's reads): its company's holder
+  // (`holdsCompany`), else the same 404 as an unknown dossier.
   async getByIdForUser(id: string, userId: string): Promise<Dossier> {
-    const dossier = await this.prisma.dossier.findUnique({ where: { id } })
-    if (!dossier || dossier.userId !== userId) {
-      throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
-    }
+    return (await this.findHeld(id, userId)).dossier
+  }
+
+  // E05.08: the owner access, for what diffuses a dossier — a share, a publication — which a
+  // company prepared by a conseiller never allows: only its entrepreneur decides it, once owner.
+  async getForDiffusion(id: string, userId: string): Promise<Dossier> {
+    const { dossier, inPreparation } = await this.findHeld(id, userId)
+    if (inPreparation) throw CompanyErrors.inPreparation()
     return dossier
   }
 
+  private async findHeld(
+    id: string,
+    userId: string,
+  ): Promise<{ dossier: Dossier; inPreparation: boolean }> {
+    const row = await this.prisma.dossier.findUnique({ where: { id }, include: HOLDING })
+    if (!row || row.userId !== userId) throw dossierNotFound()
+    const { company, ...dossier } = row
+    if (!(await userHoldsCompany(this.prisma, { id: userId }, company))) throw dossierNotFound()
+    return { dossier, inPreparation: company.preparedInWorkspaceId !== null }
+  }
+
+  // The owner first, whatever the account's global role (a conseiller holding a prepared company
+  // may be a financeur, E05.08); then a financeur through their active shares.
   async resolveReadAccess(
     id: string,
     user: { id: string; email: string; role: string },
   ): Promise<DossierReadAccess> {
-    const dossier = await this.prisma.dossier.findUnique({ where: { id } })
-    if (!dossier) {
-      throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
+    const row = await this.prisma.dossier.findUnique({ where: { id }, include: HOLDING })
+    if (!row) throw dossierNotFound()
+    const { company, ...dossier } = row
+    if (dossier.userId === user.id) {
+      if (!(await userHoldsCompany(this.prisma, user, company))) throw dossierNotFound()
+      return { dossier, accessLevel: 'complet', relation: 'owner' }
     }
     if (user.role === 'financeur') {
       const links = await this.prisma.shareLink.findMany({
@@ -198,10 +297,7 @@ export class DossiersService {
       }
       return { dossier, accessLevel, relation: 'share' }
     }
-    if (dossier.userId !== user.id) {
-      throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
-    }
-    return { dossier, accessLevel: 'complet', relation: 'owner' }
+    throw dossierNotFound()
   }
 
   // Ids of the questionnaire fields whose answers the given level may read.
@@ -231,7 +327,7 @@ export class DossiersService {
     const projected = await this.projectForLevel(dossier, accessLevel)
     return {
       ...(relation === 'owner' ? projected : presentationForShare(projected)),
-      ...(company ? { company: { id: company.id, name: company.name } } : {}),
+      ...(company ? { company: companySummary(company) } : {}),
       questionnaireVersion,
     }
   }
@@ -259,7 +355,7 @@ export class DossiersService {
     const slug =
       changes.name !== undefined ? await this.uniqueSlug(slugify(changes.name), id) : undefined
     return this.prisma.$transaction(async (tx) => {
-      const dossier = await lockDossier(tx, id)
+      const dossier = await lockDossier(tx, id, params.userId)
       const data: Prisma.DossierUpdateInput = {
         name: changes.name,
         slug,
@@ -287,9 +383,9 @@ export class DossiersService {
   // show the presentation; it opens or closes no share. Publishing a published request changes
   // nothing. Journaled (`dossier_published`).
   async publish(id: string, userId: string): Promise<Dossier> {
-    const { id: dossierId } = await this.getByIdForUser(id, userId)
+    const { id: dossierId } = await this.getForDiffusion(id, userId)
     const { dossier, changed } = await this.prisma.$transaction(async (tx) => {
-      const current = await lockDossier(tx, dossierId)
+      const current = await lockDossier(tx, dossierId, userId)
       if (isPublished(current)) return { dossier: current, changed: false }
       const missing = missingForPublication(current)
       if (missing.length > 0) throw notPublishable(missing, false)
@@ -314,7 +410,7 @@ export class DossiersService {
   async unpublish(id: string, userId: string): Promise<Dossier> {
     const { id: dossierId } = await this.getByIdForUser(id, userId)
     const { dossier, publishedAt } = await this.prisma.$transaction(async (tx) => {
-      const current = await lockDossier(tx, dossierId)
+      const current = await lockDossier(tx, dossierId, userId)
       if (!isPublished(current)) return { dossier: current, publishedAt: null }
       const updated = await tx.dossier.update({
         where: { id: dossierId },
@@ -341,7 +437,7 @@ export class DossiersService {
   async delete(id: string, userId: string): Promise<void> {
     const dossier = await this.getByIdForUser(id, userId)
     await this.prisma.$transaction(async (tx) => {
-      await lockProfile(tx, dossier.id)
+      await lockProfile(tx, dossier)
       await tx.dossier.delete({ where: { id: dossier.id } })
       const remaining = await tx.dossier.count({ where: { companyId: dossier.companyId } })
       if (remaining === 0) await tx.company.delete({ where: { id: dossier.companyId } })
@@ -356,10 +452,11 @@ export class DossiersService {
   // instruction, which `origin` records in the journal. AI proposals still to confirm do not block
   // it (E04.05, D02).
   async submit(id: string, userId: string, origin: ActionOrigin): Promise<Dossier> {
-    const { id: dossierId } = await this.getByIdForUser(id, userId)
+    const held = await this.getByIdForUser(id, userId)
+    const dossierId = held.id
     const { submitted, firstSubmission, pendingProposals } = await this.prisma.$transaction(
       async (tx) => {
-        const dossier = await lockProfile(tx, dossierId)
+        const dossier = await lockProfile(tx, held)
         const [structure, answers, attached] = await Promise.all([
           this.questionnaires.getVersion(dossier.questionnaireVersionId),
           tx.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
@@ -421,13 +518,16 @@ export class DossiersService {
 }
 
 // The dossier's row, held for the rest of the transaction: its presentation and publication change
-// one at a time (E05.07).
-async function lockDossier(tx: Prisma.TransactionClient, id: string): Promise<Dossier> {
+// one at a time (E05.07). Still the owner's once the lock is held: a transfer of its company
+// (E05.08) committed meanwhile leaves the former owner with a 404.
+async function lockDossier(
+  tx: Prisma.TransactionClient,
+  id: string,
+  ownerId: string,
+): Promise<Dossier> {
   await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${id} FOR UPDATE`
   const dossier = await tx.dossier.findUnique({ where: { id } })
-  if (!dossier) {
-    throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
-  }
+  if (!dossier || dossier.userId !== ownerId) throw dossierNotFound()
   return dossier
 }
 

@@ -63,8 +63,9 @@ export class DossiersController {
     description:
       'Retourne uniquement les dossiers possédés par l’user JWT, triés par date de création desc, avec ' +
       'leur entreprise (`company`). Jamais les dossiers des autres — même pas en cas de bug : le filtre ' +
-      '`userId` est appliqué systématiquement. Un financeur reçoit les dossiers partagés avec lui, sans ' +
-      'leur entreprise.',
+      '`userId` est appliqué systématiquement. Un financeur reçoit aussi les dossiers partagés avec ' +
+      'lui, sans leur entreprise. E05.08 : un conseiller reçoit ceux des entreprises qu’il prépare ' +
+      'pour un entrepreneur (`company.inPreparation`), tant qu’il est conseiller actif du workspace.',
   })
   @ApiOkResponse({ description: 'Liste des dossiers de l’user.' })
   list(@Req() req: Request): Promise<Dossier[]> {

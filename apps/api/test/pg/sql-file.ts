@@ -36,10 +36,22 @@ export function sqlStatements(path: string): string[] {
   return statements
 }
 
-// The revert of E05.07 (financing requests), as the tests of earlier migrations run it before their
-// own: it accepts that shares then show the whole library again (SET LOCAL, test transactions only).
+// The revert of E05.08 (company transfers), as the tests of earlier migrations run it before their
+// own: it accepts that prepared companies stay with their conseiller (SET LOCAL, test transactions
+// only).
+export function companyTransfersDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_held_companies = 'on'",
+    ...sqlStatements(join(CHECKS, '20261114000000_company_transfers.down.sql')),
+  ]
+}
+
+// The reverts of E05.08 then E05.07 (financing requests), as the tests of earlier migrations run them
+// before their own: they accept that shares then show the whole library again (SET LOCAL, test
+// transactions only).
 export function financingRequestsDown(): string[] {
   return [
+    ...companyTransfersDown(),
     "SET LOCAL confluent.accept_wider_shares = 'on'",
     ...sqlStatements(join(CHECKS, '20261113000000_financing_requests.down.sql')),
   ]
