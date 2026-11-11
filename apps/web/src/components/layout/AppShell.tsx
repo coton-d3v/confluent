@@ -19,7 +19,8 @@ import { Breadcrumbs } from './Breadcrumbs'
 import { NavItem } from './NavItem'
 import { VersionBadge } from './VersionBadge'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
-import { ADMIN_NAV_ITEMS, NAV_ITEMS, type NavItemSpec } from './nav-items'
+import { useMyWorkspaceMemberships } from '@/features/workspaces/useMyWorkspaceMemberships'
+import { ADMIN_NAV_ITEMS, MY_WORKSPACES_NAV_ITEM, NAV_ITEMS, type NavItemSpec } from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
 
 function ProfileSheet({
@@ -241,6 +242,9 @@ export function AppShell() {
   const needsOnboarding = !!user && !user.firstName
   // Only the voluntary "edit my profile" opening is local state.
   const [editingProfile, setEditingProfile] = useState(false)
+  const memberships = useMyWorkspaceMemberships(
+    user && user.role !== 'admin' ? user.id : null,
+  )
 
   if (loading) {
     return (
@@ -254,7 +258,12 @@ export function AppShell() {
     return <Navigate to="/auth" replace />
   }
 
-  const navItems = user.role === 'admin' ? ADMIN_NAV_ITEMS : NAV_ITEMS
+  const navItems =
+    user.role === 'admin'
+      ? ADMIN_NAV_ITEMS
+      : memberships.data?.length
+        ? [...NAV_ITEMS, MY_WORKSPACES_NAV_ITEM]
+        : NAV_ITEMS
 
   async function handleLogout() {
     try {

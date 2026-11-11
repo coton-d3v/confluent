@@ -38,8 +38,8 @@ function AdminWorkspacesList() {
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
         Un workspace est l’espace d’une structure : CCI, incubateur, réseau d’investisseurs, club
-        deal. Ses membres et ses dossiers arriveront dans une prochaine étape : pour l’instant, un
-        workspace ne donne accès à rien.
+        deal. Ses conseillers et investisseurs y sont invités ; ses gestionnaires en règlent les
+        réglages et les membres. Ses dossiers arriveront dans une prochaine étape.
       </p>
 
       {workspaces.isLoading && !workspaces.data ? (
@@ -92,6 +92,13 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
           /w/{workspace.slug}
         </p>
       </div>
+      <Link
+        to={`/admin/workspaces/${workspace.id}/membres`}
+        aria-label={`Membres de ${workspace.name}`}
+        className={buttonVariants({ variant: 'outline', size: 'sm', className: 'shrink-0' })}
+      >
+        Membres
+      </Link>
     </li>
   )
 }

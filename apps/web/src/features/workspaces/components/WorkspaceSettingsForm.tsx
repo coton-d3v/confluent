@@ -58,11 +58,14 @@ const isField = (key: unknown): key is FieldName => FIELDS.includes(key as Field
 // field errors are shown the same way.
 export function WorkspaceSettingsForm({
   workspace,
+  canEditEmailDomain = true,
   submitLabel,
   onSubmit,
 }: {
   // Absent: creation.
   workspace?: Workspace
+  // False for a workspace manager: the domain bounds their own invitations (administrators only).
+  canEditEmailDomain?: boolean
   submitLabel: string
   // Throws the ApiError of a refusal; the form shows it next to the field concerned.
   onSubmit: (input: CreateWorkspaceInput) => Promise<void>
@@ -84,7 +87,9 @@ export function WorkspaceSettingsForm({
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const { slug, ...settings } = values
+    const { slug, emailDomain, ...rest } = values
+    // A manager never sends the domain: it is not theirs to change.
+    const settings = canEditEmailDomain ? { ...rest, emailDomain } : rest
     const parsed = createWorkspaceSchema.safeParse(creating ? { ...settings, slug } : settings)
     if (!parsed.success) {
       const found: Errors = {}
@@ -252,11 +257,16 @@ export function WorkspaceSettingsForm({
         id="emailDomain"
         label="Domaine email autorisé"
         error={errors.emailDomain}
-        help="Facultatif. Par exemple cci-touraine.fr : les membres invités dans ce workspace devront avoir une adresse de ce domaine. Sans effet tant que l’invitation de membres n’est pas disponible."
+        help={
+          canEditEmailDomain
+            ? 'Facultatif. Par exemple cci-touraine.fr : les conseillers invités dans ce workspace devront avoir une adresse de ce domaine (les investisseurs ne sont pas concernés). Les membres déjà invités ne changent pas.'
+            : 'Les conseillers invités doivent avoir une adresse de ce domaine. Seul un administrateur de Confluent peut le modifier.'
+        }
       >
         <Input
           id="ws-emailDomain"
           value={values.emailDomain}
+          disabled={!canEditEmailDomain}
           placeholder="cci-touraine.fr"
           maxLength={253}
           spellCheck={false}

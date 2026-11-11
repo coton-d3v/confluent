@@ -22,6 +22,14 @@ export const NAV_ITEMS: NavItemSpec[] = [
   { to: '/dashboard/applications', label: 'Applications IA', icon: Plug },
 ]
 
+// Shown to an account that belongs to at least one workspace (E05.02); administrators reach all
+// workspaces from the administration menu.
+export const MY_WORKSPACES_NAV_ITEM: NavItemSpec = {
+  to: '/workspaces',
+  label: 'Mes workspaces',
+  icon: Building2,
+}
+
 export const ADMIN_NAV_ITEMS: NavItemSpec[] = [
   { to: '/admin', label: 'Pipeline', icon: LayoutDashboard, end: true },
   { to: '/admin/dossiers', label: 'Dossiers', icon: FolderOpen },

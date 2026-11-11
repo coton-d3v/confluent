@@ -13,6 +13,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   classification: 'Classification',
   utilisateurs: 'Utilisateurs',
   workspaces: 'Workspaces',
+  membres: 'Membres',
 }
 
 function toLabel(segment: string): string {
