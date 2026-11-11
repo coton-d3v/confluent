@@ -12,12 +12,19 @@ import { FundingSourceCategoriesService } from '../../src/modules/funding-source
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, eligibilitiesDown, fundingPlansDown, sqlStatements } from './sql-file'
+import {
+  CHECKS,
+  MIGRATIONS,
+  eligibilitiesDown,
+  fundingPlansDown,
+  sqlStatements,
+  supportPathsDown,
+} from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261118000000_funding_source_categories/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261118000000_funding_source_categories.down.sql'))
 // E06.03's plan lines reference the categories: undone first.
-const LATER_DOWN = [...eligibilitiesDown(), ...fundingPlansDown()]
+const LATER_DOWN = [...supportPathsDown(), ...eligibilitiesDown(), ...fundingPlansDown()]
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_funding_sources_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_funding_sources_loss = 'off'"

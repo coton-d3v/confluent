@@ -99,3 +99,17 @@ export function eligibilitiesDown(): string[] {
 export function eligibilitiesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261120000000_eligibilities/migration.sql'))
 }
+
+// The revert of E06.06 (support paths), as the tests of earlier migrations that drop what its tables
+// reference (E06.03's unique index on candidatures, candidatures, workspaces) run it before their
+// own: it accepts that paths and validations are lost (SET LOCAL, test transactions only).
+export function supportPathsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_support_paths_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261121000000_support_paths.down.sql')),
+  ]
+}
+
+export function supportPathsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261121000000_support_paths/migration.sql'))
+}

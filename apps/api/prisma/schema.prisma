@@ -95,6 +95,8 @@ enum audit_action {
   funding_plan_updated
   eligibility_schemes_updated
   candidature_eligibility_updated
+  support_steps_updated
+  candidature_support_step_updated
 
   @@map("audit_action")
 }
@@ -128,8 +130,10 @@ model User {
   candidatureRevisionsWritten CandidatureAnswerRevision[]
   candidatureStatusChanges    CandidatureStatusChange[]
   fundingPlanLinesWritten     FundingPlanLine[]
-  eligibilitiesWritten        CandidatureEligibility[]    @relation("EligibilityWriter")
-  eligibilitiesVerified       CandidatureEligibility[]    @relation("EligibilityVerifier")
+  eligibilitiesWritten        CandidatureEligibility[]          @relation("EligibilityWriter")
+  eligibilitiesVerified       CandidatureEligibility[]          @relation("EligibilityVerifier")
+  supportStepsValidated       CandidatureStepValidation[]
+  supportStepChanges          CandidatureStepValidationChange[]
 
   @@map("users")
 }
@@ -573,13 +577,14 @@ model Candidature {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  dossier       Dossier                   @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  formVersion   QuestionnaireVersion      @relation(fields: [formVersionId], references: [id])
-  answers       CandidatureAnswer[]
-  statusChanges CandidatureStatusChange[]
-  planLines     FundingPlanLine[]
-  eligibilities CandidatureEligibility[]
+  dossier         Dossier                     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  workspace       Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  formVersion     QuestionnaireVersion        @relation(fields: [formVersionId], references: [id])
+  answers         CandidatureAnswer[]
+  statusChanges   CandidatureStatusChange[]
+  planLines       FundingPlanLine[]
+  eligibilities   CandidatureEligibility[]
+  stepValidations CandidatureStepValidation[]
 
   @@unique([dossierId, workspaceId])
   // Target of the plan lines' and eligibilities' (candidature, workspace) foreign keys (E06.03,
@@ -836,6 +841,7 @@ model Workspace {
   candidatures       Candidature[]
   fundingSources     FundingSourceCategory[]
   eligibilitySchemes EligibilityScheme[]
+  supportSteps       SupportStep[]
 
   @@map("workspaces")
 }
@@ -952,6 +958,74 @@ model CandidatureEligibility {
   @@index([verifiedById])
   @@index([updatedById])
   @@map("candidature_eligibilities")
+}
+
+// ROADMAP E06.06: one step of a workspace's support path (« parcours d'accompagnement »): `key`
+// stable, fixed at creation; `label`, `explanation` (plain text for the entrepreneur), `position` and
+// `active` configured by its managers. Deactivated, never deleted (validations refer to it).
+model SupportStep {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  key         String
+  label       String
+  explanation String?
+  position    Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace   Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  validations CandidatureStepValidation[]
+
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, label])
+  // Target of the validations' (step, workspace) foreign key.
+  @@unique([id, workspaceId])
+  @@map("support_steps")
+}
+
+// ROADMAP E06.06: where one step of its workspace's path stands for a candidature — validated
+// (`validatedAt`, `validatedById`) or not (never, or its validation withdrawn). Both foreign keys
+// carry `workspace_id`: a candidature is only validated on its own workspace's steps. One per
+// candidature and step, created at the first validation; `version` grows at each change (a change
+// made meanwhile is refused). Its changes are kept in `candidature_step_validation_changes`.
+model CandidatureStepValidation {
+  id            String    @id @default(uuid())
+  candidatureId String    @map("candidature_id")
+  workspaceId   String    @map("workspace_id")
+  stepId        String    @map("step_id")
+  validatedAt   DateTime? @map("validated_at")
+  validatedById String?   @map("validated_by_id")
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  candidature Candidature                       @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  step        SupportStep                       @relation(fields: [stepId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction)
+  validatedBy User?                             @relation(fields: [validatedById], references: [id], onDelete: SetNull)
+  changes     CandidatureStepValidationChange[]
+
+  @@unique([candidatureId, stepId])
+  @@index([stepId, workspaceId])
+  @@index([validatedById])
+  @@map("candidature_step_validations")
+}
+
+// ROADMAP E06.06: one change of a step's validation — `validated` or `reopened` (validation
+// withdrawn) —, who and when. Written with the change, under the candidature's lock; never updated.
+model CandidatureStepValidationChange {
+  id           String   @id @default(uuid())
+  validationId String   @map("validation_id")
+  change       String
+  actorId      String?  @map("actor_id")
+  changedAt    DateTime @default(now()) @map("changed_at")
+
+  validation CandidatureStepValidation @relation(fields: [validationId], references: [id], onDelete: Cascade)
+  actor      User?                     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([validationId])
+  @@index([actorId])
+  @@map("candidature_step_validation_changes")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

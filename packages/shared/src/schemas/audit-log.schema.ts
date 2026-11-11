@@ -57,6 +57,8 @@ export const auditActionSchema = z.enum([
   'funding_plan_updated',
   'eligibility_schemes_updated',
   'candidature_eligibility_updated',
+  'support_steps_updated',
+  'candidature_support_step_updated',
 ]);
 
 export const auditLogSchema = z.object({
