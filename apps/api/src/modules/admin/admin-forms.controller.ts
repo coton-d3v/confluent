@@ -10,12 +10,16 @@ import {
   Patch,
   Post,
   Put,
+  UseGuards,
+  createParamDecorator,
+  type ExecutionContext,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
+  ApiParam,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -34,16 +38,18 @@ import {
   updateDraftFieldSchema,
   updateDraftSectionSchema,
 } from '@confluent/shared'
+import type { Request } from 'express'
 import { createZodDto } from 'nestjs-zod'
-import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { SITE_ORIGIN } from '../audit/action-origin'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import type { FormDesigner } from '../questionnaires/form-design-access'
 import { FormDraftsService, type FormVersionView } from '../questionnaires/form-drafts.service'
 import {
   FormsService,
   type FormDetailView,
   type FormSummaryView,
 } from '../questionnaires/forms.service'
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
 
 class CreateFormDto extends createZodDto(createFormSchema) {}
 class AssignUsageDto extends createZodDto(assignFormUsageSchema) {}
@@ -62,16 +68,25 @@ const uuid = new ParseUUIDPipe()
 const revisionOf = (header: string | undefined) =>
   header?.replace(/^(W\/)?"(.*)"$/, '$2') || undefined
 
+// Who designs forms in this request, and whose forms (E05.09): the authenticated account, in the
+// workspace the URL names (`:workspaceId`, checked by WorkspaceAccessGuard before the body), or
+// among Confluent's own forms on a route without one. Never a value read from a body.
+const Designer = createParamDecorator((_data: unknown, ctx: ExecutionContext): FormDesigner => {
+  const req = ctx.switchToHttp().getRequest<Request & { user: AuthenticatedUser }>()
+  const workspaceId = req.params.workspaceId
+  return {
+    id: req.user.id,
+    role: req.user.role,
+    workspaceId: workspaceId === undefined ? null : String(workspaceId),
+  }
+})
+
 // Form builder (ROADMAP E03.02, E03.03, E03.07, E03.08). Structure edits address `…/draft/…`: the
 // published and archived versions, read by dossiers, cannot be reached for writing. Who may read or
 // change forms is decided by the services' single form design rule (E04.07), the one the MCP tools
-// go through too, not by a guard of its own here.
-@ApiTags('Admin · Formulaires')
-@ApiBearerAuth('jwt')
-@ApiUnauthorizedResponse({ description: 'JWT manquant.' })
-@ApiForbiddenResponse({ description: 'Compte non autorisé à concevoir les formulaires.' })
-@Controller('admin/forms')
-export class AdminFormsController {
+// go through too, not by a guard of its own here. The same routes serve Confluent's own forms and,
+// E05.09, each workspace's (below): the services keep each designer to its owner's forms.
+abstract class FormBuilderRoutes {
   constructor(
     private readonly forms: FormsService,
     private readonly drafts: FormDraftsService,
@@ -84,7 +99,7 @@ export class AdminFormsController {
       'Tous les formulaires, archivés compris (`archivedAt`), avec leur version publiée et leur brouillon.',
   })
   @ApiOkResponse({ description: 'Formulaires.' })
-  list(@CurrentUser() user: AuthenticatedUser): Promise<FormSummaryView[]> {
+  list(@Designer() user: FormDesigner): Promise<FormSummaryView[]> {
     return this.forms.list(user)
   }
 
@@ -95,10 +110,7 @@ export class AdminFormsController {
       'Crée un formulaire non affecté (`usage: null`) avec un brouillon vide (version 1). Le `slug` est ' +
       'dérivé du nom et ne change plus.',
   })
-  create(
-    @Body() body: CreateFormDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<FormDetailView> {
+  create(@Body() body: CreateFormDto, @Designer() user: FormDesigner): Promise<FormDetailView> {
     return this.forms.create(user, body.name)
   }
 
@@ -107,7 +119,7 @@ export class AdminFormsController {
   @ApiNotFoundResponse({ description: 'Formulaire inexistant.' })
   get(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.get(user, formId)
   }
@@ -118,7 +130,7 @@ export class AdminFormsController {
   rename(
     @Param('formId', uuid) formId: string,
     @Body() body: RenameFormDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.rename(user, formId, body.name)
   }
@@ -133,7 +145,7 @@ export class AdminFormsController {
   duplicate(
     @Param('formId', uuid) formId: string,
     @Body() body: DuplicateFormDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.duplicate(user, formId, body.name)
   }
@@ -142,15 +154,18 @@ export class AdminFormsController {
   @ApiOperation({
     summary: 'Affecter un formulaire à un usage',
     description:
-      '`usage: "dossier"` : les nouveaux dossiers sont créés avec la version publiée de ce formulaire, ' +
-      'qui remplace le précédent dans la même transaction. Les dossiers existants gardent leur version. ' +
-      'Refusé pour un formulaire jamais publié ou archivé.',
+      '`usage: "dossier"` (formulaires de Confluent) : les nouveaux dossiers sont créés avec la ' +
+      'version publiée de ce formulaire, qui remplace le précédent dans la même transaction. Les ' +
+      'dossiers existants gardent leur version. `usage: "candidature"` (formulaires d’un workspace, ' +
+      'E05.09) : formulaire complémentaire du workspace, à la place du précédent ; les nouvelles ' +
+      'candidatures répondent à sa version publiée, les existantes gardent la leur. Refusé pour un ' +
+      'formulaire jamais publié ou archivé, et pour un usage qui n’est pas celui de son propriétaire (`400`).',
   })
   @ApiConflictResponse({ description: 'Formulaire jamais publié, ou archivé.' })
   assignUsage(
     @Param('formId', uuid) formId: string,
     @Body() body: AssignUsageDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.assignUsage(user, formId, body.usage)
   }
@@ -166,7 +181,7 @@ export class AdminFormsController {
   @ApiConflictResponse({ description: 'Formulaire affecté à un usage.' })
   archive(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.archive(user, formId)
   }
@@ -176,7 +191,7 @@ export class AdminFormsController {
   @ApiOperation({ summary: 'Restaurer un formulaire archivé' })
   restore(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormDetailView> {
     return this.forms.restore(user, formId)
   }
@@ -192,7 +207,7 @@ export class AdminFormsController {
   version(
     @Param('formId', uuid) formId: string,
     @Param('versionId', uuid) versionId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormVersionView> {
     return this.drafts.getVersion(user, formId, versionId)
   }
@@ -202,7 +217,7 @@ export class AdminFormsController {
   @ApiNotFoundResponse({ description: 'Aucun brouillon.' })
   draft(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormVersionView> {
     return this.drafts.getDraft(user, formId)
   }
@@ -217,7 +232,7 @@ export class AdminFormsController {
   @ApiConflictResponse({ description: 'Un brouillon existe déjà, ou formulaire archivé.' })
   createDraft(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
   ): Promise<FormVersionView> {
     return this.drafts.createDraft(user, formId)
   }
@@ -228,7 +243,7 @@ export class AdminFormsController {
   @ApiNoContentResponse({ description: 'Brouillon supprimé.' })
   discardDraft(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<void> {
     return this.drafts.discardDraft(user, formId, revisionOf(ifMatch))
@@ -247,7 +262,7 @@ export class AdminFormsController {
   })
   publish(
     @Param('formId', uuid) formId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.publishDraft(user, formId, revisionOf(ifMatch), SITE_ORIGIN)
@@ -258,7 +273,7 @@ export class AdminFormsController {
   addSection(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateSectionDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.addSection(user, formId, body, revisionOf(ifMatch))
@@ -269,7 +284,7 @@ export class AdminFormsController {
   reorderSections(
     @Param('formId', uuid) formId: string,
     @Body() body: ReorderDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.reorderSections(user, formId, body.ids, revisionOf(ifMatch))
@@ -281,7 +296,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: UpdateSectionDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.updateSection(user, formId, sectionId, body, revisionOf(ifMatch))
@@ -292,7 +307,7 @@ export class AdminFormsController {
   removeSection(
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.removeSection(user, formId, sectionId, revisionOf(ifMatch))
@@ -304,7 +319,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: ReorderDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.reorderFields(user, formId, sectionId, body.ids, revisionOf(ifMatch))
@@ -320,7 +335,7 @@ export class AdminFormsController {
   addField(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateFieldDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.addField(user, formId, body, revisionOf(ifMatch))
@@ -337,7 +352,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
     @Body() body: UpdateFieldDto,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.updateField(user, formId, fieldId, body, revisionOf(ifMatch))
@@ -348,9 +363,48 @@ export class AdminFormsController {
   removeField(
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
-    @CurrentUser() user: AuthenticatedUser,
+    @Designer() user: FormDesigner,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
     return this.drafts.removeField(user, formId, fieldId, revisionOf(ifMatch))
+  }
+}
+
+// Confluent's own forms — the company profile (`usage: "dossier"`) and the others — for its
+// administrators.
+@ApiTags('Admin · Formulaires')
+@ApiBearerAuth('jwt')
+@ApiUnauthorizedResponse({ description: 'JWT manquant.' })
+@ApiForbiddenResponse({ description: 'Compte non autorisé à concevoir les formulaires.' })
+@Controller('admin/forms')
+export class AdminFormsController extends FormBuilderRoutes {
+  constructor(forms: FormsService, drafts: FormDraftsService) {
+    super(forms, drafts)
+  }
+}
+
+// E05.09: a workspace's own forms — its complementary form (`usage: "candidature"`), answered by
+// each candidature it receives, and its drafts — for whoever manages the workspace (its managers,
+// Confluent's administrators). A form of Confluent or of another workspace is not found here, nor a
+// workspace's form under `admin/forms`. Attachment fields are refused: documents stay in the
+// company's library.
+@ApiTags('Workspaces · Formulaires')
+@ApiBearerAuth('jwt')
+@ApiParam({ name: 'workspaceId', description: 'UUID du workspace' })
+@ApiUnauthorizedResponse({ description: 'JWT manquant.' })
+@ApiForbiddenResponse({
+  description:
+    'Membre du workspace qui n’en est pas gestionnaire (conseiller sans droit, investisseur).',
+})
+@ApiNotFoundResponse({
+  description:
+    'Workspace inexistant ou dont le compte n’est pas membre actif (même réponse) ; formulaire ' +
+    'inexistant ou d’un autre propriétaire (Confluent, autre workspace).',
+})
+@UseGuards(WorkspaceAccessGuard)
+@Controller('admin/workspaces/:workspaceId/forms')
+export class WorkspaceFormsController extends FormBuilderRoutes {
+  constructor(forms: FormsService, drafts: FormDraftsService) {
+    super(forms, drafts)
   }
 }

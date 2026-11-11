@@ -10,6 +10,6 @@ import { DossiersModule } from '../dossiers/dossiers.module'
   imports: [DossiersModule, ClassificationModule, DocumentsModule],
   controllers: [AnswersController],
   providers: [AnswersService, AnswerSourcesService],
-  exports: [AnswersService],
+  exports: [AnswersService, AnswerSourcesService],
 })
 export class AnswersModule {}

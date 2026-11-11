@@ -25,7 +25,7 @@ const ACCOUNTS = {
   financeur: { role: 'financeur', email: 'jean@banque.fr' },
 } as const
 type Account = keyof typeof ACCOUNTS
-type Method = 'get' | 'post' | 'patch' | 'delete'
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 const UNKNOWN = '00000000-0000-4000-8000-000000000000'
 const NOT_FOUND = {
@@ -110,7 +110,7 @@ describe('workspace isolation (e2e)', () => {
     return router.stack.flatMap(({ route }) =>
       route && route.path.includes(':workspaceId')
         ? Object.keys(route.methods)
-            .filter((m): m is Method => ['get', 'post', 'patch', 'delete'].includes(m))
+            .filter((m): m is Method => ['get', 'post', 'put', 'patch', 'delete'].includes(m))
             .map((method) => ({ method, path: route.path.replace(/^\/v1/, '') }))
         : [],
     )
@@ -129,6 +129,11 @@ describe('workspace isolation (e2e)', () => {
         { method: 'post', path: '/admin/workspaces/:workspaceId/logo' },
         { method: 'post', path: '/admin/workspaces/:workspaceId/members' },
         { method: 'post', path: '/admin/workspaces/:workspaceId/members/:membershipId/deactivate' },
+        // E05.09: its forms and the candidatures it receives.
+        { method: 'get', path: '/admin/workspaces/:workspaceId/forms' },
+        { method: 'put', path: '/admin/workspaces/:workspaceId/forms/:formId/usage' },
+        { method: 'post', path: '/admin/workspaces/:workspaceId/forms/:formId/draft/fields' },
+        { method: 'get', path: '/workspaces/:workspaceId/candidatures/:candidatureId' },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

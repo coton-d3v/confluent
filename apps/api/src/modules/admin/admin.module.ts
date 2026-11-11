@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common'
 import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { AdminDossiersController } from './admin-dossiers.controller'
 import { AdminDossiersService } from './admin-dossiers.service'
-import { AdminFormsController } from './admin-forms.controller'
+import { AdminFormsController, WorkspaceFormsController } from './admin-forms.controller'
 import { AdminClassificationController } from './admin-classification.controller'
 import { ClassificationModule } from '../classification/classification.module'
 import { OAuthModule } from '../oauth/oauth.module'
@@ -32,6 +32,7 @@ import { AdminWorkspaceMembersController } from './admin-workspace-members.contr
   controllers: [
     AdminDossiersController,
     AdminFormsController,
+    WorkspaceFormsController,
     AdminClassificationController,
     AdminUsersController,
     AdminAnalyticsController,

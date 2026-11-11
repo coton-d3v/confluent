@@ -85,6 +85,9 @@ enum audit_action {
   company_transfer_accepted
   company_transfer_declined
   company_transfer_cancelled
+  candidature_created
+  candidature_submitted
+  candidature_withdrawn
 
   @@map("audit_action")
 }
@@ -113,6 +116,9 @@ model User {
   membersInvited   WorkspaceMembership[]   @relation("WorkspaceMemberInviter")
   transfersOffered CompanyTransfer[]       @relation("CompanyTransferFrom")
   transfersToMe    CompanyTransfer[]       @relation("CompanyTransferTo")
+
+  candidatureAnswersWritten   CandidatureAnswer[]
+  candidatureRevisionsWritten CandidatureAnswerRevision[]
 
   @@map("users")
 }
@@ -151,20 +157,27 @@ model MagicLinkToken {
   @@map("magic_link_tokens")
 }
 
-// A form definition (ROADMAP E03.01). `usage` says what its answers describe; today only `dossier`
-// (the company profile filled in each dossier). Workspace-specific forms arrive with E05.
+// A form definition (ROADMAP E03.01). `usage` says what its answers describe. Confluent's own forms
+// (`workspaceId` null) are designed by its administrators: `dossier`, the common company profile
+// (D01). A workspace's own forms (E05.09) are designed by its managers: `candidature`, the
+// complementary form each candidature to the workspace answers. Closed values and the pairing of
+// usage and owner: CHECK constraint; one form per usage — per workspace for `candidature` — partial
+// unique indexes (migration 20261115000000_workspace_forms).
 model Questionnaire {
-  id         String    @id @default(uuid())
-  slug       String    @unique
-  name       String
-  // Business usage the form is assigned to (E03.09), null when unassigned; one form per usage.
-  usage      String?   @unique
-  archivedAt DateTime? @map("archived_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(uuid())
+  slug        String    @unique
+  name        String
+  // Business usage the form is assigned to (E03.09), null when unassigned.
+  usage       String?
+  workspaceId String?   @map("workspace_id")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  versions QuestionnaireVersion[]
+  workspace Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  versions  QuestionnaireVersion[]
 
+  @@index([workspaceId])
   @@map("questionnaires")
 }
 
@@ -186,6 +199,7 @@ model QuestionnaireVersion {
   fields        QuestionnaireField[]
   dossiers      Dossier[]
   companies     Company[]
+  candidatures  Candidature[]
 
   @@unique([questionnaireId, version])
   @@index([questionnaireId, status])
@@ -227,10 +241,11 @@ model QuestionnaireField {
   // Defaults to the most restrictive level: a field nobody classified stays hidden from financeurs.
   minAccessLevel String     @default("complet") @map("min_access_level")
 
-  version   QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  section   QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  answers   DossierAnswer[]
-  documents LibraryDocument[]
+  version            QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  section            QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  answers            DossierAnswer[]
+  candidatureAnswers CandidatureAnswer[]
+  documents          LibraryDocument[]
 
   @@unique([versionId, key])
   @@index([versionId, orderIndex])
@@ -363,6 +378,7 @@ model Dossier {
   shareLinks           ShareLink[]
   auditLogs            AuditLog[]
   documentSelection    DossierDocument[]
+  candidatures         Candidature[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -420,13 +436,15 @@ model Document {
   restoredFromId    String?  @map("restored_from_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
-  libraryDocument  LibraryDocument         @relation(fields: [libraryDocumentId, companyId, filename], references: [id, companyId, filename], onDelete: Cascade, onUpdate: Cascade)
-  company          Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  restoredFrom     Document?               @relation("DocumentRestorations", fields: [restoredFromId], references: [id], onDelete: SetNull)
-  restorations     Document[]              @relation("DocumentRestorations")
-  citedBy          DossierAnswer[]
-  citedByRevisions DossierAnswerRevision[]
-  pinnedBy         DossierDocument[]
+  libraryDocument             LibraryDocument             @relation(fields: [libraryDocumentId, companyId, filename], references: [id, companyId, filename], onDelete: Cascade, onUpdate: Cascade)
+  company                     Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  restoredFrom                Document?                   @relation("DocumentRestorations", fields: [restoredFromId], references: [id], onDelete: SetNull)
+  restorations                Document[]                  @relation("DocumentRestorations")
+  citedBy                     DossierAnswer[]
+  citedByRevisions            DossierAnswerRevision[]
+  citedByCandidatureAnswers   CandidatureAnswer[]
+  citedByCandidatureRevisions CandidatureAnswerRevision[]
+  pinnedBy                    DossierDocument[]
 
   @@unique([libraryDocumentId, version])
   // Target of the selections' (pinned version, document) foreign key.
@@ -520,6 +538,90 @@ model DossierAnswerRevision {
   @@index([authorId])
   @@index([sourceDocumentId])
   @@map("dossier_answer_revisions")
+}
+
+// A candidature (ROADMAP E05.09; glossary « Candidature au workspace »): one financing request
+// presented to one workspace, at most once. It presents its company's common profile as is (D01) and
+// answers the workspace's complementary form, at the version published when it was created
+// (`formVersionId`, kept until an explicit migration of its answers, E03.08). Its answers are its
+// own and private to it. A draft (`submittedAt` null) is its owner's alone; once submitted, the
+// workspace's conseillers read it. It goes with its dossier.
+model Candidature {
+  id            String    @id @default(uuid())
+  dossierId     String    @map("dossier_id")
+  workspaceId   String    @map("workspace_id")
+  formVersionId String    @map("form_version_id")
+  submittedAt   DateTime? @map("submitted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  dossier     Dossier              @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  formVersion QuestionnaireVersion @relation(fields: [formVersionId], references: [id])
+  answers     CandidatureAnswer[]
+
+  @@unique([dossierId, workspaceId])
+  @@index([workspaceId])
+  @@index([formVersionId])
+  @@map("candidatures")
+}
+
+// An answer of a candidature to its workspace's complementary form (E05.09), with the provenance of
+// its current value (E04.04): the same columns, rules and CHECK constraints as `DossierAnswer`.
+model CandidatureAnswer {
+  id               String   @id @default(uuid())
+  candidatureId    String   @map("candidature_id")
+  fieldId          String   @map("field_id")
+  value            String
+  origin           String? // human | ai
+  confirmation     String? // confirmed | pending
+  channel          String? // site | admin | mcp
+  authorId         String?  @map("author_id")
+  clientName       String?  @map("client_name")
+  sourceDocumentId String?  @map("source_document_id")
+  sourceLocation   String?  @map("source_location")
+  sourceExcerpt    String?  @map("source_excerpt")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  candidature    Candidature                 @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  field          QuestionnaireField          @relation(fields: [fieldId], references: [id])
+  author         User?                       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceDocument Document?                   @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  revisions      CandidatureAnswerRevision[]
+
+  @@unique([candidatureId, fieldId])
+  @@index([fieldId])
+  @@index([authorId])
+  @@index([sourceDocumentId])
+  @@map("candidature_answers")
+}
+
+// A state a candidature's answer held before it gave way, kept when an AI assistant is involved
+// (E04.05): same columns and rules as `DossierAnswerRevision`.
+model CandidatureAnswerRevision {
+  id               String   @id @default(uuid())
+  answerId         String   @map("answer_id")
+  value            String
+  origin           String? // human | ai
+  confirmation     String? // confirmed | pending
+  channel          String? // site | admin | mcp
+  authorId         String?  @map("author_id")
+  clientName       String?  @map("client_name")
+  sourceDocumentId String?  @map("source_document_id")
+  sourceLocation   String?  @map("source_location")
+  sourceExcerpt    String?  @map("source_excerpt")
+  recordedAt       DateTime @map("recorded_at")
+  replacedAt       DateTime @default(now()) @map("replaced_at")
+
+  answer         CandidatureAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  author         User?             @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceDocument Document?         @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([answerId])
+  @@index([authorId])
+  @@index([sourceDocumentId])
+  @@map("candidature_answer_revisions")
 }
 
 model ShareLink {
@@ -683,6 +785,8 @@ model Workspace {
   memberships       WorkspaceMembership[]
   preparedCompanies Company[]
   companyTransfers  CompanyTransfer[]
+  forms             Questionnaire[]
+  candidatures      Candidature[]
 
   @@map("workspaces")
 }

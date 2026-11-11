@@ -88,7 +88,9 @@ export class ClassificationRulesService {
   async coverage(): Promise<ClassificationCoverage> {
     const [rules, form] = await Promise.all([
       this.prisma.classificationRule.findMany(),
-      this.prisma.questionnaire.findUnique({ where: { usage: DOSSIER_FORM.usage } }),
+      this.prisma.questionnaire.findFirst({
+        where: { usage: DOSSIER_FORM.usage, workspaceId: null },
+      }),
     ])
     if (!form) return { versions: [] }
     const versions = await this.prisma.questionnaireVersion.findMany({

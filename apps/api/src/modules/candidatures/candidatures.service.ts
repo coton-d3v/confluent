@@ -1,0 +1,595 @@
+import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  canReviewCandidatures,
+  financingTypesOf,
+  missingRequiredAnswers,
+  type CandidatureStatus,
+  type FinancingType,
+} from '@confluent/shared'
+import {
+  Prisma,
+  type Candidature,
+  type CandidatureAnswer,
+  type CandidatureAnswerRevision,
+  type Dossier,
+  type QuestionnaireField,
+  type QuestionnaireSection,
+  type QuestionnaireVersion,
+} from '@prisma/client'
+import { PrismaService } from '../../prisma/prisma.service'
+import {
+  declarationErrors,
+  keepsRevision,
+  provenanceColumns,
+  provenanceView,
+  revisionOf,
+  type AnswerAuthor,
+  type AnswerProvenanceView,
+  type CheckedSource,
+} from '../answers/answer-provenance'
+import { AnswerSourcesService } from '../answers/answer-sources.service'
+import {
+  normalizeAnswers,
+  submittedDossierErrors,
+  validateAnswers,
+} from '../answers/answer-validation'
+import type { AnswerInput, AnswerRevisionView } from '../answers/answers.service'
+import { InvalidAnswersException } from '../answers/invalid-answers.exception'
+import { AuditService } from '../audit/audit.service'
+import { assertCanOwnCompanies } from '../companies/company-access'
+import { DossiersService } from '../dossiers/dossiers.service'
+import { QuestionnairesService } from '../questionnaires/questionnaires.service'
+import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
+import { CandidatureErrors } from './candidature-errors'
+
+// The usage of a workspace's complementary form (@confluent/shared `formUsageSchema`).
+const CANDIDATURE_USAGE = 'candidature'
+
+// @confluent/shared `candidatureWorkspaceSchema`.
+export interface CandidatureWorkspaceView {
+  id: string
+  name: string
+  programName: string | null
+  color: string | null
+  presentation: string | null
+}
+
+// @confluent/shared `candidatureAnswerSchema`.
+export interface CandidatureAnswerView {
+  id: string
+  candidatureId: string
+  fieldId: string
+  value: string
+  createdAt: Date
+  updatedAt: Date
+  provenance: AnswerProvenanceView | null
+  history: AnswerRevisionView[]
+}
+
+// @confluent/shared `candidatureSummarySchema`.
+export interface CandidatureSummaryView {
+  id: string
+  dossierId: string
+  workspace: { id: string; name: string; programName: string | null }
+  status: CandidatureStatus
+  submittedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+interface FormView {
+  name: string
+  version: QuestionnaireVersion
+  sections: QuestionnaireSection[]
+  fields: QuestionnaireField[]
+}
+
+// @confluent/shared `candidatureSchema`.
+export interface CandidatureView extends CandidatureSummaryView {
+  workspace: CandidatureWorkspaceView
+  dossier: { id: string; slug: string; name: string; profileSubmitted: boolean }
+  form: FormView
+  answers: CandidatureAnswerView[]
+}
+
+interface ReceivedAnswerView {
+  fieldId: string
+  value: string
+}
+
+// @confluent/shared `receivedCandidatureSummarySchema`.
+export interface ReceivedCandidatureSummaryView {
+  id: string
+  submittedAt: Date
+  company: { name: string }
+  dossier: { name: string; amountEur: number | null; financingTypes: FinancingType[] }
+}
+
+// @confluent/shared `receivedCandidatureSchema`.
+export interface ReceivedCandidatureView extends ReceivedCandidatureSummaryView {
+  applicant: { email: string; firstName: string | null; lastName: string | null }
+  dossier: ReceivedCandidatureSummaryView['dossier'] & {
+    summary: string | null
+    objective: string | null
+    description: string | null
+    publicationStatus: 'draft' | 'published'
+  }
+  profile: Omit<FormView, 'name'> & { answers: ReceivedAnswerView[] }
+  form: FormView & { answers: ReceivedAnswerView[] }
+}
+
+// A workspace's public identity, field by field: its settings (email domain, logo key…) and any
+// column added later stay out.
+function identityOf(workspace: CandidatureWorkspaceView): CandidatureWorkspaceView {
+  const { id, name, programName, color, presentation } = workspace
+  return { id, name, programName, color, presentation }
+}
+
+// Candidatures (ROADMAP E05.09, decision D01): a financing request presented to a workspace, which
+// presents its company's common profile as is and answers the workspace's complementary form.
+//
+// The owner of the request — whoever works on its company as owner (`getByIdForUser`) — opens a
+// candidature to a workspace that receives them (a published form assigned to its candidatures),
+// fills in that form, submits it, and may withdraw it; a company prepared by a conseiller presents
+// nothing before its entrepreneur owns it (E05.08). The candidature's answers are its own: stored
+// apart from the profile, with the same validation, lock, provenance and history rules, read by its
+// owner and — once submitted — by the conseillers of that workspace only. No other workspace, no
+// share recipient, no other candidature of the company ever reads them; the share and MCP paths do
+// not know them. Every read and write of a workspace goes through the workspaces' single access
+// rule, then `canReviewCandidatures`, at each request.
+@Injectable()
+export class CandidaturesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dossiers: DossiersService,
+    private readonly workspaces: WorkspaceAccessService,
+    private readonly questionnaires: QuestionnairesService,
+    private readonly sources: AnswerSourcesService,
+    private readonly audit: AuditService,
+  ) {}
+
+  // ── The owner of the request ─────────────────────────────────────────────────────────────────
+
+  // The workspaces a request can be presented to, by their public identity, for whoever may own
+  // companies: those with a published form assigned to their candidatures.
+  async listOpenWorkspaces(user: { role: string }): Promise<CandidatureWorkspaceView[]> {
+    assertCanOwnCompanies(user)
+    const forms = await this.prisma.questionnaire.findMany({
+      where: { usage: CANDIDATURE_USAGE, workspaceId: { not: null }, archivedAt: null },
+    })
+    const published = await this.prisma.questionnaireVersion.findMany({
+      where: { questionnaireId: { in: forms.map((f) => f.id) }, status: 'published' },
+    })
+    const open = new Set(
+      forms
+        .filter((f) => published.some((v) => v.questionnaireId === f.id))
+        .map((f) => f.workspaceId),
+    )
+    const workspaces = await this.prisma.workspace.findMany({
+      where: { id: { in: [...open].filter((id): id is string => id !== null) } },
+      orderBy: { name: 'asc' },
+    })
+    return workspaces.map(identityOf)
+  }
+
+  async listForDossier(dossierId: string, userId: string): Promise<CandidatureSummaryView[]> {
+    const dossier = await this.dossiers.getByIdForUser(dossierId, userId)
+    const rows = await this.prisma.candidature.findMany({
+      where: { dossierId: dossier.id },
+      orderBy: { createdAt: 'desc' },
+    })
+    const workspaces = await this.prisma.workspace.findMany({
+      where: { id: { in: rows.map((r) => r.workspaceId) } },
+    })
+    const byId = new Map(workspaces.map((w) => [w.id, w]))
+    return rows.map((row) => summaryView(row, byId.get(row.workspaceId)!))
+  }
+
+  // A candidature answers the version of the workspace's complementary form published at its
+  // creation, kept afterwards (E03.08). At most one per request and workspace. Presenting a request
+  // is diffusing it: refused while a conseiller prepares its company (409, E05.08).
+  async create(dossierId: string, userId: string, workspaceId: string): Promise<CandidatureView> {
+    const dossier = await this.dossiers.getForDiffusion(dossierId, userId)
+    let created: Candidature
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const version = await this.openFormVersion(tx, workspaceId)
+        if (!version) throw CandidatureErrors.workspaceNotOpen()
+        const existing = await tx.candidature.findFirst({
+          where: { dossierId: dossier.id, workspaceId },
+        })
+        if (existing) throw CandidatureErrors.exists()
+        return tx.candidature.create({
+          data: { dossierId: dossier.id, workspaceId, formVersionId: version.id },
+        })
+      })
+    } catch (err) {
+      // Two requests at once: the unique index lets one through.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw CandidatureErrors.exists()
+      }
+      throw err
+    }
+    await this.audit.record({
+      actionType: 'candidature_created',
+      actorId: userId,
+      dossierId: dossier.id,
+      metadata: { candidatureId: created.id, workspaceId, formVersionId: created.formVersionId },
+    })
+    return this.ownerView(created, dossier)
+  }
+
+  async getForOwner(candidatureId: string, userId: string): Promise<CandidatureView> {
+    const { candidature, dossier } = await this.findOwned(candidatureId, userId)
+    return this.ownerView(candidature, dossier)
+  }
+
+  // The only way to write a candidature's answers. Every field must belong to the candidature's own
+  // form version and every value fit its type — all or nothing (the profile's rules, E03.05); once
+  // submitted, a required answer can be corrected but not cleared (E03.10). Under the candidature's
+  // lock, the state read only afterwards (R40); each value with its provenance (E04.04), a state an
+  // AI assistant is involved in kept in the history (E04.05). A cited source is one of the company's
+  // documents, checked beforehand.
+  async saveAnswers(
+    candidatureId: string,
+    userId: string,
+    answers: AnswerInput[],
+    author: AnswerAuthor,
+  ): Promise<CandidatureAnswerView[]> {
+    const { candidature, dossier } = await this.findOwned(candidatureId, userId)
+    const cited = await this.sources.check(dossier, answers)
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const current = await lockCandidature(tx, candidature.id, userId)
+      const fields = await tx.questionnaireField.findMany({
+        where: { versionId: current.formVersionId },
+      })
+      const normalized = normalizeAnswers(fields, answers)
+      const errors = validateAnswers(fields, normalized)
+      if (current.submittedAt) {
+        errors.push(
+          ...submittedDossierErrors(
+            fields,
+            normalized,
+            'Réponse obligatoire : la candidature est envoyée, elle peut être corrigée mais pas effacée.',
+          ),
+        )
+      }
+      const labels = new Map(fields.map((f) => [f.id, f.label]))
+      for (const e of [...declarationErrors(answers), ...cited.errors]) {
+        errors.push({ ...e, label: labels.get(e.fieldId) })
+      }
+      if (errors.length) throw new InvalidAnswersException(errors)
+      return upsertAnswers(tx, current.id, normalized, author, cited.sources)
+    })
+    return this.answerViews(dossier, saved)
+  }
+
+  // The owner sends the candidature: the workspace's conseillers read it from then on. It needs the
+  // common profile submitted through this request (E03.10) and every required question of the
+  // complementary form answered. Sending it again changes nothing.
+  async submit(candidatureId: string, userId: string): Promise<CandidatureView> {
+    const { candidature, dossier } = await this.findOwned(candidatureId, userId)
+    const { submitted, first } = await this.prisma.$transaction(async (tx) => {
+      const current = await lockCandidature(tx, candidature.id, userId)
+      const request = await tx.dossier.findUnique({ where: { id: current.dossierId } })
+      if (!request?.submittedAt) throw CandidatureErrors.profileNotSubmitted()
+      const [fields, answers] = await Promise.all([
+        tx.questionnaireField.findMany({ where: { versionId: current.formVersionId } }),
+        tx.candidatureAnswer.findMany({ where: { candidatureId: current.id } }),
+      ])
+      const missing = missingRequiredAnswers(
+        fields,
+        Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
+        new Set(),
+      )
+      if (missing.length > 0) throw CandidatureErrors.incomplete(missing)
+      if (current.submittedAt) return { submitted: current, first: false }
+      const updated = await tx.candidature.update({
+        where: { id: current.id },
+        data: { submittedAt: new Date() },
+      })
+      return { submitted: updated, first: true }
+    })
+    if (first) {
+      await this.audit.record({
+        actionType: 'candidature_submitted',
+        actorId: userId,
+        dossierId: dossier.id,
+        metadata: {
+          candidatureId: submitted.id,
+          workspaceId: submitted.workspaceId,
+          submittedAt: submitted.submittedAt?.toISOString() ?? null,
+        },
+      })
+    }
+    return this.ownerView(submitted, dossier)
+  }
+
+  // The owner withdraws the candidature, with its answers: the workspace no longer reads it. The
+  // journal of the request keeps the trace. (Its local workflow — acceptance, refusal, a withdrawal
+  // kept as a status — comes with E08.03.)
+  async withdraw(candidatureId: string, userId: string): Promise<void> {
+    const { candidature, dossier } = await this.findOwned(candidatureId, userId)
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const current = await lockCandidature(tx, candidature.id, userId)
+      await tx.candidature.delete({ where: { id: current.id } })
+      return current
+    })
+    await this.audit.record({
+      actionType: 'candidature_withdrawn',
+      actorId: userId,
+      dossierId: dossier.id,
+      metadata: {
+        candidatureId: removed.id,
+        workspaceId: removed.workspaceId,
+        submittedAt: removed.submittedAt?.toISOString() ?? null,
+      },
+    })
+  }
+
+  // ── The workspace's conseillers ──────────────────────────────────────────────────────────────
+
+  // The submitted candidatures the workspace receives, the latest first. Drafts stay their
+  // owner's alone.
+  async listReceived(
+    actor: WorkspaceActor,
+    workspaceId: string,
+  ): Promise<ReceivedCandidatureSummaryView[]> {
+    await this.assertCanReview(actor, workspaceId)
+    const rows = await this.prisma.candidature.findMany({
+      where: { workspaceId, submittedAt: { not: null } },
+      orderBy: { submittedAt: 'desc' },
+    })
+    const dossiers = await this.prisma.dossier.findMany({
+      where: { id: { in: rows.map((r) => r.dossierId) } },
+    })
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: dossiers.map((d) => d.companyId) } },
+    })
+    const dossierById = new Map(dossiers.map((d) => [d.id, d]))
+    const companyById = new Map(companies.map((c) => [c.id, c]))
+    return rows.map((row) => {
+      const dossier = dossierById.get(row.dossierId)!
+      return receivedSummary(row, dossier, companyById.get(dossier.companyId)!.name)
+    })
+  }
+
+  // One submitted candidature of the workspace: the request's presentation, the company's common
+  // profile — its answers at the full level, attachments aside (documents are chosen per request and
+  // reach a structure through E06/E07, never by a candidature) — and the candidature's own answers.
+  // Values only: provenance and history stay the owner's. `404` for a candidature of another
+  // workspace, a draft and an unknown one alike.
+  async getReceived(
+    actor: WorkspaceActor,
+    workspaceId: string,
+    candidatureId: string,
+  ): Promise<ReceivedCandidatureView> {
+    await this.assertCanReview(actor, workspaceId)
+    const row = await this.prisma.candidature.findFirst({
+      where: { id: candidatureId, workspaceId, submittedAt: { not: null } },
+    })
+    if (!row) throw CandidatureErrors.notFound()
+    const dossier = (await this.prisma.dossier.findUnique({ where: { id: row.dossierId } }))!
+    const [company, owner, profile, form, profileAnswers, ownAnswers] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: dossier.companyId } }),
+      this.prisma.user.findUnique({ where: { id: dossier.userId } }),
+      this.questionnaires.getVersion(dossier.questionnaireVersionId),
+      this.formOf(row.formVersionId),
+      this.prisma.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
+      this.prisma.candidatureAnswer.findMany({ where: { candidatureId: row.id } }),
+    ])
+    // The common profile, attachment questions aside.
+    const profileFields = (profile?.fields ?? []).filter((f) => f.fieldType !== 'file')
+    const profileFieldIds = new Set(profileFields.map((f) => f.id))
+    const summary = receivedSummary(row, dossier, company!.name)
+    return {
+      ...summary,
+      applicant: {
+        email: owner!.email,
+        firstName: owner!.firstName,
+        lastName: owner!.lastName,
+      },
+      dossier: {
+        ...summary.dossier,
+        summary: dossier.summary,
+        objective: dossier.objective,
+        description: dossier.description,
+        publicationStatus: dossier.publicationStatus === 'published' ? 'published' : 'draft',
+      },
+      profile: {
+        version: profile!.version,
+        sections: profile!.sections.filter((s) => profileFields.some((f) => f.sectionId === s.id)),
+        fields: profileFields,
+        answers: profileAnswers
+          .filter((a) => profileFieldIds.has(a.fieldId))
+          .map(({ fieldId, value }) => ({ fieldId, value })),
+      },
+      form: { ...form, answers: ownAnswers.map(({ fieldId, value }) => ({ fieldId, value })) },
+    }
+  }
+
+  // ── Shared ───────────────────────────────────────────────────────────────────────────────────
+
+  // Reading the candidatures a workspace receives: `404` for whoever is not in it (as for a
+  // workspace that does not exist), then `403` for a member who is not one of its conseillers.
+  private async assertCanReview(actor: WorkspaceActor, workspaceId: string): Promise<void> {
+    const scope = await this.workspaces.resolve(actor, workspaceId)
+    if (!canReviewCandidatures(actor, scope.membership)) throw CandidatureErrors.reviewForbidden()
+  }
+
+  // The published version of the form the workspace assigned to its candidatures, if any.
+  private async openFormVersion(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+  ): Promise<QuestionnaireVersion | null> {
+    const form = await tx.questionnaire.findFirst({
+      where: { workspaceId, usage: CANDIDATURE_USAGE, archivedAt: null },
+    })
+    if (!form) return null
+    return tx.questionnaireVersion.findFirst({
+      where: { questionnaireId: form.id, status: 'published' },
+    })
+  }
+
+  // The owner access to a candidature: the owner access to its request (`getByIdForUser`), else
+  // the same 404 as an unknown candidature.
+  private async findOwned(
+    candidatureId: string,
+    userId: string,
+  ): Promise<{ candidature: Candidature; dossier: Dossier }> {
+    const candidature = await this.prisma.candidature.findUnique({ where: { id: candidatureId } })
+    if (!candidature) throw CandidatureErrors.notFound()
+    try {
+      const dossier = await this.dossiers.getByIdForUser(candidature.dossierId, userId)
+      return { candidature, dossier }
+    } catch (err) {
+      if (err instanceof NotFoundException) throw CandidatureErrors.notFound()
+      throw err
+    }
+  }
+
+  private async formOf(versionId: string): Promise<FormView> {
+    const structure = (await this.questionnaires.getVersion(versionId))!
+    const form = await this.prisma.questionnaire.findUnique({
+      where: { id: structure.version.questionnaireId },
+    })
+    return { name: form!.name, ...structure }
+  }
+
+  private async ownerView(candidature: Candidature, dossier: Dossier): Promise<CandidatureView> {
+    const [workspace, form, answers, request] = await Promise.all([
+      this.prisma.workspace.findUnique({ where: { id: candidature.workspaceId } }),
+      this.formOf(candidature.formVersionId),
+      this.prisma.candidatureAnswer.findMany({
+        where: { candidatureId: candidature.id },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.dossier.findUnique({ where: { id: dossier.id } }),
+    ])
+    return {
+      ...summaryView(candidature, workspace!),
+      workspace: identityOf(workspace!),
+      dossier: {
+        id: dossier.id,
+        slug: request?.slug ?? dossier.slug,
+        name: request?.name ?? dossier.name,
+        profileSubmitted: (request ?? dossier).submittedAt !== null,
+      },
+      form,
+      answers: await this.answerViews(dossier, answers),
+    }
+  }
+
+  private async answerViews(
+    dossier: Dossier,
+    rows: CandidatureAnswer[],
+  ): Promise<CandidatureAnswerView[]> {
+    const [documents, revisions] = await Promise.all([
+      this.prisma.document.findMany({ where: { companyId: dossier.companyId } }),
+      rows.length
+        ? this.prisma.candidatureAnswerRevision.findMany({
+            where: { answerId: { in: rows.map((r) => r.id) } },
+            orderBy: { replacedAt: 'desc' },
+          })
+        : Promise.resolve([] as CandidatureAnswerRevision[]),
+    ])
+    const byId = new Map(documents.map((d) => [d.id, d]))
+    return rows.map((row) => ({
+      id: row.id,
+      candidatureId: row.candidatureId,
+      fieldId: row.fieldId,
+      value: row.value,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      provenance: provenanceView(row, row.updatedAt, byId),
+      history: revisions
+        .filter((r) => r.answerId === row.id)
+        .map((r) => ({
+          value: r.value,
+          provenance: provenanceView(r, r.recordedAt, byId),
+          replacedAt: r.replacedAt,
+        })),
+    }))
+  }
+}
+
+function summaryView(
+  row: Candidature,
+  workspace: { id: string; name: string; programName: string | null },
+): CandidatureSummaryView {
+  return {
+    id: row.id,
+    dossierId: row.dossierId,
+    workspace: { id: workspace.id, name: workspace.name, programName: workspace.programName },
+    status: row.submittedAt ? 'submitted' : 'draft',
+    submittedAt: row.submittedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+function receivedSummary(
+  row: Candidature,
+  dossier: Dossier,
+  companyName: string,
+): ReceivedCandidatureSummaryView {
+  return {
+    id: row.id,
+    submittedAt: row.submittedAt!,
+    company: { name: companyName },
+    dossier: {
+      name: dossier.name,
+      amountEur: dossier.amountEur,
+      financingTypes: financingTypesOf(dossier.financingTypes),
+    },
+  }
+}
+
+// The candidature's row, held for the rest of the transaction; still its owner's request once the
+// lock is held (a request deleted meanwhile takes the candidature with it: 404).
+async function lockCandidature(
+  tx: Prisma.TransactionClient,
+  id: string,
+  ownerId: string,
+): Promise<Candidature> {
+  await tx.$queryRaw`SELECT 1 FROM "candidatures" WHERE "id" = ${id} FOR UPDATE`
+  const candidature = await tx.candidature.findUnique({ where: { id } })
+  if (!candidature) throw CandidatureErrors.notFound()
+  const dossier = await tx.dossier.findUnique({ where: { id: candidature.dossierId } })
+  if (!dossier || dossier.userId !== ownerId) throw CandidatureErrors.notFound()
+  return candidature
+}
+
+// One statement at a time, like the profile's answers (an interactive transaction runs on a single
+// connection); a state that gives way while an AI assistant is involved goes to the history.
+async function upsertAnswers(
+  tx: Prisma.TransactionClient,
+  candidatureId: string,
+  answers: AnswerInput[],
+  author: AnswerAuthor,
+  sources: Array<CheckedSource | null>,
+): Promise<CandidatureAnswer[]> {
+  const previous = new Map(
+    (
+      await tx.candidatureAnswer.findMany({
+        where: { candidatureId, fieldId: { in: answers.map((a) => a.fieldId) } },
+      })
+    ).map((row) => [row.fieldId, row]),
+  )
+  const saved: CandidatureAnswer[] = []
+  for (const [i, a] of answers.entries()) {
+    const provenance = provenanceColumns(a, author, sources[i])
+    const before = previous.get(a.fieldId)
+    if (before && keepsRevision(before, { value: a.value, ...provenance })) {
+      await tx.candidatureAnswerRevision.create({ data: revisionOf(before) })
+    }
+    const row = await tx.candidatureAnswer.upsert({
+      where: { candidatureId_fieldId: { candidatureId, fieldId: a.fieldId } },
+      create: { candidatureId, fieldId: a.fieldId, value: a.value, ...provenance },
+      update: { value: a.value, ...provenance },
+    })
+    previous.set(a.fieldId, row)
+    saved.push(row)
+  }
+  return saved
+}

@@ -43,6 +43,7 @@ export function normalizeAnswers<T extends { fieldId: string; value: string }>(
 export function submittedDossierErrors(
   fields: QuestionnaireField[],
   answers: ReadonlyArray<{ fieldId: string; value: string }>,
+  message = 'Réponse obligatoire : le dossier est soumis, elle peut être corrigée mais pas effacée.',
 ): AnswerValidationError[] {
   const byId = new Map(fields.map((f) => [f.id, f]))
   return answers.flatMap((answer) => {
@@ -53,8 +54,7 @@ export function submittedDossierErrors(
       {
         fieldId: field.id,
         label: field.label,
-        message:
-          'Réponse obligatoire : le dossier est soumis, elle peut être corrigée mais pas effacée.',
+        message,
       },
     ]
   })

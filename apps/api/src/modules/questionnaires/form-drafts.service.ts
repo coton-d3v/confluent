@@ -7,6 +7,7 @@ import {
 } from '@prisma/client'
 import {
   constraintsProblem,
+  fieldTypeAllowedInWorkspaceForms,
   type CreateDraftFieldInput,
   type FieldConstraints,
   type FieldType,
@@ -19,7 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { type ActionOrigin, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { validateDraft } from './draft-validation'
-import { assertCanDesignForms, type FormDesigner } from './form-design-access'
+import { FormDesignAccess, type FormDesigner } from './form-design-access'
 import { FormErrors } from './form-errors'
 import { FormsService, type FormSummaryView } from './forms.service'
 import { copyVersionStructure, toChoices, toKey, uniqueKey } from './questionnaire-structure'
@@ -32,6 +33,8 @@ export interface FormVersionView extends VersionStructure {
 
 // The draft of a form being edited, loaded inside the edit transaction.
 interface DraftContext {
+  // The workspace the form belongs to, null for Confluent's (E05.09).
+  owner: string | null
   draft: QuestionnaireVersion
   sections: QuestionnaireSection[]
   fields: QuestionnaireField[]
@@ -50,6 +53,7 @@ export class FormDraftsService {
     private readonly forms: FormsService,
     private readonly questionnaires: QuestionnairesService,
     private readonly audit: AuditService,
+    private readonly design: FormDesignAccess,
   ) {}
 
   async getVersion(
@@ -57,7 +61,7 @@ export class FormDraftsService {
     formId: string,
     versionId: string,
   ): Promise<FormVersionView> {
-    assertCanDesignForms(actor)
+    await this.forms.findForm(formId, await this.design.assert(actor))
     const structure = await this.questionnaires.getVersion(versionId)
     if (!structure || structure.version.questionnaireId !== formId) {
       throw FormErrors.versionNotFound()
@@ -70,19 +74,18 @@ export class FormDraftsService {
   }
 
   async getDraft(actor: FormDesigner, formId: string): Promise<FormVersionView> {
-    assertCanDesignForms(actor)
-    await this.forms.findForm(formId)
+    await this.forms.findForm(formId, await this.design.assert(actor))
     const draft = await this.findDraft(this.prisma, formId)
     return this.getVersion(actor, formId, draft.id)
   }
 
   // Starts from a copy of the published version (same keys), or empty for a never-published form.
   async createDraft(actor: FormDesigner, formId: string): Promise<FormVersionView> {
-    assertCanDesignForms(actor)
+    const owner = await this.design.assert(actor)
     let created: { draft: QuestionnaireVersion; from: QuestionnaireVersion | null }
     try {
       created = await this.prisma.$transaction(async (tx) => {
-        await this.forms.lockEditableForm(tx, formId)
+        await this.forms.lockEditableForm(tx, formId, owner)
         const existing = await tx.questionnaireVersion.findFirst({
           where: { questionnaireId: formId, status: 'draft' },
         })
@@ -121,9 +124,9 @@ export class FormDraftsService {
   }
 
   async discardDraft(actor: FormDesigner, formId: string, revision?: string): Promise<void> {
-    assertCanDesignForms(actor)
+    const owner = await this.design.assert(actor)
     const draft = await this.prisma.$transaction(async (tx) => {
-      await this.forms.lockEditableForm(tx, formId)
+      await this.forms.lockEditableForm(tx, formId, owner)
       const found = await this.findDraft(tx, formId)
       assertRevision(found, revision)
       await tx.questionnaireField.deleteMany({ where: { versionId: found.id } })
@@ -148,10 +151,10 @@ export class FormDraftsService {
     revision: string | undefined,
     origin: ActionOrigin,
   ): Promise<FormVersionView> {
-    assertCanDesignForms(actor)
+    const owner = await this.design.assert(actor)
     const { draft, previous, fieldCount } = await this.prisma.$transaction(async (tx) => {
-      await this.forms.lockEditableForm(tx, formId)
-      const ctx = await this.loadDraft(tx, formId)
+      await this.forms.lockEditableForm(tx, formId, owner)
+      const ctx = await this.loadDraft(tx, formId, owner)
       assertRevision(ctx.draft, revision)
       const problems = validateDraft(ctx.sections, ctx.fields)
       if (problems.length > 0) throw FormErrors.draftInvalid(problems)
@@ -179,6 +182,7 @@ export class FormDraftsService {
         version: draft.version,
         fieldCount,
         archivedVersionId: previous?.id ?? null,
+        workspaceId: owner,
         ...originMetadata(origin),
       },
     })
@@ -255,26 +259,32 @@ export class FormDraftsService {
     input: CreateDraftFieldInput,
     revision?: string,
   ): Promise<FormVersionView> {
-    return this.editDraft(actor, formId, revision, async (tx, { draft, sections, fields }) => {
-      if (!sections.some((s) => s.id === input.sectionId)) throw FormErrors.sectionNotFound()
-      if (input.choices && input.fieldType !== 'select') throw FormErrors.choicesNotAllowed()
-      const constraints = checkedConstraints(input.fieldType, input.constraints ?? {})
-      await tx.questionnaireField.create({
-        data: {
-          versionId: draft.id,
-          sectionId: input.sectionId,
-          key: this.newKey(input.key, input.label, fields),
-          label: input.label,
-          helpText: input.helpText ?? null,
-          fieldType: input.fieldType,
-          required: input.required,
-          choices: asJson(toChoices(input.choices ?? [])),
-          constraints: asJson(constraints),
-          minAccessLevel: input.minAccessLevel ?? 'complet',
-          orderIndex: nextIndex(fields.filter((f) => f.sectionId === input.sectionId)),
-        },
-      })
-    })
+    return this.editDraft(
+      actor,
+      formId,
+      revision,
+      async (tx, { owner, draft, sections, fields }) => {
+        if (!sections.some((s) => s.id === input.sectionId)) throw FormErrors.sectionNotFound()
+        assertFieldTypeAllowed(owner, input.fieldType)
+        if (input.choices && input.fieldType !== 'select') throw FormErrors.choicesNotAllowed()
+        const constraints = checkedConstraints(input.fieldType, input.constraints ?? {})
+        await tx.questionnaireField.create({
+          data: {
+            versionId: draft.id,
+            sectionId: input.sectionId,
+            key: this.newKey(input.key, input.label, fields),
+            label: input.label,
+            helpText: input.helpText ?? null,
+            fieldType: input.fieldType,
+            required: input.required,
+            choices: asJson(toChoices(input.choices ?? [])),
+            constraints: asJson(constraints),
+            minAccessLevel: input.minAccessLevel ?? 'complet',
+            orderIndex: nextIndex(fields.filter((f) => f.sectionId === input.sectionId)),
+          },
+        })
+      },
+    )
   }
 
   updateField(
@@ -284,10 +294,11 @@ export class FormDraftsService {
     input: UpdateDraftFieldInput,
     revision?: string,
   ): Promise<FormVersionView> {
-    return this.editDraft(actor, formId, revision, async (tx, { sections, fields }) => {
+    return this.editDraft(actor, formId, revision, async (tx, { owner, sections, fields }) => {
       const field = fields.find((f) => f.id === fieldId)
       if (!field) throw FormErrors.fieldNotFound()
       const fieldType = input.fieldType ?? field.fieldType
+      assertFieldTypeAllowed(owner, fieldType)
       if (input.choices && fieldType !== 'select') throw FormErrors.choicesNotAllowed()
       if (input.key && input.key !== field.key && fields.some((f) => f.key === input.key)) {
         throw FormErrors.keyTaken(input.key)
@@ -361,10 +372,10 @@ export class FormDraftsService {
     revision: string | undefined,
     edit: (tx: Prisma.TransactionClient, ctx: DraftContext) => Promise<void>,
   ): Promise<FormVersionView> {
-    assertCanDesignForms(actor)
+    const owner = await this.design.assert(actor)
     const draftId = await this.prisma.$transaction(async (tx) => {
-      await this.forms.lockEditableForm(tx, formId)
-      const ctx = await this.loadDraft(tx, formId)
+      await this.forms.lockEditableForm(tx, formId, owner)
+      const ctx = await this.loadDraft(tx, formId, owner)
       assertRevision(ctx.draft, revision)
       await edit(tx, ctx)
       await tx.questionnaireVersion.update({
@@ -376,7 +387,11 @@ export class FormDraftsService {
     return this.getVersion(actor, formId, draftId)
   }
 
-  private async loadDraft(tx: Prisma.TransactionClient, formId: string): Promise<DraftContext> {
+  private async loadDraft(
+    tx: Prisma.TransactionClient,
+    formId: string,
+    owner: string | null,
+  ): Promise<DraftContext> {
     const draft = await this.findDraft(tx, formId)
     const [sections, fields] = await Promise.all([
       tx.questionnaireSection.findMany({
@@ -388,7 +403,7 @@ export class FormDraftsService {
         orderBy: { orderIndex: 'asc' },
       }),
     ])
-    return { draft, sections, fields }
+    return { owner, draft, sections, fields }
   }
 
   private async findDraft(
@@ -414,6 +429,12 @@ export class FormDraftsService {
       return explicit
     }
     return uniqueKey(toKey(label), taken)
+  }
+}
+
+function assertFieldTypeAllowed(owner: string | null, fieldType: FieldType): void {
+  if (owner !== null && !fieldTypeAllowedInWorkspaceForms(fieldType)) {
+    throw FormErrors.fieldTypeNotAllowed()
   }
 }
 
