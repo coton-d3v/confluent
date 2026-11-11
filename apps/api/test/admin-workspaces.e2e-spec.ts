@@ -243,7 +243,7 @@ describe('/v1/admin/workspaces (e2e)', () => {
       for (const send of refusals) {
         const res = await send()
         expect(res.status).toBe(403)
-        expect(res.body.error.message).toContain('réservée aux administrateurs')
+        expect(res.body.error.message).toContain('aux administrateurs de Confluent')
       }
       expect(fake.table('workspace').size).toBe(1)
       expect(fake.table('workspace').get(ws.id)).toMatchObject({

@@ -6,6 +6,7 @@ import type {
   EmailTransport,
   SendMagicLinkInput,
   SendShareInviteInput,
+  SendWorkspaceInviteInput,
 } from './email-transport'
 import { render } from './template-renderer'
 
@@ -41,6 +42,15 @@ export class NodemailerTransport implements EmailTransport {
     const { subject, html, text } = render('share-invite', input.locale, {
       dossierName: input.dossierName,
       shareUrl: input.shareUrl,
+    })
+    await this.send({ to: input.to, subject, html, text })
+  }
+
+  async sendWorkspaceInvite(input: SendWorkspaceInviteInput): Promise<void> {
+    const { subject, html, text } = render('workspace-invite', input.locale, {
+      workspaceName: input.workspaceName,
+      roleLabel: input.roleLabel,
+      signInUrl: input.signInUrl,
     })
     await this.send({ to: input.to, subject, html, text })
   }

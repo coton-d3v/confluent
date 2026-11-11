@@ -20,5 +20,18 @@
     "cta": "Consulter le dossier",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Ce lien donne un accès en lecture seule. Il peut être révoqué à tout moment par l'entrepreneur."
+  },
+  "workspace-invite": {
+    "lang": "fr",
+    "subject": "Vous êtes invité à rejoindre un workspace sur Confluent",
+    "preheader": "Une structure vous ajoute à son workspace sur Confluent.",
+    "brandLabel": "Confluent",
+    "title": "Vous rejoignez un workspace",
+    "body": "Une structure vous ajoute aux membres de son workspace sur Confluent :",
+    "roleIntro": "Votre rôle :",
+    "cta": "Se connecter à Confluent",
+    "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Si vous ne connaissez pas cette structure, ignorez ce message : sans connexion de votre part, aucune information ne vous est communiquée."
   }
 }

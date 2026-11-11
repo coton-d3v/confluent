@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { HttpException } from '@nestjs/common'
 import { AuditService } from '../../src/modules/audit/audit.service'
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
+import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 
@@ -13,7 +14,12 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0
 describe('workspaces (PostgreSQL)', () => {
   const prisma = testDatabase()
   const storage = new MemoryStorageAdapter()
-  const service = new WorkspacesService(prisma, new AuditService(prisma), storage)
+  const service = new WorkspacesService(
+    prisma,
+    new AuditService(prisma),
+    storage,
+    new WorkspaceAccessService(prisma),
+  )
   const created: string[] = []
 
   afterAll(async () => {

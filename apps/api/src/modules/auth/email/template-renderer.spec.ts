@@ -27,6 +27,21 @@ describe('template-renderer', () => {
     expect(result.html).toContain('https://confluent.example/share/xyz')
   })
 
+  it('renders workspace-invite with the workspace, the role and the sign-in page', () => {
+    const result = render('workspace-invite', 'fr', {
+      workspaceName: 'CCI <Touraine>',
+      roleLabel: 'conseiller, gestionnaire du workspace',
+      signInUrl: 'https://confluent.example/auth',
+    })
+    expect(result.subject).toBe('Vous êtes invité à rejoindre un workspace sur Confluent')
+    expect(result.html).toContain('CCI &lt;Touraine&gt;')
+    expect(result.html).toContain('Votre rôle : conseiller, gestionnaire du workspace')
+    expect(result.html).toContain('href="https://confluent.example/auth"')
+    expect(result.html).toContain('Se connecter à Confluent')
+    expect(result.text).toContain('CCI <Touraine>')
+    expect(result.text).toContain('Se connecter à Confluent : https://confluent.example/auth')
+  })
+
   it('escapes HTML in dynamic variables (XSS-safe)', () => {
     const result = render('share-invite', 'fr', {
       dossierName: "<script>alert('xss')</script>",

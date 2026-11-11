@@ -32,6 +32,7 @@ function buildModule(overrides?: {
   const emailMock: EmailTransport = {
     sendMagicLink: overrides?.sendMagicLink ?? jest.fn().mockResolvedValue(undefined),
     sendShareInvite: overrides?.sendShareInvite ?? jest.fn().mockResolvedValue(undefined),
+    sendWorkspaceInvite: jest.fn().mockResolvedValue(undefined),
   }
   const auditMock = {
     record: overrides?.auditRecord ?? jest.fn().mockResolvedValue(undefined),

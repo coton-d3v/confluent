@@ -32,6 +32,10 @@ export const auditActionSchema = z.enum([
   'dossier_submitted',
   'workspace_created',
   'workspace_updated',
+  'workspace_member_invited',
+  'workspace_member_updated',
+  'workspace_member_deactivated',
+  'workspace_member_reactivated',
 ]);
 
 export const auditLogSchema = z.object({

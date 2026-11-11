@@ -1,0 +1,14 @@
+{{brandLabel}}
+
+{{title}}
+
+{{body}}
+
+  {{workspaceName}}
+  {{roleIntro}} {{roleLabel}}
+
+{{cta}} : {{signInUrl}}
+
+{{signInHint}}
+
+{{footer}}

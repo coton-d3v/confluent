@@ -5,5 +5,10 @@
   "share-invite": {
     "dossierName": "Biosensio · Pre-seed 2026",
     "shareUrl": "https://confluent.local/share/00000000-0000-0000-0000-000000000000"
+  },
+  "workspace-invite": {
+    "workspaceName": "CCI Touraine",
+    "roleLabel": "conseiller",
+    "signInUrl": "https://confluent.local/auth"
   }
 }

@@ -70,6 +70,10 @@ enum audit_action {
   dossier_submitted
   workspace_created
   workspace_updated
+  workspace_member_invited
+  workspace_member_updated
+  workspace_member_deactivated
+  workspace_member_reactivated
 
   @@map("audit_action")
 }
@@ -93,6 +97,8 @@ model User {
   auditLogsAsActor AuditLog[]              @relation("AuditLogActor")
   answersWritten   DossierAnswer[]
   revisionsWritten DossierAnswerRevision[]
+  memberships      WorkspaceMembership[]   @relation("WorkspaceMember")
+  membersInvited   WorkspaceMembership[]   @relation("WorkspaceMemberInviter")
 
   @@map("users")
 }
@@ -206,7 +212,7 @@ model QuestionnaireField {
   // Defaults to the most restrictive level: a field nobody classified stays hidden from financeurs.
   minAccessLevel String     @default("complet") @map("min_access_level")
 
-  version QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  version   QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   section   QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   answers   DossierAnswer[]
   documents Document[]
@@ -492,5 +498,38 @@ model Workspace {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  memberships WorkspaceMembership[]
+
   @@map("workspaces")
+}
+
+// A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role
+// (`users.role`): the global role never grants a workspace right (administrators aside), and a
+// membership never changes the global role. Deactivating keeps the row and its history; what it
+// grants stops at the next request, since rights are read from this row at each one.
+model WorkspaceMembership {
+  id                 String    @id @default(uuid())
+  workspaceId        String    @map("workspace_id")
+  userId             String    @map("user_id")
+  // `conseiller` | `investisseur` (CHECK).
+  role               String
+  organization       String?
+  // Investisseurs only (CHECK): `business_angel` | `fonds_investissement` | `banque` |
+  // `financeur_public` | `reseau_pret_honneur` | `autre`.
+  investorType       String?   @map("investor_type")
+  // Conseillers only (CHECK): sets up the workspace and manages its members.
+  canManageWorkspace Boolean   @default(false) @map("can_manage_workspace")
+  invitedById        String?   @map("invited_by_id")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  // Date of the invitation.
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation("WorkspaceMember", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation("WorkspaceMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_memberships")
 }
