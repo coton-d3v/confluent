@@ -10,6 +10,7 @@ import {
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
+import { InterventionsPanel } from '@/features/interventions/components/InterventionsPanel'
 import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
@@ -27,7 +28,8 @@ const describeBy = (change: ReceivedFinancingStatusChange) => {
 }
 
 // ROADMAP E05.09: a candidature the workspace received, as its conseillers read it — the request's
-// presentation, the company's common profile and the answers to the workspace's own form.
+// presentation, the company's common profile and the answers to the workspace's own form; E06.08:
+// with the structure's internal notes and the journal of its interventions.
 export default function ReceivedCandidatureRoute() {
   const { workspaceId = '', candidatureId = '' } = useParams()
   return (
@@ -175,6 +177,8 @@ function ReceivedCandidatureView({
           intro="Les dispositifs de votre structure auxquels l’entreprise se déclare éligible pour cette demande. Vous pouvez en indiquer et marquer une éligibilité vérifiée par votre structure ; aucune autre structure ni aucun investisseur ne les voit."
           describeSide={(side) => (side === 'owner' ? 'par l’entreprise' : 'par votre structure')}
         />
+
+        <InterventionsPanel workspaceId={workspaceId} candidatureId={candidature.id} />
 
         <section aria-labelledby="rc-request">
           <h2 id="rc-request" className="font-heading text-lg font-semibold text-foreground">
