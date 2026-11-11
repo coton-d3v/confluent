@@ -15,6 +15,7 @@ import {
   groupBySection,
   isFieldAnswered,
 } from './form-description'
+import { describeFinancingStatus } from './follow-up.tools'
 import { McpAccess, serviceCall } from './mcp-access'
 import type { McpCaller } from './mcp.tools'
 import {
@@ -330,6 +331,8 @@ export class CandidatureTools {
         request: view.dossier,
         siteUrl: `${site}/dashboard/candidatures/${view.id}`,
       },
+      // E06.09: its financing status in this structure, and what the owner may change in it.
+      financingStatus: describeFinancingStatus(view, 'owner'),
       form: { name: view.form.name, version: view.form.version.version },
       sections: groupBySection(sections, fields, (f) => ({
         ...describeField(f, { withReadLevel: false }),

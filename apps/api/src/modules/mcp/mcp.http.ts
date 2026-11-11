@@ -8,9 +8,9 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { PrismaService } from '../../prisma/prisma.service'
 import { expandScopes } from '../oauth/oauth.constants'
 import { ConfluentOAuthProvider, type ConfluentAuthExtra } from '../oauth/oauth.provider'
-import { McpToolsFactory, TOOL_SCOPES } from './mcp.tools'
+import { McpToolsFactory, toolScope } from './mcp.tools'
 
-type JsonRpcMessage = { method?: string; params?: { name?: string } }
+type JsonRpcMessage = { method?: string; params?: { name?: string; arguments?: unknown } }
 
 // Mounts the remote MCP endpoint (Streamable HTTP, stateless) at `/mcp`.
 export function mountMcpEndpoint(app: INestApplication): void {
@@ -59,7 +59,7 @@ export function mountMcpEndpoint(app: INestApplication): void {
     const granted = expandScopes(req.auth?.scopes ?? [])
     const missing = messages
       .filter((m) => m?.method === 'tools/call' && m.params?.name)
-      .map((m) => TOOL_SCOPES[m.params!.name!])
+      .map((m) => toolScope(m.params!.name!, m.params!.arguments))
       .filter((scope): scope is string => !!scope && !granted.has(scope))
     if (missing.length) {
       const scope = [...new Set(missing)].join(' ')

@@ -51,6 +51,13 @@ export const EligibilityErrors = {
       message: `Le dispositif « ${label} » n’est plus proposé par la structure.`,
       details: [{ path: ['schemeId'], message: 'Dispositif désactivé.' }],
     }),
+  // MCP (code review R62): a working tool does not remove an eligibility the workspace verified;
+  // withdrawing the verification is a decision of its own. Checked under the candidature's lock.
+  verifiedRemovalRefused: () =>
+    new ConflictException({
+      code: 'ELIGIBILITY_VERIFIED',
+      message: 'Ce dispositif est vérifié par la structure : retirez d’abord la vérification.',
+    }),
   alreadyDeclared: (label: string) =>
     new ConflictException({
       code: 'ELIGIBILITY_EXISTS',

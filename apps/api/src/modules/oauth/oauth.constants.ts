@@ -13,6 +13,8 @@ export const SUPPORTED_SCOPES: string[] = [
   OAUTH_SCOPES.present,
   OAUTH_SCOPES.formsWrite,
   OAUTH_SCOPES.formsPublish,
+  OAUTH_SCOPES.support,
+  OAUTH_SCOPES.decide,
 ]
 export const SCOPE_LABELS: Record<string, string> = {
   [OAUTH_SCOPES.read]:
@@ -25,6 +27,10 @@ export const SCOPE_LABELS: Record<string, string> = {
     'Créer et modifier des brouillons de formulaires (sections, champs, choix, limites, niveaux de lecture), sans les publier',
   [OAUTH_SCOPES.formsPublish]:
     'Publier un brouillon de formulaire, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.support]:
+    'Comme conseiller, dans les workspaces autorisés : tenir le plan de financement et les dispositifs des candidatures reçues, lire et écrire leurs notes internes',
+  [OAUTH_SCOPES.decide]:
+    'Changer le statut de financement d’une candidature (comité, financé, refusé, abandon, reprise) et, comme conseiller, valider une étape du parcours ou vérifier un dispositif, uniquement à votre demande explicite',
 }
 
 export function expandScopes(scopes: readonly string[]): Set<string> {
@@ -38,16 +44,27 @@ const FORM_SCOPES = new Set<string>([OAUTH_SCOPES.formsWrite, OAUTH_SCOPES.forms
 // What an account may grant to an application, whatever the client asks: the form permissions only
 // if it designs forms somewhere — Confluent's own as an administrator, or those of a workspace it
 // manages (`managesWorkspace`, E05.09) —, presenting financing requests only if it may own companies
-// (E05.10); any other or unknown role never receives them. The services check the rights again at
-// each call: a grant outlives a change of role or membership.
+// (E05.10); following received candidatures only if it reviews the candidatures of a workspace it is
+// a member of (`reviewsCandidatures`, E06.09), deciding their follow-up if it does or may own
+// companies (the owner's side of a financing status); any other or unknown role never receives
+// them. The services check the rights again at each call: a grant outlives a change of role or
+// membership.
+export interface GrantContext {
+  managesWorkspace: boolean
+  reviewsCandidatures?: boolean
+}
+
 export function grantableScopes(
   scopes: Iterable<string>,
   user: { role: string },
-  context: { managesWorkspace: boolean } = { managesWorkspace: false },
+  context: GrantContext = { managesWorkspace: false },
 ): string[] {
+  const reviews = context.reviewsCandidatures === true
   return [...scopes].filter((s) => {
     if (FORM_SCOPES.has(s)) return canDesignForms(user) || context.managesWorkspace
     if (s === OAUTH_SCOPES.present) return canOwnCompanies(user)
+    if (s === OAUTH_SCOPES.support) return reviews
+    if (s === OAUTH_SCOPES.decide) return reviews || canOwnCompanies(user)
     return true
   })
 }

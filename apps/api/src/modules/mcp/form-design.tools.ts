@@ -13,7 +13,7 @@ import {
   type FieldType,
 } from '@confluent/shared'
 import type { QuestionnaireField } from '@prisma/client'
-import { z, type ZodTypeAny } from 'zod'
+import { z } from 'zod'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
@@ -34,6 +34,7 @@ import {
   ToolError,
   UUID,
   builderCall,
+  contract,
   mcpOrigin,
   sameName,
   toToolError,
@@ -724,18 +725,4 @@ function builderField(field: {
     minAccessLevel: field.readLevel,
     key: field.key,
   }
-}
-
-// Checks the input against the builder's own contract (packages/shared), as its REST API does.
-function contract<S extends ZodTypeAny>(schema: S, input: unknown): z.output<S> {
-  const parsed = schema.safeParse(input)
-  if (!parsed.success) {
-    throw new ToolError(
-      'Rien n’a été modifié. Corrigez :\n' +
-        parsed.error.issues
-          .map((i) => `- ${i.path.length ? `${i.path.join('.')} : ` : ''}${i.message}`)
-          .join('\n'),
-    )
-  }
-  return parsed.data as z.output<S>
 }
