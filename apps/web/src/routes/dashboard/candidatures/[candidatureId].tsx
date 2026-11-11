@@ -18,6 +18,7 @@ import {
   withdrawCandidature,
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
+import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import {
   FinancingStatusBadge,
   FinancingStatusPanel,
@@ -172,7 +173,7 @@ function CandidatureEditor({
     setConfirm({
       title: 'Retirer la candidature ?',
       description:
-        'Vos réponses au formulaire de la structure seront supprimées ; le profil de l’entreprise et la demande ne changent pas.',
+        'Vos réponses au formulaire de la structure et le plan de financement préparé pour elle seront supprimés ; le profil de l’entreprise et la demande ne changent pas.',
       confirmLabel: 'Retirer',
       onConfirm: () => {
         setBusy(true)
@@ -254,6 +255,25 @@ function CandidatureEditor({
           />
         )}
 
+        <FundingPlanPanel
+          scope={{ side: 'owner', candidatureId: candidature.id }}
+          intro={
+            submitted
+              ? `Vos sources de financement pour cette demande, réparties selon les sources proposées par ${workspace.name}. Vous et ses conseillers pouvez compléter ce plan ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne le voient.`
+              : `Préparez vos sources de financement pour cette demande, réparties selon les sources proposées par ${workspace.name}. Ses conseillers verront ce plan, et pourront le compléter, une fois la candidature envoyée ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne le voient.`
+          }
+          describeSide={(side) => (side === 'owner' ? 'par vous' : `par ${workspace.name}`)}
+          noObjective={
+            <>
+              Le montant recherché de la demande n’est pas indiqué : sans lui, le reste à financer
+              ne peut pas être calculé.{' '}
+              <Link to={`${dossierPath}?tab=demande`} className="underline underline-offset-4">
+                Indiquer le montant recherché
+              </Link>
+            </>
+          }
+        />
+
         <section
           aria-label="Ce que la structure reçoit"
           className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
@@ -261,7 +281,7 @@ function CandidatureEditor({
           <p>
             Une fois envoyée, les conseillers de {workspace.name} lisent la présentation de la
             demande « {dossier.name} », le profil de l’entreprise tel que vous l’avez renseigné
-            (sans les pièces jointes) et vos réponses ci-dessous.
+            (sans les pièces jointes), le plan de financement ci-dessus et vos réponses ci-dessous.
           </p>
           <p className="mt-2 text-muted-foreground">
             Ces réponses sont propres à cette candidature : ni les autres structures, ni les

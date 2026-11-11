@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { ReceivedCandidature, ReceivedFinancingStatusChange } from '@confluent/shared'
-import {
-  changeReceivedFinancingStatus,
-  getReceivedCandidature,
-} from '@/features/candidatures/api'
+import { changeReceivedFinancingStatus, getReceivedCandidature } from '@/features/candidatures/api'
 import { AnswersReadout } from '@/features/candidatures/components/AnswersReadout'
 import {
   FinancingStatusBadge,
   FinancingStatusPanel,
 } from '@/features/candidatures/components/FinancingStatusPanel'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
@@ -53,7 +51,10 @@ function ReceivedCandidaturePage({
   // The candidature as a change of its status left it, until the page is left.
   const [current, setCurrent] = useState<ReceivedCandidature | null>(null)
   const back = (
-    <Link to={`/workspaces/${workspaceId}`} className="text-sm text-foreground underline underline-offset-4">
+    <Link
+      to={`/workspaces/${workspaceId}`}
+      className="text-sm text-foreground underline underline-offset-4"
+    >
       Retour au workspace
     </Link>
   )
@@ -153,6 +154,13 @@ function ReceivedCandidatureView({
           onStale={() => {
             void getReceivedCandidature(workspaceId, candidature.id).then(onChange, () => undefined)
           }}
+        />
+
+        <FundingPlanPanel
+          scope={{ side: 'workspace', workspaceId, candidatureId: candidature.id }}
+          intro="Les sources de financement de cette demande, réparties selon les sources de votre structure. L’entreprise et vous pouvez compléter ce plan ; aucune autre structure ni aucun investisseur ne le voit."
+          describeSide={(side) => (side === 'owner' ? 'par l’entreprise' : 'par votre structure')}
+          noObjective="L’entreprise n’a pas indiqué le montant recherché de cette demande : le reste à financer ne peut pas être calculé."
         />
 
         <section aria-labelledby="rc-request">
