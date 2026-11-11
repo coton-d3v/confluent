@@ -5,8 +5,9 @@ import { useCurrentUser } from '@/features/current-user/context'
 import { cn } from '@/lib/utils'
 
 // Header of a workspace's management pages: trail, name, address and the Réglages / Membres /
-// Formulaires (E05.09) / Sources de financement (E06.02) / Dispositifs (E06.05) tabs, scrolled
-// within their bar on a narrow screen rather than widening the page.
+// Formulaires (E05.09) / Sources de financement (E06.02) / Dispositifs (E06.05) / Parcours
+// d'accompagnement (E06.06) tabs, scrolled within their bar on a narrow screen rather than widening
+// the page.
 // An administrator comes from the administration; a manager from « Mes workspaces ».
 export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
   const me = useCurrentUser()
@@ -56,6 +57,7 @@ export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
         <Tab to={`${base}/formulaires`}>Formulaires</Tab>
         <Tab to={`${base}/sources`}>Sources de financement</Tab>
         <Tab to={`${base}/dispositifs`}>Dispositifs</Tab>
+        <Tab to={`${base}/parcours`}>Parcours d’accompagnement</Tab>
       </nav>
     </>
   )

@@ -20,6 +20,7 @@ import {
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
+import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
 import {
   FinancingStatusBadge,
   FinancingStatusPanel,
@@ -255,6 +256,15 @@ function CandidatureEditor({
             }}
           />
         )}
+
+        <SupportPathPanel
+          scope={{ side: 'owner', candidatureId: candidature.id }}
+          intro={
+            submitted
+              ? `Les étapes par lesquelles ${workspace.name} accompagne votre demande, et celles que la structure a validées. Ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne les voient.`
+              : `Les étapes par lesquelles ${workspace.name} accompagnera votre demande une fois la candidature envoyée ; ses conseillers les valideront au fil de l’accompagnement.`
+          }
+        />
 
         <FundingPlanPanel
           scope={{ side: 'owner', candidatureId: candidature.id }}

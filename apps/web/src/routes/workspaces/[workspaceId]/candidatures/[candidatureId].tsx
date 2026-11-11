@@ -10,6 +10,7 @@ import {
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
+import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
@@ -155,6 +156,11 @@ function ReceivedCandidatureView({
           onStale={() => {
             void getReceivedCandidature(workspaceId, candidature.id).then(onChange, () => undefined)
           }}
+        />
+
+        <SupportPathPanel
+          scope={{ side: 'workspace', workspaceId, candidatureId: candidature.id }}
+          intro="Les étapes du parcours d’accompagnement de votre structure pour cette demande. Validez une étape une fois franchie : l’entreprise voit la date de validation, pas votre nom ; aucune autre structure ni aucun investisseur ne voit ce parcours."
         />
 
         <FundingPlanPanel
