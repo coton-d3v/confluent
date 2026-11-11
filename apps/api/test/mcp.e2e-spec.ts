@@ -520,7 +520,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(fieldsOf(form).map((f) => f.key)).toEqual(['nom_du_projet', 'stade_financement'])
 
       // The draft (v3) and the archived v1 exist: refused with the same answer, nothing revealed.
-      for (const args of [{ version: 'brouillon' }, { version: 1 }]) {
+      for (const args of [{ version: 'brouillon' }, { version: 1 }, { version: 99 }]) {
         const res = await c.callTool({ name: 'get_form', arguments: args })
         expect(res.isError).toBe(true)
         expect((res.content as Array<{ text: string }>)[0].text).toBe(
@@ -574,6 +574,47 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       )
       expect(archived.version).toMatchObject({ version: 1, status: 'archived' })
       expect(fieldsOf(archived).map((f) => f.key)).toEqual(['ancien'])
+      await c.close()
+    })
+
+    it('get_form / list_forms: reading every form follows the single form design rule (E04.07)', async () => {
+      const text = (res: Record<string, unknown>) =>
+        (res.content as Array<{ text: string }>)[0].text
+      const refusal = 'La conception des formulaires est réservée aux administrateurs de Confluent.'
+      // A role the rule does not know reads no form at all (closed by default).
+      await fake.prisma.user.create({
+        data: {
+          id: 'u-x',
+          email: 'x@exemple.fr',
+          role: 'superviseur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      const unknown = await client(await connect('u-x', ['dossiers:read']))
+      expect(text(await unknown.callTool({ name: 'list_forms', arguments: {} }))).toBe(refusal)
+      for (const args of [{}, { form: 'brouillon-rh' }]) {
+        const res = await unknown.callTool({ name: 'get_form', arguments: args })
+        expect(res.isError).toBe(true)
+      }
+      await unknown.close()
+
+      // A demoted administrator is refused from the next call, with the same grant; the form of
+      // new dossiers stays readable as a project owner reads it (published version, no ids).
+      const c = await client(await connect('u-admin', ['dossiers:read']))
+      expect((await c.callTool({ name: 'list_forms', arguments: {} })).isError).toBeFalsy()
+      await fake.prisma.user.update({ where: { id: 'u-admin' }, data: { role: 'entrepreneur' } })
+      expect(text(await c.callTool({ name: 'list_forms', arguments: {} }))).toBe(refusal)
+      const draft = await c.callTool({ name: 'get_form', arguments: { form: 'brouillon-rh' } })
+      expect(text(draft)).toBe(
+        'Formulaire introuvable : seul le formulaire des nouveaux dossiers est lisible.',
+      )
+      const answered = json(await c.callTool({ name: 'get_form', arguments: {} }))
+      expect(answered.form).toMatchObject({ id: 'form-1', publishedVersion: 2, draftVersion: null })
+      expect(answered.version).toMatchObject({ version: 2, status: 'published' })
+      expect(answered.sections).toEqual([
+        expect.not.objectContaining({ sectionId: expect.anything() }),
+        expect.not.objectContaining({ sectionId: expect.anything() }),
+      ])
       await c.close()
     })
   })

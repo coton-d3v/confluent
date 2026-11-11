@@ -110,7 +110,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
 
   it('refuses an edit based on an outdated revision of the draft', async () => {
     const { formId, fieldId } = await formWithDraft()
-    const seen = (await drafts.getDraft(formId)).version.updatedAt.toISOString()
+    const seen = (await drafts.getDraft(ADMIN, formId)).version.updatedAt.toISOString()
     await drafts.updateField(ADMIN, formId, fieldId, { label: 'Premier administrateur' }, seen)
     await expect(
       drafts.updateField(ADMIN, formId, fieldId, { label: 'Second administrateur' }, seen),

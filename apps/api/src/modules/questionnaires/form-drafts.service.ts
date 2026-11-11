@@ -41,8 +41,8 @@ const asJson = (value: unknown) => value as Prisma.InputJsonValue
 
 // Draft lifecycle (create, discard, publish) and structure editing (E03.02, E03.03, E03.08).
 // Every structure edit targets the form's single draft: a published or archived version, which
-// dossiers read, can never be modified. Reused as is by the MCP tools (E03.13 → E04); every write
-// checks who acts with the single form design rule (E04.07), whatever the caller.
+// dossiers read, can never be modified. Reused as is by the MCP tools (E03.13 → E04); every read and
+// write checks who acts with the single form design rule (E04.07), whatever the caller.
 @Injectable()
 export class FormDraftsService {
   constructor(
@@ -52,7 +52,12 @@ export class FormDraftsService {
     private readonly audit: AuditService,
   ) {}
 
-  async getVersion(formId: string, versionId: string): Promise<FormVersionView> {
+  async getVersion(
+    actor: FormDesigner,
+    formId: string,
+    versionId: string,
+  ): Promise<FormVersionView> {
+    assertCanDesignForms(actor)
     const structure = await this.questionnaires.getVersion(versionId)
     if (!structure || structure.version.questionnaireId !== formId) {
       throw FormErrors.versionNotFound()
@@ -61,13 +66,14 @@ export class FormDraftsService {
       structure.version.status === 'draft'
         ? validateDraft(structure.sections, structure.fields)
         : []
-    return { form: await this.forms.summary(formId), ...structure, problems }
+    return { form: await this.forms.summary(actor, formId), ...structure, problems }
   }
 
-  async getDraft(formId: string): Promise<FormVersionView> {
+  async getDraft(actor: FormDesigner, formId: string): Promise<FormVersionView> {
+    assertCanDesignForms(actor)
     await this.forms.findForm(formId)
     const draft = await this.findDraft(this.prisma, formId)
-    return this.getVersion(formId, draft.id)
+    return this.getVersion(actor, formId, draft.id)
   }
 
   // Starts from a copy of the published version (same keys), or empty for a never-published form.
@@ -111,7 +117,7 @@ export class FormDraftsService {
         fromVersionId: created.from?.id ?? null,
       },
     })
-    return this.getVersion(formId, created.draft.id)
+    return this.getVersion(actor, formId, created.draft.id)
   }
 
   async discardDraft(actor: FormDesigner, formId: string, revision?: string): Promise<void> {
@@ -176,7 +182,7 @@ export class FormDraftsService {
         ...originMetadata(origin),
       },
     })
-    return this.getVersion(formId, draft.id)
+    return this.getVersion(actor, formId, draft.id)
   }
 
   addSection(
@@ -367,7 +373,7 @@ export class FormDraftsService {
       })
       return ctx.draft.id
     })
-    return this.getVersion(formId, draftId)
+    return this.getVersion(actor, formId, draftId)
   }
 
   private async loadDraft(tx: Prisma.TransactionClient, formId: string): Promise<DraftContext> {
