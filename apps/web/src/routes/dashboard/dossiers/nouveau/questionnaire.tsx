@@ -22,6 +22,9 @@ import { FieldDocuments } from '@/features/documents/components/FieldDocuments'
 import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { SaveStatusIndicator } from '@/features/questionnaire/components/SaveStatusIndicator'
 import { useAnswerAutosave } from '@/features/questionnaire/useAnswerAutosave'
+import { ProposalNotice } from '@/features/questionnaire/components/AnswerProvenance'
+import { isPendingProposal } from '@/features/questionnaire/provenance'
+import type { AnswerRow } from '@confluent/shared'
 
 const recapPath = (dossierId: string) =>
   `/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`
@@ -67,8 +70,10 @@ function QuestionnaireLoader({ dossierId, questionId }: { dossierId: string; que
     )
   }
   const initialAnswers: Record<string, string> = {}
+  const initialRows: Record<string, AnswerRow> = {}
   for (const row of answersQuery.data ?? []) {
     initialAnswers[row.fieldId] = row.value
+    initialRows[row.fieldId] = row
   }
   const dynamic = buildDynamicQuestionnaire(snapshot)
   if (dynamic.totalQuestions === 0) {
@@ -86,6 +91,7 @@ function QuestionnaireLoader({ dossierId, questionId }: { dossierId: string; que
       dossierId={dossierId}
       questionnaire={dynamic}
       initialAnswers={initialAnswers}
+      initialRows={initialRows}
       initialPosition={initialPosition}
       backToRecap={target > 0}
     />
@@ -102,12 +108,15 @@ function QuestionnaireWizard({
   dossierId,
   questionnaire,
   initialAnswers,
+  initialRows,
   initialPosition,
   backToRecap,
 }: {
   dossierId: string
   questionnaire: DynamicQuestionnaire
   initialAnswers: Record<string, string>
+  // The stored answers with their provenance (E04.05).
+  initialRows: Record<string, AnswerRow>
   initialPosition: number
   // Opened from the final recap for one question: return there once it is answered.
   backToRecap: boolean
@@ -130,6 +139,10 @@ function QuestionnaireWizard({
   const { answers, position, view } = state
 
   const autosave = useAnswerAutosave(dossierId, initialAnswers)
+  // AI proposals (E04.05): one can be confirmed here as shown; changing its value corrects it, and
+  // the notice goes for the rest of the visit.
+  const [rows, setRows] = useState(initialRows)
+  const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set())
   // A transition (advance after saving) is in progress: the step is read-only until it ends, so
   // nothing typed meanwhile can be overwritten by the answers captured before the save (R22).
   const [transitioning, setTransitioning] = useState(false)
@@ -273,6 +286,9 @@ function QuestionnaireWizard({
   function handleAnswerChange(next: string) {
     if (transitioning) return
     const id = currentQuestion.id
+    if (rows[id] && next !== rows[id].value && !edited.has(id)) {
+      setEdited((prev) => new Set(prev).add(id))
+    }
     autosave.schedule({ ...autosave.latest(), [id]: next })
     setState((prev) => ({ ...prev, answers: { ...prev.answers, [id]: next } }))
   }
@@ -354,6 +370,18 @@ function QuestionnaireWizard({
                 : backToRecap
                   ? { onReturn: () => navigate(recapPath(dossierId)) }
                   : undefined
+            }
+            proposal={
+              isPendingProposal(rows[currentQuestion.id]) &&
+              !edited.has(currentQuestion.id) &&
+              answers[currentQuestion.id] === rows[currentQuestion.id].value ? (
+                <ProposalNotice
+                  dossierId={dossierId}
+                  label={currentQuestion.label}
+                  row={rows[currentQuestion.id]}
+                  onConfirmed={(row) => setRows((prev) => ({ ...prev, [row.fieldId]: row }))}
+                />
+              ) : undefined
             }
             attachment={
               currentQuestion.fieldType === 'file'

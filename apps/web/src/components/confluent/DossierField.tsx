@@ -7,9 +7,11 @@ export interface DossierFieldProps {
   className?: string
   // Shown instead of the text value when given (e.g. the files of an attachment question).
   children?: ReactNode
+  // Shown under the value, e.g. where an answer comes from (E04.05).
+  details?: ReactNode
 }
 
-export function DossierField({ label, value, className, children }: DossierFieldProps) {
+export function DossierField({ label, value, className, children, details }: DossierFieldProps) {
   const hasValue = value.length > 0
   return (
     <div className={cn('flex flex-col', className)}>
@@ -19,6 +21,7 @@ export function DossierField({ label, value, className, children }: DossierField
       <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium leading-relaxed text-foreground">
         {children ?? (hasValue ? value : <span className="text-muted-foreground">—</span>)}
       </dd>
+      {details && <dd className="mt-2">{details}</dd>}
     </div>
   )
 }
