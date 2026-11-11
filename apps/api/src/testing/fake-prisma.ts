@@ -26,6 +26,7 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   user: ['id', 'email'],
   oAuthToken: ['id', 'tokenHash'],
   dossier: ['id', 'slug'],
+  workspace: ['id', 'slug'],
 }
 
 // Table backing a to-one relation, for relation ordering.
@@ -45,7 +46,7 @@ function flattenWhere(where: Where = {}): Where {
 
 // Tables whose `updatedAt` matters to a test (an answer's date is its provenance's, E04.04), set on
 // every write like Prisma's `@updatedAt`.
-const UPDATED_AT = new Set(['dossierAnswer'])
+const UPDATED_AT = new Set(['dossierAnswer', 'workspace'])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
 // Like Prisma, an `undefined` value in `data` leaves the column unchanged.
@@ -278,6 +279,7 @@ export function createFakePrisma() {
       updatedAt: new Date(),
     })),
     document: model('document', () => ({ fieldId: null })),
+    workspace: model('workspace', () => ({ logoKey: null })),
   }
   self.prisma = prisma
   return { prisma, tables, table }

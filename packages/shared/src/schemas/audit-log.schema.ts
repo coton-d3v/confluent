@@ -30,6 +30,8 @@ export const auditActionSchema = z.enum([
   'form_draft_created',
   'form_draft_discarded',
   'dossier_submitted',
+  'workspace_created',
+  'workspace_updated',
 ]);
 
 export const auditLogSchema = z.object({
