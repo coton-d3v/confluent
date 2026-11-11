@@ -96,7 +96,7 @@ export class AdminDossiersService {
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    await this.answers.saveForDossier(dossier, updates)
+    await this.answers.saveForDossier(dossier, updates, { userId: adminId, channel: 'admin' })
     for (const u of updates) {
       await this.audit.record({
         actionType: 'admin_edited_field',

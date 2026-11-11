@@ -9,10 +9,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import type { Request } from 'express'
-import type { DossierAnswer } from '@prisma/client'
 import { upsertAnswersSchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
-import { AnswersService } from './answers.service'
+import { AnswersService, type AnswerView } from './answers.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
@@ -38,17 +37,17 @@ export class AnswersController {
   @ApiOperation({
     summary: 'Lister les réponses d’un dossier',
     description:
-      'Retourne les `dossier_answers` du dossier, triées par date de création. Propriétaire : toutes. ' +
-      'Financeur : seulement les champs autorisés par le niveau d’accès de son partage ' +
-      '(`questionnaire_fields.min_access_level`).',
+      'Retourne les `dossier_answers` du dossier, triées par date de création. Propriétaire : toutes, ' +
+      'chacune avec sa provenance (`provenance` : saisie humaine ou proposition IA, confirmation, ' +
+      'canal, auteur, application IA, date, document source, emplacement et extrait ; `null` pour ' +
+      'une réponse enregistrée avant E04.04). Financeur : seulement les champs autorisés par le ' +
+      'niveau d’accès de son partage (`questionnaire_fields.min_access_level`), sans provenance.',
   })
   @ApiOkResponse({ description: 'Liste des réponses.' })
-  async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<DossierAnswer[]> {
-    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(
-      dossierId,
-      currentUser(req),
-    )
-    const answers = await this.answers.listForDossier(dossierId)
+  async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<AnswerView[]> {
+    const user = currentUser(req)
+    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(dossierId, user)
+    const answers = await this.answers.listViews(dossierId, dossier.userId === user.id)
     if (accessLevel === 'complet') return answers
     const visible = await this.dossiers.visibleFieldIds(dossier, accessLevel)
     return answers.filter((a) => visible.has(a.fieldId))
@@ -61,15 +60,21 @@ export class AnswersController {
       'Upsert transactionnel par `(dossierId, fieldId)` — clé unique. Idempotent : rejouable sans ' +
       'duplication. Chaque champ doit appartenir à la version de questionnaire du dossier et chaque ' +
       'valeur respecter son type ; sinon `400` et rien n’est écrit (`error.details` : une entrée par ' +
-      'champ fautif).',
+      'champ fautif). Chaque valeur enregistrée est une saisie humaine confirmée, faite dans le site ' +
+      'par l’utilisateur connecté : sa provenance remplace celle de la valeur précédente.',
   })
   @ApiOkResponse({ description: 'Réponses upserted, retournées en l’état final.' })
   async upsert(
     @Req() req: Request,
     @Param('dossierId') dossierId: string,
     @Body() body: UpsertAnswersDto,
-  ): Promise<DossierAnswer[]> {
-    const dossier = await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
-    return this.answers.saveForDossier(dossier, body.answers)
+  ): Promise<AnswerView[]> {
+    const { id: userId } = currentUser(req)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, userId)
+    const saved = await this.answers.saveForDossier(dossier, body.answers, {
+      userId,
+      channel: 'site',
+    })
+    return this.answers.views(dossier.id, saved, true)
   }
 }

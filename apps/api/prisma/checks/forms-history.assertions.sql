@@ -27,5 +27,14 @@ BEGIN
   IF got IS DISTINCT FROM 'f-lettre=a_2_2,f-nom-2=Sophie' THEN
     RAISE EXCEPTION 'answers: %', got;
   END IF;
+
+  -- E04.04: the provenance of answers saved before it was recorded stays unknown, not guessed.
+  IF EXISTS (
+    SELECT 1 FROM dossier_answers
+    WHERE origin IS NOT NULL OR confirmation IS NOT NULL OR channel IS NOT NULL
+      OR author_id IS NOT NULL OR client_name IS NOT NULL OR source_document_id IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'answers saved before E04.04 must have no provenance';
+  END IF;
 END
 $$;

@@ -212,8 +212,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       arguments: {
         dossier: 'biosensio',
         answers: [
-          { fieldId: 'f-name', value: 'Biosensio' },
-          { fieldId: 'f-stage', value: 'Seed – investisseurs professionnels' },
+          { fieldId: 'f-name', value: 'Biosensio', origin: 'human' },
+          { fieldId: 'f-stage', value: 'Seed – investisseurs professionnels', origin: 'human' },
         ],
       },
     })
@@ -279,7 +279,10 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
 
     const written = await c.callTool({
       name: 'update_answers',
-      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-kbis', value: 'kbis.pdf' }] },
+      arguments: {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-kbis', value: 'kbis.pdf', origin: 'human' }],
+      },
     })
     expect(written.isError).toBe(true)
     expect((written.content as Array<{ text: string }>)[0].text).toContain('déposez le fichier')
@@ -432,8 +435,8 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         arguments: {
           dossier: 'biosensio',
           answers: [
-            { fieldId: 'f-name', value: 'Biosensio' },
-            { fieldId: 'f-stage', value: 'fonds_propres_uniquement' },
+            { fieldId: 'f-name', value: 'Biosensio', origin: 'human' },
+            { fieldId: 'f-stage', value: 'fonds_propres_uniquement', origin: 'human' },
           ],
         },
       })
@@ -671,7 +674,10 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       const saved = json(
         await first.callTool({
           name: 'update_answers',
-          arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-name', value: 'Biosensio' }] },
+          arguments: {
+            dossier: 'biosensio',
+            answers: [{ fieldId: 'f-name', value: 'Biosensio', origin: 'human' }],
+          },
         }),
       )
       expect(saved).toMatchObject({
@@ -686,7 +692,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
           name: 'update_answers',
           arguments: {
             dossier: 'biosensio',
-            answers: [{ fieldId: 'f-stage', value: 'fonds_propres_uniquement' }],
+            answers: [{ fieldId: 'f-stage', value: 'fonds_propres_uniquement', origin: 'human' }],
           },
         }),
       )
@@ -711,7 +717,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
           name: 'update_answers',
           arguments: {
             dossier: 'biosensio',
-            answers: [{ fieldId: 'f-site', value: 'biosensio.fr' }],
+            answers: [{ fieldId: 'f-site', value: 'biosensio.fr', origin: 'human' }],
           },
         }),
       )
@@ -1245,6 +1251,273 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(fake.table('document').size).toBe(3)
     })
 
+    describe('provenance of answers (E04.04)', () => {
+      type Field = Record<string, unknown> & { fieldId: string }
+      const fieldOf = (described: Record<string, unknown>, fieldId: string) =>
+        (described.sections as Array<{ fields: Field[] }>)
+          .flatMap((sec) => sec.fields)
+          .find((f) => f.fieldId === fieldId)
+
+      beforeEach(async () => {
+        await fake.prisma.questionnaireField.create({
+          data: {
+            id: 'f-capital',
+            versionId: 'v-2',
+            sectionId: 's-financier',
+            key: 'capital',
+            label: 'Capital social',
+            fieldType: 'text',
+            minAccessLevel: 'public',
+            orderIndex: 2,
+          },
+        })
+      })
+
+      async function uploadKbis(c: Awaited<ReturnType<typeof client>>) {
+        const pdf = pdfWithPages([
+          'EXTRAIT KBIS\nDenomination : BIOSENSIO SAS\nSIREN : 912 345 678',
+          'Capital social : 10 000 EUR',
+        ])
+        const res = json(
+          await c.callTool({
+            name: 'upload_document',
+            arguments: {
+              dossier: 'biosensio',
+              fieldId: 'f-kbis',
+              filename: 'kbis.pdf',
+              contentBase64: b64(pdf),
+            },
+          }),
+        )
+        return (res.document as Doc).documentId
+      }
+
+      it('records each answer with its origin, confirmation, application and checked source, shown to the owner', async () => {
+        const c = await client(await connect('u-1', ['dossiers:write']))
+        const kbis = await uploadKbis(c)
+        const saved = json(
+          await c.callTool({
+            name: 'update_answers',
+            arguments: {
+              dossier: 'biosensio',
+              answers: [
+                {
+                  fieldId: 'f-name',
+                  value: 'Biosensio SAS',
+                  origin: 'ai',
+                  confirmedByUser: true,
+                  source: { documentId: kbis, excerpt: 'Denomination : BIOSENSIO SAS' },
+                },
+                { fieldId: 'f-stage', value: 'fonds_propres_uniquement', origin: 'human' },
+                {
+                  fieldId: 'f-capital',
+                  value: '10 000 EUR',
+                  origin: 'ai',
+                  source: { documentId: kbis, excerpt: 'capital social :  10 000 eur' },
+                },
+              ],
+            },
+          }),
+        )
+        expect(saved).toMatchObject({
+          saved: 3,
+          message: expect.stringContaining('1 proposition(s) restent à confirmer'),
+        })
+        const rows = [...fake.table('dossierAnswer').values()]
+        expect(rows.find((r) => r.fieldId === 'f-capital')).toMatchObject({
+          origin: 'ai',
+          confirmation: 'pending',
+          channel: 'mcp',
+          authorId: 'u-1',
+          clientName: 'Claude',
+          sourceDocumentId: kbis,
+          // Where Confluent found the excerpt, not a page declared by the assistant.
+          sourceLocation: 'Page 2',
+          sourceExcerpt: 'capital social :  10 000 eur',
+        })
+
+        const described = json(
+          await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
+        )
+        expect(fieldOf(described, 'f-name')!.provenance).toEqual({
+          origin: 'ai',
+          confirmation: 'confirmed',
+          channel: 'mcp',
+          authorId: 'u-1',
+          clientName: 'Claude',
+          recordedAt: expect.any(String),
+          source: {
+            documentId: kbis,
+            filename: 'kbis.pdf',
+            version: 1,
+            location: 'Page 1',
+            excerpt: 'Denomination : BIOSENSIO SAS',
+          },
+        })
+        expect(fieldOf(described, 'f-stage')!.provenance).toMatchObject({
+          origin: 'human',
+          confirmation: 'confirmed',
+          channel: 'mcp',
+          source: null,
+        })
+        expect(fieldOf(described, 'f-capital')!.provenance).toMatchObject({
+          origin: 'ai',
+          confirmation: 'pending',
+          source: { location: 'Page 2' },
+        })
+        // An attachment, or a question without an answer, has no provenance.
+        expect(fieldOf(described, 'f-kbis')).not.toHaveProperty('provenance')
+        expect(fieldOf(described, 'f-bp')).not.toHaveProperty('provenance')
+
+        // The person confirms the proposal in the conversation: same value, now confirmed.
+        await c.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [
+              {
+                fieldId: 'f-capital',
+                value: '10 000 EUR',
+                origin: 'ai',
+                confirmedByUser: true,
+                source: { documentId: kbis, excerpt: 'Capital social : 10 000 EUR' },
+              },
+            ],
+          },
+        })
+        expect(
+          [...fake.table('dossierAnswer').values()].find((r) => r.fieldId === 'f-capital'),
+        ).toMatchObject({ confirmation: 'confirmed', sourceLocation: 'Page 2' })
+        await c.close()
+
+        // A financeur sees the answers his share allows, never their provenance.
+        await fake.prisma.shareLink.create({
+          data: {
+            dossierId: DOSSIER,
+            recipientEmail: 'bob@invest.fr',
+            status: 'active',
+            accessLevel: 'complet',
+            token: 't-c',
+          },
+        })
+        const fin = await client(await connect('u-fin', ['dossiers:read']))
+        const seen = json(
+          await fin.callTool({ name: 'get_dossier', arguments: { dossier: DOSSIER } }),
+        )
+        expect(fieldOf(seen, 'f-capital')).toMatchObject({ answer: '10 000 EUR' })
+        expect(JSON.stringify(seen)).not.toContain('provenance')
+        expect(JSON.stringify(seen)).not.toContain('Claude')
+        await fin.close()
+      })
+
+      it('refuses an invented source or quotation, and an unbacked proposal, storing nothing', async () => {
+        const c = await client(await connect('u-1', ['dossiers:write']))
+        const kbis = await uploadKbis(c)
+        const image = json(
+          await c.callTool({
+            name: 'upload_document',
+            arguments: {
+              dossier: 'biosensio',
+              filename: 'statuts.png',
+              contentBase64: b64(
+                Buffer.concat([
+                  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+                  Buffer.alloc(32),
+                ]),
+              ),
+            },
+          }),
+        )
+        const other = await client(await connect('u-2', ['dossiers:write']))
+        const foreign = json(
+          await other.callTool({
+            name: 'upload_document',
+            arguments: {
+              dossier: 'autre',
+              filename: 'kbis.txt',
+              text: 'Capital social : 10 000 EUR',
+            },
+          }),
+        )
+        await other.close()
+        const before = fake.table('dossierAnswer').size
+
+        const res = await c.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [
+              {
+                fieldId: 'f-name',
+                value: 'Biosensio SAS',
+                origin: 'ai',
+                source: { documentId: kbis, excerpt: 'Denomination : BIOSENSIO SARL' },
+              },
+              {
+                fieldId: 'f-capital',
+                value: '10 000 EUR',
+                origin: 'ai',
+                source: { documentId: (foreign.document as Doc).documentId },
+              },
+              { fieldId: 'f-stage', value: 'fonds_propres_uniquement', origin: 'ai' },
+            ],
+          },
+        })
+        expect(res.isError).toBe(true)
+        const message = errorOf(res)
+        expect(message).toContain('Aucune réponse enregistrée')
+        expect(message).toContain('Nom du projet : Extrait introuvable dans « kbis.pdf »')
+        expect(message).toContain('Capital social : Source introuvable')
+        expect(message).toContain(
+          'Stade de financement actuel : Proposition non confirmée sans source',
+        )
+
+        const unreadable = await c.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [
+              {
+                fieldId: 'f-name',
+                value: 'Biosensio SAS',
+                origin: 'ai',
+                source: { documentId: (image.document as Doc).documentId, excerpt: 'BIOSENSIO' },
+              },
+            ],
+          },
+        })
+        expect(errorOf(unreadable)).toContain('Extrait invérifiable')
+        expect(fake.table('dossierAnswer').size).toBe(before)
+
+        // Without an excerpt, a document of the dossier is a valid source, even one Confluent
+        // cannot read (the person showed it to the assistant).
+        const cited = await c.callTool({
+          name: 'update_answers',
+          arguments: {
+            dossier: 'biosensio',
+            answers: [
+              {
+                fieldId: 'f-name',
+                value: 'Biosensio SAS',
+                origin: 'ai',
+                source: { documentId: (image.document as Doc).documentId },
+              },
+            ],
+          },
+        })
+        expect(cited.isError).toBeFalsy()
+        expect(
+          [...fake.table('dossierAnswer').values()].find((r) => r.fieldId === 'f-name'),
+        ).toMatchObject({
+          confirmation: 'pending',
+          sourceDocumentId: (image.document as Doc).documentId,
+          sourceLocation: null,
+          sourceExcerpt: null,
+        })
+        await c.close()
+      })
+    })
+
     it('journals reads and uploads with the document concerned', async () => {
       const c = await client(await connect('u-1', ['dossiers:write']))
       const up = json(
@@ -1273,9 +1546,9 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       arguments: {
         dossier: 'biosensio',
         answers: [
-          { fieldId: 'f-name', value: 'ok' },
-          { fieldId: 'f-stage', value: 'Série Z' },
-          { fieldId: 'f-old', value: 'champ V1' },
+          { fieldId: 'f-name', value: 'ok', origin: 'human' },
+          { fieldId: 'f-stage', value: 'Série Z', origin: 'human' },
+          { fieldId: 'f-old', value: 'champ V1', origin: 'human' },
         ],
       },
     })
@@ -1319,7 +1592,10 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const c = await client(await connect('u-1', ['dossiers:write']))
     const res = await c.callTool({
       name: 'update_answers',
-      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-sector', value: 'SaaS' }] },
+      arguments: {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-sector', value: 'SaaS', origin: 'human' }],
+      },
     })
     expect(res.isError).toBeFalsy()
     expect(fake.table('dossier').get(id)).toMatchObject({ sector: 'SaaS', axe2Financier: 2 })
@@ -1341,7 +1617,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       name: 'update_answers',
       arguments: {
         dossier: '22222222-2222-4222-8222-222222222222',
-        answers: [{ fieldId: 'f-name', value: 'x' }],
+        answers: [{ fieldId: 'f-name', value: 'x', origin: 'human' }],
       },
     })
     expect(write.isError).toBe(true)
@@ -1420,11 +1696,17 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     const c = await client(await connect('u-1', ['dossiers:write']))
     await c.callTool({
       name: 'update_answers',
-      arguments: { dossier: 'biosensio', answers: [{ fieldId: 'f-stage', value: 'Série Z' }] },
+      arguments: {
+        dossier: 'biosensio',
+        answers: [{ fieldId: 'f-stage', value: 'Série Z', origin: 'human' }],
+      },
     })
     await c.callTool({
       name: 'update_answers',
-      arguments: { dossier: 'autre', answers: [{ fieldId: 'f-stage', value: 'Série Z' }] },
+      arguments: {
+        dossier: 'autre',
+        answers: [{ fieldId: 'f-stage', value: 'Série Z', origin: 'human' }],
+      },
     })
     const logs = [...fake.table('auditLog').values()].filter(
       (l) => l.actionType === 'mcp_tool_called',
