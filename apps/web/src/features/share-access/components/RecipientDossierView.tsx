@@ -20,7 +20,7 @@ import { hasPresentation } from '@/features/dossiers/presentation'
 // explains to the recipient what the level leaves out.
 const ACCESS_LEVEL_NOTICE: Record<AccessLevel, string> = {
   public:
-    'Accès public : seules les informations d’identité du projet, et leurs pièces jointes, sont partagées avec vous.',
+    'Accès « Public », le plus restreint : seules les informations de base du projet, et leurs pièces jointes, sont partagées avec vous. Cet accès vous est personnel : la demande n’est pas rendue publique.',
   partiel:
     'Accès partiel : les données financières et les documents réservés à l’accès complet ne sont pas partagés avec vous.',
   complet: 'Accès complet : l’entrepreneur partage l’intégralité de son dossier.',

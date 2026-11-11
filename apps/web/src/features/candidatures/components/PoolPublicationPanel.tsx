@@ -15,18 +15,12 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
+import { ACCESS_LEVEL_DESCRIPTIONS, PUBLIC_IS_NOT_PUBLISHED } from '@/features/shares/levels'
 import { previewHref } from '@/features/shares/preview'
 import type { ApiError } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 import { publishToPool, withdrawFromPool } from '../api'
 import { poolPublicationSentence } from '../pool-publication'
-
-// What each level lets the workspace's investors read — the levels of nominative shares (E07.01).
-const LEVEL_DESCRIPTIONS: Record<AccessLevel, string> = {
-  public: 'Présentation de la demande et informations de base du profil',
-  partiel: 'Détails du projet, données financières masquées',
-  complet: 'Tout le profil et les documents choisis pour la demande',
-}
 
 // What the pool shows, and what it never shows (@confluent/shared `pool-publication.schema.ts`).
 const SCOPE =
@@ -186,6 +180,7 @@ export function PoolPublicationPanel({
             <legend className="mb-1 text-sm font-medium text-foreground">
               Ce que liront les investisseurs
             </legend>
+            <p className="mb-1 text-xs text-muted-foreground">{PUBLIC_IS_NOT_PUBLISHED}</p>
             {ACCESS_LEVELS.map((l) => (
               <button
                 key={l}
@@ -213,7 +208,7 @@ export function PoolPublicationPanel({
                     level === l ? 'text-background/70' : 'text-muted-foreground',
                   )}
                 >
-                  {LEVEL_DESCRIPTIONS[l]}
+                  {ACCESS_LEVEL_DESCRIPTIONS[l]}
                 </span>
               </button>
             ))}
