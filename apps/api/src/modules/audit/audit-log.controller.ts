@@ -36,7 +36,8 @@ export class AuditLogController {
     description:
       'Trace append-only des événements métier du dossier (création/modification, partages, consultations). ' +
       'Les entrées **ops-only** (`rate_limit_exceeded`, `share_link_access_denied`) sont **filtrées** ' +
-      'de cette vue — réservées aux admins (`GET /v1/admin/dossiers/:id/audit-log`). Tri par `createdAt` desc.',
+      'de cette vue — réservées aux admins (`GET /v1/admin/dossiers/:id/audit-log`), comme les ' +
+      'entrées des notes internes des structures (`candidature_note_updated`). Tri par `createdAt` desc.',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiOkResponse({ description: 'Journal filtré pour l’entrepreneur propriétaire.' })

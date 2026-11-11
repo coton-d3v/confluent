@@ -73,8 +73,9 @@ export function plainParagraphs(v: string): string {
   )
 }
 
-// What looks like an HTML tag: an explanation is plain text, shown as written, never interpreted.
-const HTML_TAG = /<[A-Za-z!/?]/
+// What looks like an HTML tag: an explanation (and an internal note, E06.08) is plain text, shown as
+// written, never interpreted.
+export const HTML_TAG = /<[A-Za-z!/?]/
 
 const labelSchema = z
   .string()
