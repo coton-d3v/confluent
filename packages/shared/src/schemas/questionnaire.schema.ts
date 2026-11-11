@@ -18,7 +18,10 @@ export const fieldKeySchema = z
   .string()
   .min(1)
   .max(64)
-  .regex(/^[a-z][a-z0-9_]*$/, 'Key must be snake_case (a-z, 0-9, _).')
+  .regex(
+    /^[a-z][a-z0-9_]*$/,
+    'Clé attendue en snake_case : minuscules sans accent, chiffres et _, commençant par une lettre.',
+  )
 
 export function hasUniqueKeys(fields: ReadonlyArray<{ key?: string | null }>): boolean {
   const keys = fields.flatMap((f) => (f.key ? [f.key] : []))

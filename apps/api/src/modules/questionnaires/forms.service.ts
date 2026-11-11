@@ -3,6 +3,7 @@ import type { Prisma, Questionnaire, QuestionnaireVersion } from '@prisma/client
 import type { FormUsage } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
+import { assertCanDesignForms, type FormDesigner } from './form-design-access'
 import { FormErrors } from './form-errors'
 import { copyVersionStructure, toKey } from './questionnaire-structure'
 
@@ -24,7 +25,8 @@ export interface FormDetailView extends FormSummaryView {
 }
 
 // Form-level operations of the builder: create, rename, duplicate, archive, restore. Structure
-// editing lives in FormDraftsService. Reused as is by the MCP tools (E03.13 → E04).
+// editing lives in FormDraftsService. Reused as is by the MCP tools (E03.13 → E04); every write
+// checks who acts with the single form design rule (E04.07), whatever the caller.
 @Injectable()
 export class FormsService {
   constructor(
@@ -65,7 +67,8 @@ export class FormsService {
   }
 
   // A new form is unassigned (E03.09 assigns it to a usage) and starts with an empty draft.
-  async create(name: string, actorId: string): Promise<FormDetailView> {
+  async create(actor: FormDesigner, name: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const form = await this.prisma.$transaction(async (tx) => {
       const created = await tx.questionnaire.create({
         data: { slug: await this.freeSlug(tx, name), name, usage: null },
@@ -77,14 +80,15 @@ export class FormsService {
     })
     await this.audit.record({
       actionType: 'form_created',
-      actorId,
+      actorId: actor.id,
       metadata: { formId: form.id, name },
     })
     return this.get(form.id)
   }
 
   // The slug is the form's stable identifier: renaming keeps it.
-  async rename(formId: string, name: string, actorId: string): Promise<FormDetailView> {
+  async rename(actor: FormDesigner, formId: string, name: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const form = await this.prisma.$transaction(async (tx) => {
       const locked = await this.lockEditableForm(tx, formId)
       await tx.questionnaire.update({ where: { id: formId }, data: { name } })
@@ -92,7 +96,7 @@ export class FormsService {
     })
     await this.audit.record({
       actionType: 'form_updated',
-      actorId,
+      actorId: actor.id,
       metadata: { formId, change: 'renamed', from: form.name, to: name },
     })
     return this.get(formId)
@@ -100,7 +104,8 @@ export class FormsService {
 
   // Copies the published version (or, failing that, the latest one) into the draft of a new form.
   // Field and choice keys are kept, so both forms classify answers the same way.
-  async duplicate(formId: string, name: string, actorId: string): Promise<FormDetailView> {
+  async duplicate(actor: FormDesigner, formId: string, name: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     await this.findForm(formId)
     const source =
       (await this.prisma.questionnaireVersion.findFirst({
@@ -122,7 +127,7 @@ export class FormsService {
     })
     await this.audit.record({
       actionType: 'form_created',
-      actorId,
+      actorId: actor.id,
       metadata: {
         formId: copy.id,
         name,
@@ -135,7 +140,12 @@ export class FormsService {
   // The form takes `usage` over from the form that had it, in one transaction: new dossiers are then
   // created with its published version, existing dossiers keep theirs (E03.09). There is no plain
   // unassignment: a usage always has a form, so it can only move to another published form.
-  async assignUsage(formId: string, usage: FormUsage, actorId: string): Promise<FormDetailView> {
+  async assignUsage(
+    actor: FormDesigner,
+    formId: string,
+    usage: FormUsage,
+  ): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const assigned = await this.prisma.$transaction(async (tx) => {
       const form = await this.lockEditableForm(tx, formId)
       if (form.usage === usage) return null
@@ -155,7 +165,7 @@ export class FormsService {
     const { published, replaced } = assigned
     await this.audit.record({
       actionType: 'form_updated',
-      actorId,
+      actorId: actor.id,
       metadata: {
         formId,
         change: 'assigned',
@@ -169,7 +179,8 @@ export class FormsService {
 
   // An archived form is kept with all its versions (dossiers still read theirs) but can no longer be
   // edited. A form assigned to a usage serves new dossiers and cannot be archived.
-  async archive(formId: string, actorId: string): Promise<FormDetailView> {
+  async archive(actor: FormDesigner, formId: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const archived = await this.prisma.$transaction(async (tx) => {
       const form = await this.lockForm(tx, formId)
       if (form.usage) throw FormErrors.formInUse()
@@ -180,14 +191,15 @@ export class FormsService {
     if (archived) {
       await this.audit.record({
         actionType: 'form_updated',
-        actorId,
+        actorId: actor.id,
         metadata: { formId, change: 'archived' },
       })
     }
     return this.get(formId)
   }
 
-  async restore(formId: string, actorId: string): Promise<FormDetailView> {
+  async restore(actor: FormDesigner, formId: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const restored = await this.prisma.$transaction(async (tx) => {
       const form = await this.lockForm(tx, formId)
       if (!form.archivedAt) return false
@@ -197,7 +209,7 @@ export class FormsService {
     if (restored) {
       await this.audit.record({
         actionType: 'form_updated',
-        actorId,
+        actorId: actor.id,
         metadata: { formId, change: 'restored' },
       })
     }

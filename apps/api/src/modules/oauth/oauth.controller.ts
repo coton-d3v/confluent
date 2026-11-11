@@ -23,7 +23,7 @@ import { z } from 'zod'
 import { PrismaService } from '../../prisma/prisma.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ConfluentOAuthProvider } from './oauth.provider'
-import { SCOPE_LABELS, expandScopes } from './oauth.constants'
+import { SCOPE_LABELS, expandScopes, grantableScopes } from './oauth.constants'
 
 const decisionSchema = z.object({
   approve: z.boolean(),
@@ -54,7 +54,7 @@ export class OAuthConsentController {
       'demandées. `404` si la demande est inconnue, expirée ou déjà traitée.',
   })
   @ApiOkResponse({ description: 'Demande à présenter à l’utilisateur.' })
-  async get(@Param('id') id: string) {
+  async get(@Req() req: Request, @Param('id') id: string) {
     const request = await this.prisma.oAuthAuthorizationRequest.findUnique({
       where: { id },
       include: { client: true },
@@ -75,8 +75,9 @@ export class OAuthConsentController {
         clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
         verifiedByMetadataDocument: request.client.source === 'cimd',
       },
-      // Effective permissions: writing implies reading on the server, so both are shown (R17).
-      scopes: [...expandScopes(request.scopes)]
+      // Effective permissions: writing implies reading on the server, so both are shown (R17). Only
+      // what this account may grant: `forms:write` is never offered to a non-administrator.
+      scopes: grantableScopes(expandScopes(request.scopes), currentUser(req))
         .sort()
         .map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
       expiresAt: request.expiresAt.toISOString(),
@@ -97,7 +98,7 @@ export class OAuthConsentController {
     try {
       const redirectUrl = await this.provider.decide(
         id,
-        currentUser(req).id,
+        currentUser(req),
         body.approve,
         body.scopes,
       )

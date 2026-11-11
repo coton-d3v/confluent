@@ -6,6 +6,8 @@ import { FormsService } from '../../src/modules/questionnaires/forms.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { testDatabase } from './database'
 
+const ADMIN = { id: 'admin-test', role: 'admin' }
+
 // Code review R30: an edit running while the draft is being published must never change the
 // published version. A publication holding the form for a while is simulated by a transaction that
 // takes the same lock as the services, publishes the draft, then waits before committing.
@@ -18,9 +20,9 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
   afterAll(() => prisma.$disconnect())
 
   async function formWithDraft() {
-    const form = await forms.create(`Concurrence ${randomUUID()}`, 'admin-test')
-    const draft = await drafts.addSection(form.id, { title: 'Projet' })
-    const withField = await drafts.addField(form.id, {
+    const form = await forms.create(ADMIN, `Concurrence ${randomUUID()}`)
+    const draft = await drafts.addSection(ADMIN, form.id, { title: 'Projet' })
+    const withField = await drafts.addField(ADMIN, form.id, {
       sectionId: draft.sections[0].id,
       label: 'Nom du projet',
       fieldType: 'text',
@@ -54,7 +56,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
     const publication = slowPublish(formId, versionId, 400)
     await publication.published
 
-    const edit = drafts.updateField(formId, fieldId, { label: 'Modifié après publication' })
+    const edit = drafts.updateField(ADMIN, formId, fieldId, { label: 'Modifié après publication' })
     await publication.done
     await expect(edit).rejects.toBeInstanceOf(NotFoundException)
 
@@ -67,7 +69,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
     const publication = slowPublish(formId, versionId, 400)
     await publication.published
 
-    const removal = drafts.removeField(formId, fieldId)
+    const removal = drafts.removeField(ADMIN, formId, fieldId)
     await publication.done
     await expect(removal).rejects.toBeInstanceOf(NotFoundException)
     expect(await prisma.questionnaireField.count({ where: { id: fieldId } })).toBe(1)
@@ -78,7 +80,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
     const publication = slowPublish(formId, versionId, 400)
     await publication.published
 
-    const discard = drafts.discardDraft(formId, 'admin-test')
+    const discard = drafts.discardDraft(ADMIN, formId)
     await publication.done
     await expect(discard).rejects.toBeInstanceOf(NotFoundException)
     const version = await prisma.questionnaireVersion.findUniqueOrThrow({
@@ -99,7 +101,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
       await new Promise((r) => setTimeout(r, 400))
     })
     await locked
-    const edit = drafts.updateField(formId, fieldId, { label: 'Après archivage' })
+    const edit = drafts.updateField(ADMIN, formId, fieldId, { label: 'Après archivage' })
     await archiving
     await expect(edit).rejects.toMatchObject({ response: { code: 'FORM_ARCHIVED' } })
     const field = await prisma.questionnaireField.findUniqueOrThrow({ where: { id: fieldId } })
@@ -109,9 +111,9 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
   it('refuses an edit based on an outdated revision of the draft', async () => {
     const { formId, fieldId } = await formWithDraft()
     const seen = (await drafts.getDraft(formId)).version.updatedAt.toISOString()
-    await drafts.updateField(formId, fieldId, { label: 'Premier administrateur' }, seen)
+    await drafts.updateField(ADMIN, formId, fieldId, { label: 'Premier administrateur' }, seen)
     await expect(
-      drafts.updateField(formId, fieldId, { label: 'Second administrateur' }, seen),
+      drafts.updateField(ADMIN, formId, fieldId, { label: 'Second administrateur' }, seen),
     ).rejects.toMatchObject({ response: { code: 'DRAFT_STALE' } })
     const field = await prisma.questionnaireField.findUniqueOrThrow({ where: { id: fieldId } })
     expect(field.label).toBe('Premier administrateur')

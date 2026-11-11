@@ -1833,4 +1833,463 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       [...fake.table('auditLog').values()].filter((l) => l.actionType === 'oauth_grant_revoked'),
     ).toHaveLength(2)
   })
+
+  // E04.06 / E04.07: an administrator designs a form draft in conversation with the builder's own
+  // operations; the result is the draft the site's builder edits. Never published by the assistant.
+  describe('form design in conversation (E04.06, E04.07)', () => {
+    const DESIGN = ['dossiers:read', 'forms:write']
+    type Outline = {
+      message: string
+      form: { id: string; slug: string; name: string }
+      draft: { version: number; status: string; revision: string; builderUrl: string }
+      sections: Array<{
+        sectionId: string
+        key: string
+        title: string
+        fields: Array<Record<string, unknown> & { fieldId: string; key: string }>
+      }>
+      problems: Array<{ message: string; sectionId?: string; fieldId?: string }>
+      publishable: boolean
+    }
+    let adminJwt: string
+
+    beforeEach(async () => {
+      const p = fake.prisma
+      for (const [id, email, role] of [
+        ['u-admin', 'admin@confluent.dev', 'admin'],
+        ['u-fin', 'bob@invest.fr', 'financeur'],
+      ]) {
+        await p.user.create({ data: { id, email, role, emailVerifiedAt: new Date() } })
+      }
+      await p.questionnaire.create({
+        data: {
+          id: 'form-1',
+          slug: 'profil-entreprise',
+          name: "Profil de l'entreprise",
+          usage: 'dossier',
+        },
+      })
+      for (const id of ['v-1', 'v-2']) {
+        await p.questionnaireVersion.update({ where: { id }, data: { questionnaireId: 'form-1' } })
+      }
+      adminJwt = await new JwtService().signAsync(
+        { sub: 'u-admin', email: 'admin@confluent.dev', role: 'admin' },
+        { secret: process.env.JWT_SECRET },
+      )
+    })
+
+    // A tool call as the assistant sees it: the outline, or the refusal's text.
+    async function call(c: Client, name: string, args: Record<string, unknown>) {
+      const res = (await c
+        .callTool({ name, arguments: args })
+        .catch((err: Error) => ({ isError: true, content: [{ text: err.message }] }))) as {
+        isError?: boolean
+        content: Array<{ text: string }>
+      }
+      if (res.isError) return { error: res.content[0].text, outline: null }
+      return { error: null, outline: JSON.parse(res.content[0].text) as Outline }
+    }
+    const ok = async (c: Client, name: string, args: Record<string, unknown>) => {
+      const res = await call(c, name, args)
+      expect(res.error).toBeNull()
+      return res.outline!
+    }
+    const builder = (method: string, path: string, body?: unknown, ifMatch?: string) =>
+      fetch(`${base}/v1/admin/forms${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${adminJwt}`,
+          'Content-Type': 'application/json',
+          ...(ifMatch ? { 'If-Match': `"${ifMatch}"` } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    const fieldRows = () => JSON.stringify([...fake.table('questionnaireField').values()])
+
+    it('builds a draft step by step; the site builder reads and edits the same draft', async () => {
+      const c = await client(await connect('u-admin', DESIGN))
+      const tools = (await c.listTools()).tools.map((t) => t.name)
+      expect(tools).toEqual(expect.arrayContaining(['create_form', 'add_form_field']))
+      expect(tools.some((t) => t.startsWith('publish'))).toBe(false)
+      expect(c.getInstructions()).toContain('n’est jamais publié par l’assistant')
+
+      let o = await ok(c, 'create_form', { name: 'Candidature incubateur' })
+      expect(o.form.slug).toBe('candidature-incubateur')
+      expect(o.draft).toMatchObject({ version: 1, status: 'draft' })
+      expect(o.draft.builderUrl).toBe(`http://localhost:5173/admin/formulaires/${o.form.id}`)
+      expect(o.publishable).toBe(false)
+      const form = o.form.slug
+
+      o = await ok(c, 'add_form_section', { form, title: 'Projet', revision: o.draft.revision })
+      const projet = o.sections[0].sectionId
+      o = await ok(c, 'add_form_field', {
+        form,
+        sectionId: projet,
+        label: 'Stade du projet',
+        type: 'select',
+        required: true,
+        choices: [{ label: 'Idée' }, { key: 'mvp', label: 'Prototype' }],
+        readLevel: 'partiel',
+        revision: o.draft.revision,
+      })
+      o = await ok(c, 'add_form_field', {
+        form,
+        sectionId: projet,
+        label: 'Résumé',
+        type: 'textarea',
+        help: 'En quelques lignes.',
+        constraints: { minLength: 20, maxLength: 600 },
+      })
+      o = await ok(c, 'add_form_field', {
+        form,
+        sectionId: projet,
+        label: 'Montant recherché',
+        type: 'number',
+        constraints: { min: 0, integer: true },
+        key: 'montant',
+      })
+      expect(o.sections[0].fields).toEqual([
+        expect.objectContaining({
+          key: 'stade_du_projet',
+          type: 'select',
+          required: true,
+          readLevel: 'partiel',
+          choices: [
+            { key: 'idee', label: 'Idée' },
+            { key: 'mvp', label: 'Prototype' },
+          ],
+        }),
+        expect.objectContaining({
+          key: 'resume',
+          help: 'En quelques lignes.',
+          limits: '20 caractères minimum, 600 caractères maximum.',
+          readLevel: 'complet',
+        }),
+        expect.objectContaining({ key: 'montant', limits: 'Nombre entier, minimum 0.' }),
+      ])
+      const [stade, resume, montant] = o.sections[0].fields.map((f) => f.fieldId)
+
+      o = await ok(c, 'add_form_section', { form, title: 'Équipe' })
+      const equipe = o.sections[1].sectionId
+      expect(o.problems).toEqual([expect.objectContaining({ sectionId: equipe })])
+      expect(o.publishable).toBe(false)
+
+      o = await ok(c, 'reorder_form_sections', { form, sectionIds: [equipe, projet] })
+      o = await ok(c, 'update_form_field', { form, fieldId: montant, sectionId: equipe })
+      o = await ok(c, 'reorder_form_fields', { form, sectionId: projet, fieldIds: [resume, stade] })
+      o = await ok(c, 'update_form_field', {
+        form,
+        fieldId: stade,
+        label: 'Stade',
+        choices: [
+          { key: 'mvp', label: 'Prototype' },
+          { key: 'idee', label: 'Idée' },
+          { label: 'Premiers clients' },
+        ],
+      })
+      o = await ok(c, 'update_form_section', { form, sectionId: equipe, title: 'L’équipe' })
+      expect(o.publishable).toBe(true)
+      expect(o.problems).toEqual([])
+      expect(o.sections.map((sec) => [sec.title, sec.fields.map((f) => f.key)])).toEqual([
+        ['L’équipe', ['montant']],
+        ['Projet', ['resume', 'stade_du_projet']],
+      ])
+
+      // The site's builder: same draft, same ids, keys, limits and levels; editable as is with the
+      // revision the assistant last saw.
+      const res = await builder('GET', `/${o.form.id}/draft`)
+      const draft = (await res.json()) as {
+        version: { status: string; updatedAt: string }
+        sections: Array<{ id: string; title: string }>
+        fields: Array<Record<string, unknown>>
+      }
+      expect(draft.version.status).toBe('draft')
+      expect(draft.version.updatedAt).toBe(o.draft.revision)
+      expect(draft.sections.map((sec) => sec.id)).toEqual([equipe, projet])
+      expect(draft.fields.find((f) => f.id === stade)).toMatchObject({
+        label: 'Stade',
+        minAccessLevel: 'partiel',
+        choices: [
+          { key: 'mvp', label: 'Prototype' },
+          { key: 'idee', label: 'Idée' },
+          { key: 'premiers_clients', label: 'Premiers clients' },
+        ],
+      })
+      expect(draft.fields.find((f) => f.id === resume)).toMatchObject({
+        constraints: { minLength: 20, maxLength: 600 },
+        helpText: 'En quelques lignes.',
+      })
+      const edited = await builder(
+        'PATCH',
+        `/${o.form.id}/draft/fields/${resume}`,
+        { required: true },
+        o.draft.revision,
+      )
+      expect(edited.status).toBe(200)
+
+      // get_form gives the same draft back in a later conversation, with its ids and revision.
+      const read = JSON.parse(
+        (
+          (await c.callTool({ name: 'get_form', arguments: { form, version: 'brouillon' } }))
+            .content as Array<{ text: string }>
+        )[0].text,
+      ) as { version: { revision: string }; sections: Array<{ sectionId: string }> }
+      expect(read.sections.map((sec) => sec.sectionId)).toEqual([equipe, projet])
+      expect(read.version.revision).not.toBe(o.draft.revision)
+
+      o = await ok(c, 'remove_form_field', { form, fieldId: montant })
+      expect(o.problems).toEqual([expect.objectContaining({ sectionId: equipe })])
+      o = await ok(c, 'remove_form_section', { form, sectionId: equipe })
+      expect(o.sections.map((sec) => sec.title)).toEqual(['Projet'])
+
+      // Never published by the assistant: no dossier can use it yet.
+      const summary = (await (await builder('GET', `/${o.form.id}`)).json()) as {
+        published: unknown
+        draft: { version: number }
+      }
+      expect(summary).toMatchObject({ published: null, draft: { version: 1 } })
+
+      // Journaled: who, which application, which tool, which form, outcome.
+      const logs = [...fake.table('auditLog').values()].filter(
+        (l) => l.actionType === 'mcp_tool_called',
+      )
+      expect(logs.at(-1)).toMatchObject({
+        actorId: 'u-admin',
+        metadata: expect.objectContaining({
+          tool: 'remove_form_section',
+          formId: o.form.id,
+          result: 'ok',
+          clientName: 'Claude',
+        }),
+      })
+      expect(
+        [...fake.table('auditLog').values()].find((l) => l.actionType === 'form_created'),
+      ).toMatchObject({ actorId: 'u-admin' })
+      await c.close()
+    })
+
+    it('refuses an invalid change with the builder’s reasons and writes nothing', async () => {
+      const c = await client(await connect('u-admin', DESIGN))
+      let o = await ok(c, 'create_form', { name: 'Formulaire RH' })
+      const form = o.form.id
+      o = await ok(c, 'add_form_section', { form, title: 'Poste', key: 'poste' })
+      const sectionId = o.sections[0].sectionId
+      o = await ok(c, 'add_form_field', { form, sectionId, label: 'Intitulé', type: 'text' })
+      const before = fieldRows()
+      const revision = o.draft.revision
+
+      const refusals: Array<[string, Record<string, unknown>, string]> = [
+        [
+          'add_form_field',
+          { sectionId, label: 'Contrat', type: 'text', choices: [{ label: 'CDI' }] },
+          'Seul un champ de type liste peut avoir des choix.',
+        ],
+        [
+          'add_form_field',
+          { sectionId, label: 'Salaire', type: 'number', constraints: { minLength: 2 } },
+          'Ces limites ne correspondent pas au type du champ.',
+        ],
+        [
+          'add_form_field',
+          { sectionId, label: 'Âge', type: 'number', constraints: { min: 70, max: 18 } },
+          'La valeur minimale dépasse la valeur maximale.',
+        ],
+        [
+          'add_form_field',
+          {
+            sectionId,
+            label: 'Contrat',
+            type: 'select',
+            choices: [
+              { key: 'cdi', label: 'CDI' },
+              { key: 'cdi', label: 'CDI bis' },
+            ],
+          },
+          'Chaque clé de choix doit être unique dans le champ.',
+        ],
+        [
+          'add_form_field',
+          { sectionId, label: 'Encore', type: 'text', key: 'intitule' },
+          'La clé « intitule » est déjà utilisée dans ce brouillon.',
+        ],
+        ['add_form_section', { title: 'Doublon', key: 'poste' }, 'déjà utilisée'],
+        ['update_form_section', { sectionId }, 'Indiquez au moins une modification.'],
+        [
+          'update_form_field',
+          { fieldId: '00000000-0000-4000-8000-000000000000', label: 'X' },
+          'Champ introuvable dans le brouillon.',
+        ],
+        [
+          'reorder_form_sections',
+          { sectionIds: ['00000000-0000-4000-8000-000000000000'] },
+          'exactement une fois',
+        ],
+      ]
+      for (const [tool, args, reason] of refusals) {
+        const res = await call(c, tool, { form, revision, ...args })
+        expect({ tool, error: res.error }).toEqual({ tool, error: expect.stringContaining(reason) })
+      }
+      expect(fieldRows()).toBe(before)
+      expect((await call(c, 'get_form', { form, version: 'brouillon' })).error).toBeNull()
+
+      const unknown = await call(c, 'add_form_section', { form: 'inconnu', title: 'X' })
+      expect(unknown.error).toBe('Formulaire introuvable. Utilisez list_forms.')
+      // Archived: the builder's rule applies (restore it first).
+      await builder('POST', `/${form}/archive`)
+      const archived = await call(c, 'add_form_section', { form, title: 'X' })
+      expect(archived.error).toContain('archivé')
+      await c.close()
+    })
+
+    it('opens the next version of a published form, resumes an existing draft, never touches dossiers', async () => {
+      const c = await client(await connect('u-admin', DESIGN))
+      const published = JSON.stringify(
+        [...fake.table('questionnaireField').values()].filter((f) => f.versionId === 'v-2'),
+      )
+      let o = await ok(c, 'open_form_draft', { form: 'profil-entreprise' })
+      expect(o.message).toContain('copié de la version publiée')
+      expect(o.draft).toMatchObject({ version: 3, status: 'draft' })
+      expect(o.sections.flatMap((sec) => sec.fields.map((f) => f.key))).toEqual([
+        'nom_du_projet',
+        'stade_financement',
+      ])
+      const nameField = o.sections[0].fields[0].fieldId
+      expect(nameField).not.toBe('f-name')
+      o = await ok(c, 'update_form_field', {
+        form: 'profil-entreprise',
+        fieldId: nameField,
+        label: 'Nom commercial',
+        constraints: {},
+      })
+      expect(o.sections[0].fields[0]).not.toHaveProperty('limits')
+
+      const again = await ok(c, 'open_form_draft', { form: 'profil-entreprise' })
+      expect(again.message).toContain('déjà en cours')
+      expect(again.draft.version).toBe(3)
+      expect(again.sections[0].fields[0]).toMatchObject({ label: 'Nom commercial' })
+
+      // The published version and the dossiers created with it are untouched.
+      expect(
+        JSON.stringify(
+          [...fake.table('questionnaireField').values()].filter((f) => f.versionId === 'v-2'),
+        ),
+      ).toBe(published)
+      const dossier = await fake.prisma.dossier.findUnique({ where: { slug: 'biosensio' } })
+      expect(dossier?.questionnaireVersionId).toBe('v-2')
+      await c.close()
+    })
+
+    it('duplicates a form; refuses a second form of the same name unless confirmed', async () => {
+      const c = await client(await connect('u-admin', DESIGN))
+      const copy = await ok(c, 'duplicate_form', {
+        form: 'profil-entreprise',
+        name: 'Profil (copie)',
+      })
+      expect(copy.form.slug).toBe('profil-copie')
+      expect(copy.sections.flatMap((sec) => sec.fields.map((f) => f.key))).toEqual([
+        'nom_du_projet',
+        'stade_financement',
+      ])
+      const same = await call(c, 'create_form', { name: 'PROFIL (Copie)' })
+      expect(same.error).toContain('existe déjà (profil-copie)')
+      expect(
+        (await call(c, 'duplicate_form', { form: 'profil-entreprise', name: 'profil (copie)' }))
+          .error,
+      ).toContain('allowDuplicate')
+      const forms = () => fake.table('questionnaire').size
+      expect(forms()).toBe(2)
+      await ok(c, 'create_form', { name: 'Profil (copie)', allowDuplicate: true })
+      expect(forms()).toBe(3)
+      await c.close()
+    })
+
+    it('a stale revision changes nothing: someone edited the draft in the site meanwhile', async () => {
+      const c = await client(await connect('u-admin', DESIGN))
+      let o = await ok(c, 'create_form', { name: 'Concurrence' })
+      o = await ok(c, 'add_form_section', { form: o.form.id, title: 'Projet' })
+      const seen = o.draft.revision
+      await new Promise((r) => setTimeout(r, 5))
+      const site = await builder(
+        'PATCH',
+        `/${o.form.id}/draft/sections/${o.sections[0].sectionId}`,
+        {
+          title: 'Projet (site)',
+        },
+      )
+      expect(site.status).toBe(200)
+      const before = fieldRows()
+      const stale = await call(c, 'add_form_field', {
+        form: o.form.id,
+        sectionId: o.sections[0].sectionId,
+        label: 'Nom',
+        type: 'text',
+        revision: seen,
+      })
+      expect(stale.error).toBe(
+        'Le brouillon a été modifié entre-temps : rechargez-le avant de continuer.',
+      )
+      expect(fieldRows()).toBe(before)
+
+      // The other way round: the builder's change is refused after an assistant's edit.
+      const read = await ok(c, 'add_form_section', { form: o.form.id, title: 'Équipe' })
+      await new Promise((r) => setTimeout(r, 5))
+      await ok(c, 'add_form_section', { form: o.form.id, title: 'Finances' })
+      const refused = await builder(
+        'POST',
+        `/${o.form.id}/draft/sections`,
+        { title: 'Site' },
+        read.draft.revision,
+      )
+      expect(refused.status).toBe(409)
+      await c.close()
+    })
+
+    it('only administrators with forms:write design forms; checked again at each call', async () => {
+      const before = () => fake.table('questionnaire').size
+      const formsBefore = before()
+      // Entrepreneur and financeur, even with the permission: no design tool, nothing created.
+      for (const userId of ['u-1', 'u-fin']) {
+        const c = await client(await connect(userId, DESIGN))
+        const tools = (await c.listTools()).tools.map((t) => t.name)
+        expect(tools).not.toContain('create_form')
+        expect(c.getInstructions()).not.toContain('concevoir un formulaire')
+        const res = await call(c, 'create_form', { name: 'Intrus' })
+        expect(res.error).toBeTruthy()
+        expect(
+          (await call(c, 'add_form_section', { form: 'form-1', title: 'X' })).error,
+        ).toBeTruthy()
+        await c.close()
+      }
+      expect(before()).toBe(formsBefore)
+
+      // An administrator without forms:write: 403 insufficient_scope, so the client can ask for it.
+      const token = await connect('u-admin', ['dossiers:write'])
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2025-11-25',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'create_form', arguments: { name: 'Sans permission' } },
+        }),
+      })
+      expect(res.status).toBe(403)
+      expect(res.headers.get('www-authenticate') ?? '').toContain('scope="forms:write"')
+      expect(before()).toBe(formsBefore)
+
+      // A grant outlives a change of role: an account no longer administrator is refused.
+      const c = await client(await connect('u-admin', DESIGN))
+      await fake.prisma.user.update({ where: { id: 'u-admin' }, data: { role: 'entrepreneur' } })
+      const demoted = await call(c, 'create_form', { name: 'Après rétrogradation' })
+      expect(demoted.error).toBeTruthy()
+      expect(before()).toBe(formsBefore)
+      await c.close()
+    })
+  })
 })

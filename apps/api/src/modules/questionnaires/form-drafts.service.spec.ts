@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common'
@@ -9,6 +10,8 @@ import { createFakePrisma } from '../../testing/fake-prisma'
 import { FormDraftsService, type FormVersionView } from './form-drafts.service'
 import { FormsService } from './forms.service'
 import { QuestionnairesService } from './questionnaires.service'
+
+const ADMIN = { id: 'admin-1', role: 'admin' }
 
 function setup() {
   const fake = createFakePrisma()
@@ -22,17 +25,17 @@ function setup() {
 
 // A new form with one section holding a list field and a text field.
 async function formWithStage(s: ReturnType<typeof setup>) {
-  const form = await s.forms.create('Candidature', 'admin-1')
-  let draft = await s.drafts.addSection(form.id, { title: 'Financement' })
+  const form = await s.forms.create(ADMIN, 'Candidature')
+  let draft = await s.drafts.addSection(ADMIN, form.id, { title: 'Financement' })
   const sectionId = draft.sections[0].id
-  draft = await s.drafts.addField(form.id, {
+  draft = await s.drafts.addField(ADMIN, form.id, {
     sectionId,
     label: 'Stade de financement',
     fieldType: 'select',
     required: true,
     choices: [{ label: 'Fonds propres' }, { key: 'seed', label: 'Seed' }],
   })
-  draft = await s.drafts.addField(form.id, {
+  draft = await s.drafts.addField(ADMIN, form.id, {
     sectionId,
     label: 'Montant recherché',
     fieldType: 'number',
@@ -66,7 +69,7 @@ describe('FormDraftsService', () => {
     const s = setup()
     const { form, sectionId } = await formWithStage(s)
     await expect(
-      s.drafts.addField(form.id, {
+      s.drafts.addField(ADMIN, form.id, {
         sectionId,
         key: 'montant_recherche',
         label: 'Autre',
@@ -75,7 +78,7 @@ describe('FormDraftsService', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException)
     await expect(
-      s.drafts.addField(form.id, {
+      s.drafts.addField(ADMIN, form.id, {
         sectionId,
         label: 'Commentaire',
         fieldType: 'text',
@@ -88,15 +91,15 @@ describe('FormDraftsService', () => {
   it('publishing archives the previous version; a new draft copies it and edits never reach it', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    const v1 = await s.drafts.publishDraft(form.id, 'admin-1')
+    const v1 = await s.drafts.publishDraft(ADMIN, form.id)
     expect(v1.version).toMatchObject({ status: 'published', version: 1 })
     expect(v1.form).toMatchObject({ published: { version: 1 }, draft: null })
 
     // Draft 2 copies V1 with the same keys; renaming a choice keeps its key.
-    let v2 = await s.drafts.createDraft(form.id, 'admin-1')
+    let v2 = await s.drafts.createDraft(ADMIN, form.id)
     expect(v2.version).toMatchObject({ status: 'draft', version: 2 })
     const stage = byKey(v2, 'stade_de_financement')
-    v2 = await s.drafts.updateField(form.id, stage.id, {
+    v2 = await s.drafts.updateField(ADMIN, form.id, stage.id, {
       label: 'Stade actuel de financement',
       choices: [
         { key: 'fonds_propres', label: 'Autofinancement' },
@@ -121,7 +124,7 @@ describe('FormDraftsService', () => {
       ],
     })
 
-    const published = await s.drafts.publishDraft(form.id, 'admin-1')
+    const published = await s.drafts.publishDraft(ADMIN, form.id)
     expect(published.version).toMatchObject({ status: 'published', version: 2 })
     const v1Final = await s.drafts.getVersion(form.id, v1.version.id)
     expect(v1Final.version.status).toBe('archived')
@@ -136,27 +139,27 @@ describe('FormDraftsService', () => {
   it('refuses a second draft, and edits when there is no draft', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    await expect(s.drafts.createDraft(form.id, 'admin-1')).rejects.toBeInstanceOf(ConflictException)
-    await s.drafts.publishDraft(form.id, 'admin-1')
-    await expect(s.drafts.addSection(form.id, { title: 'Équipe' })).rejects.toBeInstanceOf(
+    await expect(s.drafts.createDraft(ADMIN, form.id)).rejects.toBeInstanceOf(ConflictException)
+    await s.drafts.publishDraft(ADMIN, form.id)
+    await expect(s.drafts.addSection(ADMIN, form.id, { title: 'Équipe' })).rejects.toBeInstanceOf(
       NotFoundException,
     )
   })
 
   it('refuses to publish an incomplete draft and lists the problems', async () => {
     const s = setup()
-    const form = await s.forms.create('Vide', 'admin-1')
-    let draft = await s.drafts.addSection(form.id, { title: 'Équipe' })
-    draft = await s.drafts.addField(form.id, {
+    const form = await s.forms.create(ADMIN, 'Vide')
+    let draft = await s.drafts.addSection(ADMIN, form.id, { title: 'Équipe' })
+    draft = await s.drafts.addField(ADMIN, form.id, {
       sectionId: draft.sections[0].id,
       label: 'Rôle',
       fieldType: 'select',
       required: true,
     })
-    draft = await s.drafts.addSection(form.id, { title: 'Finances' })
+    draft = await s.drafts.addSection(ADMIN, form.id, { title: 'Finances' })
     expect(draft.problems.map((p) => p.code)).toEqual(['EMPTY_SECTION', 'SELECT_WITHOUT_CHOICES'])
 
-    const attempt = s.drafts.publishDraft(form.id, 'admin-1')
+    const attempt = s.drafts.publishDraft(ADMIN, form.id)
     await expect(attempt).rejects.toBeInstanceOf(UnprocessableEntityException)
     expect((await s.drafts.getDraft(form.id)).version.status).toBe('draft')
   })
@@ -165,7 +168,7 @@ describe('FormDraftsService', () => {
     const s = setup()
     const { form, draft } = await formWithStage(s)
     const stage = byKey(draft, 'stade_de_financement')
-    const updated = await s.drafts.updateField(form.id, stage.id, { fieldType: 'text' })
+    const updated = await s.drafts.updateField(ADMIN, form.id, stage.id, { fieldType: 'text' })
     expect(byKey(updated, 'stade_de_financement')).toMatchObject({ fieldType: 'text', choices: [] })
   })
 
@@ -173,7 +176,7 @@ describe('FormDraftsService', () => {
     const s = setup()
     const { form, sectionId, draft } = await formWithStage(s)
     const amount = byKey(draft, 'montant_recherche')
-    let updated = await s.drafts.updateField(form.id, amount.id, {
+    let updated = await s.drafts.updateField(ADMIN, form.id, amount.id, {
       constraints: { min: 0, max: 5_000_000, integer: true },
     })
     expect(byKey(updated, 'montant_recherche').constraints).toEqual({
@@ -182,13 +185,13 @@ describe('FormDraftsService', () => {
       integer: true,
     })
     await expect(
-      s.drafts.updateField(form.id, amount.id, { constraints: { maxLength: 10 } }),
+      s.drafts.updateField(ADMIN, form.id, amount.id, { constraints: { maxLength: 10 } }),
     ).rejects.toBeInstanceOf(BadRequestException)
     await expect(
-      s.drafts.updateField(form.id, amount.id, { constraints: { min: 10, max: 1 } }),
+      s.drafts.updateField(ADMIN, form.id, amount.id, { constraints: { min: 10, max: 1 } }),
     ).rejects.toBeInstanceOf(BadRequestException)
     await expect(
-      s.drafts.addField(form.id, {
+      s.drafts.addField(ADMIN, form.id, {
         sectionId,
         label: 'Date de création',
         fieldType: 'date',
@@ -197,35 +200,35 @@ describe('FormDraftsService', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException)
 
-    updated = await s.drafts.updateField(form.id, amount.id, { fieldType: 'text' })
+    updated = await s.drafts.updateField(ADMIN, form.id, amount.id, { fieldType: 'text' })
     expect(byKey(updated, 'montant_recherche').constraints).toEqual({})
   })
 
   it('reorders, moves and removes, keeping positions contiguous', async () => {
     const s = setup()
     const { form, sectionId } = await formWithStage(s)
-    let draft = await s.drafts.addSection(form.id, { title: 'Équipe' })
+    let draft = await s.drafts.addSection(ADMIN, form.id, { title: 'Équipe' })
     const team = draft.sections[1].id
     const [stage, amount] = draft.fields
 
-    draft = await s.drafts.reorderFields(form.id, sectionId, [amount.id, stage.id])
+    draft = await s.drafts.reorderFields(ADMIN, form.id, sectionId, [amount.id, stage.id])
     expect(draft.fields.map((f) => f.key)).toEqual(['montant_recherche', 'stade_de_financement'])
 
-    draft = await s.drafts.reorderSections(form.id, [team, sectionId])
+    draft = await s.drafts.reorderSections(ADMIN, form.id, [team, sectionId])
     expect(draft.sections.map((x) => x.title)).toEqual(['Équipe', 'Financement'])
 
     // Moving the first field of « Financement » to « Équipe » renumbers what stays behind.
-    draft = await s.drafts.updateField(form.id, amount.id, { sectionId: team })
+    draft = await s.drafts.updateField(ADMIN, form.id, amount.id, { sectionId: team })
     expect(draft.fields.map((f) => [f.key, f.sectionId, f.orderIndex])).toEqual([
       ['montant_recherche', team, 0],
       ['stade_de_financement', sectionId, 0],
     ])
 
-    draft = await s.drafts.removeSection(form.id, team)
+    draft = await s.drafts.removeSection(ADMIN, form.id, team)
     expect(draft.sections.map((x) => [x.title, x.orderIndex])).toEqual([['Financement', 0]])
     expect(draft.fields.map((f) => f.key)).toEqual(['stade_de_financement'])
 
-    await expect(s.drafts.reorderSections(form.id, [team])).rejects.toBeInstanceOf(
+    await expect(s.drafts.reorderSections(ADMIN, form.id, [team])).rejects.toBeInstanceOf(
       BadRequestException,
     )
   })
@@ -233,9 +236,9 @@ describe('FormDraftsService', () => {
   it('discards a draft and its structure; the published version stays', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    await s.drafts.publishDraft(form.id, 'admin-1')
-    const draft = await s.drafts.createDraft(form.id, 'admin-1')
-    await s.drafts.discardDraft(form.id, 'admin-1')
+    await s.drafts.publishDraft(ADMIN, form.id)
+    const draft = await s.drafts.createDraft(ADMIN, form.id)
+    await s.drafts.discardDraft(ADMIN, form.id)
     await expect(s.drafts.getDraft(form.id)).rejects.toBeInstanceOf(NotFoundException)
     expect([...s.fake.table('questionnaireField').values()].map((f) => f.versionId)).not.toContain(
       draft.version.id,
@@ -246,10 +249,53 @@ describe('FormDraftsService', () => {
   it('never reads a version through another form', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    const other = await s.forms.create('Autre', 'admin-1')
+    const other = await s.forms.create(ADMIN, 'Autre')
     const draft = await s.drafts.getDraft(form.id)
     await expect(s.drafts.getVersion(other.id, draft.version.id)).rejects.toBeInstanceOf(
       NotFoundException,
     )
   })
+
+  // E04.07: the same rule for the site's builder and the MCP tools, checked by the services
+  // themselves; closed by default (unknown role refused), nothing written.
+  it.each(['entrepreneur', 'financeur', 'superviseur', ''])(
+    'refuses every write to a %s account, before writing anything',
+    async (role) => {
+      const s = setup()
+      const { form, sectionId, draft } = await formWithStage(s)
+      const stage = byKey(draft, 'stade_de_financement')
+      const before = JSON.stringify([...s.fake.table('questionnaireField').values()])
+      const other = { id: 'u-1', role }
+      const writes = [
+        () => s.forms.create(other, 'Intrus'),
+        () => s.forms.rename(other, form.id, 'Intrus'),
+        () => s.forms.duplicate(other, form.id, 'Intrus'),
+        () => s.forms.assignUsage(other, form.id, 'dossier'),
+        () => s.forms.archive(other, form.id),
+        () => s.forms.restore(other, form.id),
+        () => s.drafts.createDraft(other, form.id),
+        () => s.drafts.discardDraft(other, form.id),
+        () => s.drafts.publishDraft(other, form.id),
+        () => s.drafts.addSection(other, form.id, { title: 'Intrus' }),
+        () => s.drafts.updateSection(other, form.id, sectionId, { title: 'Intrus' }),
+        () => s.drafts.removeSection(other, form.id, sectionId),
+        () => s.drafts.reorderSections(other, form.id, [sectionId]),
+        () =>
+          s.drafts.addField(other, form.id, {
+            sectionId,
+            label: 'Intrus',
+            fieldType: 'text',
+            required: false,
+          }),
+        () => s.drafts.updateField(other, form.id, stage.id, { label: 'Intrus' }),
+        () => s.drafts.removeField(other, form.id, stage.id),
+        () => s.drafts.reorderFields(other, form.id, sectionId, [stage.id]),
+      ]
+      for (const write of writes) {
+        await expect(write()).rejects.toBeInstanceOf(ForbiddenException)
+      }
+      expect(JSON.stringify([...s.fake.table('questionnaireField').values()])).toBe(before)
+      expect((await s.forms.list()).map((f) => f.name)).toEqual(['Candidature'])
+    },
+  )
 })
