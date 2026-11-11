@@ -55,5 +55,9 @@ export function describeVersion(v: DocumentVersion): string {
     month: 'long',
     year: 'numeric',
   })
-  return `Version ${v.version} · ${formatSize(v.size)} · déposée le ${date}`
+  // E05.06: a version may bring an earlier one back.
+  const how = v.restoredFromVersion
+    ? `restaurée le ${date} depuis la version ${v.restoredFromVersion}`
+    : `déposée le ${date}`
+  return `Version ${v.version} · ${formatSize(v.size)} · ${how}`
 }
