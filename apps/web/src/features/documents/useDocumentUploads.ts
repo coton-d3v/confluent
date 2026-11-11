@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import type { DocumentType } from '@confluent/shared'
 import { uploadDocument } from './api'
 import { fileProblem, uploadErrorMessage } from './upload-checks'
 
@@ -15,6 +16,8 @@ export interface SendOptions {
   filename?: string
   // Attachment field the files answer (E03.11).
   fieldId?: string | null
+  // Type of the documents the files create (E05.06).
+  type?: DocumentType
 }
 
 // Uploads of the Documents tab and of the attachment step: one file at a time, each with its own
@@ -38,6 +41,7 @@ export function useDocumentUploads(dossierId: string, onUploaded: () => void) {
           await uploadDocument(dossierId, file, {
             filename: opts.filename,
             fieldId: opts.fieldId,
+            type: opts.type,
             onProgress: (fraction) => update(id, { progress: fraction }),
           })
           setUploads((items) => items.filter((u) => u.id !== id))

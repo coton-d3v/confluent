@@ -73,7 +73,7 @@ export function FieldDocuments({
         groups.length > 0 && (
           <ul role="list" className="flex flex-col divide-y divide-border rounded-lg border border-border">
             {groups.map((group) => (
-              <li key={group.filename} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <li key={group.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{group.filename}</p>
                   <p className="text-xs text-muted-foreground">{describeVersion(group.current)}</p>

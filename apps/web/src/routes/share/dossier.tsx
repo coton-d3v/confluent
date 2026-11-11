@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
   CLASSIFICATION_DIMENSIONS,
+  DOCUMENT_TYPE_LABELS,
   TECH_TAG_LABELS,
   type AccessLevel,
   type DocumentGroup,
@@ -143,7 +144,7 @@ function AttachedFiles({ documents }: { documents: DocumentGroup[] }) {
   return (
     <ul role="list" className="flex flex-col gap-1">
       {documents.map((doc) => (
-        <li key={doc.filename} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <li key={doc.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <span className="min-w-0 truncate">{doc.filename}</span>
           <DocumentLink version={doc.current} />
         </li>
@@ -166,11 +167,12 @@ function SharedDocuments({ data }: { data: FinanceurShareResponse }) {
       ) : (
         <ul role="list" className="mt-4 flex flex-col divide-y divide-border rounded-lg border border-border">
           {documents.map((doc) => (
-            <li key={doc.filename} className="flex items-center justify-between gap-4 px-4 py-3">
+            <li key={doc.id} className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-foreground">{doc.filename}</p>
                 <p className="text-xs text-muted-foreground">
-                  Version {doc.current.version} · {formatSize(doc.current.size)}
+                  {DOCUMENT_TYPE_LABELS[doc.type]} · Version {doc.current.version} ·{' '}
+                  {formatSize(doc.current.size)}
                 </p>
               </div>
               <DocumentLink version={doc.current} />
