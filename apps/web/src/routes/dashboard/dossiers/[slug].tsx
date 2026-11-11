@@ -34,8 +34,14 @@ import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import type { ApiError } from '@/lib/api-client'
 import { useCurrentUser } from '@/features/current-user/context'
 import { DocumentsPanel } from '@/features/documents/components/DocumentsPanel'
+import { getCompany } from '@/features/companies/api'
+import { RequestEditor } from '@/features/dossiers/components/RequestEditor'
+import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { hasPresentation } from '@/features/dossiers/presentation'
+import type { Dossier } from '@confluent/shared'
 
 const TAB_VALUES = {
+  request: 'demande',
   content: 'content',
   documents: 'documents',
   analytics: 'analytics',
@@ -98,6 +104,7 @@ function NotFound() {
 
 function DossierView({
   dossierId,
+  slug,
   fallbackName,
   isOwner,
   isDraft,
@@ -130,6 +137,23 @@ function DossierView({
     () => isOwner ? getAnalytics(dossierId) : Promise.resolve(undefined),
     [dossierId, isOwner],
   )
+  // The company's other requests (E05.07): deleting the last one deletes the company with it.
+  const companyId = dossierQuery.data?.company?.id
+  const companyQuery = useAsync(
+    () => (companyId ? getCompany(companyId) : Promise.resolve(undefined)),
+    [companyId],
+  )
+  const isLastRequest = (companyQuery.data?.dossiers.length ?? 1) <= 1
+
+  function handleRequestChange(updated: Dossier) {
+    if (updated.slug !== slug) {
+      navigate(`/dashboard/dossiers/view/${encodeURIComponent(updated.slug)}?tab=${TAB_VALUES.request}`, {
+        replace: true,
+      })
+      return
+    }
+    dossierQuery.refetch()
+  }
 
   useEffect(() => {
     headingRef.current?.focus()
@@ -143,7 +167,9 @@ function DossierView({
   const displayName = dossierQuery.data?.name ?? fallbackName
   const requestedTab = searchParams.get('tab')
   const activeTab: TabValue =
-    requestedTab === TAB_VALUES.analytics || requestedTab === TAB_VALUES.documents
+    requestedTab === TAB_VALUES.analytics ||
+    requestedTab === TAB_VALUES.documents ||
+    requestedTab === TAB_VALUES.request
       ? requestedTab
       : TAB_VALUES.content
 
@@ -151,7 +177,11 @@ function DossierView({
     if (typeof value !== 'string') return
     setSearchParams(
       (prev) => {
-        if (value === TAB_VALUES.analytics || value === TAB_VALUES.documents) {
+        if (
+          value === TAB_VALUES.analytics ||
+          value === TAB_VALUES.documents ||
+          value === TAB_VALUES.request
+        ) {
           prev.set('tab', value)
         } else {
           prev.delete('tab')
@@ -244,6 +274,19 @@ function DossierView({
               Dossiers
             </Link>
           </li>
+          {dossierQuery.data?.company && (
+            <li className="flex items-center gap-1.5">
+              <span aria-hidden="true" className="text-muted-foreground/60">
+                /
+              </span>
+              <Link
+                to={`/dashboard/entreprises/${encodeURIComponent(dossierQuery.data.company.id)}`}
+                className="rounded-sm hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              >
+                {dossierQuery.data.company.name}
+              </Link>
+            </li>
+          )}
           <li className="flex items-center gap-1.5">
             <span aria-hidden="true" className="text-muted-foreground/60">
               /
@@ -267,7 +310,15 @@ function DossierView({
           {/* The company the dossier finances (E05.04), given to its owner only. */}
           {dossierQuery.data?.company && (
             <p className="mt-1 text-sm text-muted-foreground">
-              Entreprise : {dossierQuery.data.company.name}
+              Demande de financement de{' '}
+              <Link
+                to={`/dashboard/entreprises/${encodeURIComponent(dossierQuery.data.company.id)}`}
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                {dossierQuery.data.company.name}
+              </Link>
+              {' · '}
+              {dossierQuery.data.publicationStatus === 'published' ? 'Publiée' : 'Brouillon'}
             </p>
           )}
         </div>
@@ -326,7 +377,9 @@ function DossierView({
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
-        <TabsList>
+        {/* Four tabs do not fit on a phone: they wrap instead of widening the page. */}
+        <TabsList className="h-auto max-w-full flex-wrap">
+          <TabsTrigger value={TAB_VALUES.request}>Demande</TabsTrigger>
           <TabsTrigger value={TAB_VALUES.content}>Contenu</TabsTrigger>
           <TabsTrigger value={TAB_VALUES.documents}>Documents</TabsTrigger>
           {isOwner && (
@@ -335,6 +388,24 @@ function DossierView({
             </TabsTrigger>
           )}
         </TabsList>
+
+        <TabsContent value={TAB_VALUES.request}>
+          {!dossierQuery.data ? (
+            <p className="text-sm text-muted-foreground">Chargement de la demande…</p>
+          ) : isOwner ? (
+            <RequestEditor
+              key={`${dossierQuery.data.id}-${dossierQuery.data.updatedAt}`}
+              dossier={dossierQuery.data}
+              onChange={handleRequestChange}
+            />
+          ) : hasPresentation(dossierQuery.data) ? (
+            <RequestPresentation dossier={dossierQuery.data} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              La présentation de cette demande n’est pas encore publiée par l’entrepreneur.
+            </p>
+          )}
+        </TabsContent>
 
         <TabsContent value={TAB_VALUES.content}>
           {!isContentReady ? (
@@ -397,7 +468,12 @@ function DossierView({
         </TabsContent>
 
         <TabsContent value={TAB_VALUES.documents}>
-          <DocumentsPanel dossierId={dossierId} canUpload={isOwner} fieldLabels={attachmentLabels} />
+          <DocumentsPanel
+            dossierId={dossierId}
+            canUpload={isOwner}
+            fieldLabels={attachmentLabels}
+            requestName={displayName}
+          />
         </TabsContent>
 
         <TabsContent value={TAB_VALUES.analytics}>
@@ -459,9 +535,11 @@ function DossierView({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer ce dossier ?</AlertDialogTitle>
+            <AlertDialogTitle>Supprimer cette demande ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cette action est irréversible. Le dossier, ses réponses et ses partages seront définitivement supprimés.
+              {isLastRequest
+                ? 'Cette action est irréversible. C’est la dernière demande de l’entreprise : la demande, ses partages, le profil de l’entreprise (réponses) et sa bibliothèque de documents seront définitivement supprimés.'
+                : 'Cette action est irréversible. La demande et ses partages seront supprimés ; le profil et la bibliothèque de l’entreprise restent disponibles pour ses autres demandes.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

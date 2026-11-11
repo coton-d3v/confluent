@@ -5,6 +5,7 @@ import type {
   AuditLog,
   CompanySummary,
   Dossier,
+  DossierDocumentSelected,
   ShareLink,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
@@ -26,12 +27,16 @@ export interface AdminDossierDetail extends Dossier {
   shareLinks: ShareLink[]
   documents: Array<{
     id: string
+    // The library document this version belongs to (E05.06).
+    libraryDocumentId: string
     filename: string
     version: number
     mimetype: string
     size: number
     createdAt: string
   }>
+  // E05.07: the documents of the library this request presents to its shares.
+  documentSelection: DossierDocumentSelected[]
 }
 
 export function getAdminDossier(id: string): Promise<AdminDossierDetail> {

@@ -18,6 +18,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import type { ApiError } from '@/lib/api-client'
+import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { hasPresentation } from '@/features/dossiers/presentation'
+import type { AdminDossierDetail } from '@/features/admin/dossiers.api'
 
 const SEARCH_PAGE_SIZE = 100
 
@@ -149,9 +152,11 @@ function AdminDossierDetailView({
       </h1>
       {detailQuery.data && (
         <p className="mt-1 text-sm text-muted-foreground">
-          Entreprise : {detailQuery.data.company.name} · {detailQuery.data.ownerEmail}
+          Entreprise : {detailQuery.data.company.name} · {detailQuery.data.ownerEmail} ·{' '}
+          {detailQuery.data.publicationStatus === 'published' ? 'Demande publiée' : 'Demande en brouillon'}
         </p>
       )}
+      {detailQuery.data && <AdminRequest detail={detailQuery.data} />}
 
       <div
         role="note"
@@ -388,5 +393,44 @@ function ChoiceSelect({
         </option>
       ))}
     </NativeSelect>
+  )
+}
+
+// E05.07: the request's presentation and the documents it presents to its shares, read-only.
+function AdminRequest({ detail }: { detail: AdminDossierDetail }) {
+  const selected = detail.documentSelection.map((s) => {
+    const versions = detail.documents.filter((d) => d.libraryDocumentId === s.documentId)
+    const pinned = versions.find((v) => v.id === s.pinnedVersionId)
+    return {
+      id: s.documentId,
+      filename: versions[0]?.filename ?? 'Document',
+      how: pinned ? `version ${pinned.version} figée` : 'dernière version',
+    }
+  })
+  return (
+    <section aria-labelledby="admin-request-heading" className="mt-6 flex flex-col gap-3">
+      <h2 id="admin-request-heading" className="font-heading text-xl font-semibold text-foreground">
+        Demande de financement
+      </h2>
+      {hasPresentation(detail) ? (
+        <RequestPresentation dossier={detail} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Présentation non renseignée.</p>
+      )}
+      <div className="text-sm">
+        <p className="font-medium text-foreground">Documents présentés aux partages</p>
+        {selected.length === 0 ? (
+          <p className="text-muted-foreground">Aucun.</p>
+        ) : (
+          <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+            {selected.map((d) => (
+              <li key={d.id} className="break-words">
+                {d.filename} — {d.how}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   )
 }

@@ -48,3 +48,14 @@ export function typeChangeErrorMessage(err: unknown): string {
   }
   return e.message ?? 'Le type n’a pas été enregistré.'
 }
+
+export function selectionErrorMessage(err: unknown): string {
+  const e = err as Partial<ApiError> | undefined
+  if (e?.status === undefined) {
+    return 'Le choix n’a pas pu être enregistré : vérifiez votre connexion puis réessayez.'
+  }
+  if (e.status === 403 || e.status === 404) {
+    return 'Ce document ou cette version n’existe plus, ou vous ne pouvez pas modifier cette demande.'
+  }
+  return e.message ?? 'Le choix n’a pas été enregistré.'
+}

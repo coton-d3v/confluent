@@ -15,6 +15,8 @@ import { Badge } from '@/components/ui/badge'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import { AccessDeniedPage } from '@/routes/share/AccessDeniedPage'
+import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { hasPresentation } from '@/features/dossiers/presentation'
 
 // The API already filters fields, answers and documents by the share's access level; this page only
 // explains to the financeur what the level leaves out.
@@ -55,6 +57,18 @@ export function SharedDossierPage({ data }: { data: FinanceurShareResponse }) {
             {ACCESS_LEVEL_NOTICE[data.share.accessLevel]}
           </p>
         </header>
+        {/* E05.07: the request's presentation, sent once its owner has published it. */}
+        {hasPresentation(data.dossier) && (
+          <section aria-labelledby="request-heading" className="flex flex-col gap-3">
+            <h2
+              id="request-heading"
+              className="font-heading text-xl font-semibold text-foreground md:text-2xl"
+            >
+              La demande de financement
+            </h2>
+            <RequestPresentation dossier={data.dossier} />
+          </section>
+        )}
         <SharedAnswers data={data} />
         <SharedDocuments data={data} />
       </main>

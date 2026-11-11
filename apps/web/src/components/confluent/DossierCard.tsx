@@ -12,6 +12,9 @@ export interface DossierCardProps {
   isShared?: boolean
   ownerEmail?: string
   ownerName?: string
+  // E05.07: for the owner, the company the request belongs to and its publication.
+  companyName?: string
+  publicationStatus?: 'draft' | 'published'
   createdAt: string
   className?: string
 }
@@ -30,6 +33,8 @@ export function DossierCard({
   isShared,
   ownerEmail,
   ownerName,
+  companyName,
+  publicationStatus,
   createdAt,
   className,
 }: DossierCardProps) {
@@ -38,8 +43,16 @@ export function DossierCard({
     activeShareLinksCount === undefined ? null : formatAccessLabel(activeShareLinksCount)
   const sectorLabel = sector ?? 'Secteur non classifié'
   const maturityLabel = maturity ?? 'À soumettre'
+  const publicationLabel =
+    publicationStatus === undefined
+      ? null
+      : publicationStatus === 'published'
+        ? 'Publiée'
+        : 'Brouillon'
   const ariaLabel = [
     name,
+    companyName && `entreprise ${companyName}`,
+    publicationLabel && `demande ${publicationLabel.toLowerCase()}`,
     `secteur ${sectorLabel}`,
     `stade ${maturityLabel}`,
     accessLabel,
@@ -68,11 +81,19 @@ export function DossierCard({
               Partagé avec moi
             </Badge>
           )}
+          {publicationLabel && (
+            <Badge variant={publicationStatus === 'published' ? 'default' : 'outline'} className="shrink-0">
+              {publicationLabel}
+            </Badge>
+          )}
           <Badge variant="secondary" className="shrink-0">
             {maturityLabel}
           </Badge>
         </div>
       </div>
+      {companyName && companyName !== name && (
+        <p className="text-xs text-muted-foreground">{companyName}</p>
+      )}
       <p className="text-xs text-muted-foreground">{sectorLabel}</p>
       {isShared && ownerEmail && (
         <p className="text-xs text-muted-foreground">Partagé par {ownerName ?? ownerEmail}</p>

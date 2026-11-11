@@ -1,4 +1,4 @@
-import type { ActiveQuestionnaire, Dossier } from '@confluent/shared'
+import type { ActiveQuestionnaire, Dossier, UpdateDossierInput } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
 export interface DossierWithQuestionnaire extends Dossier {
@@ -22,7 +22,8 @@ export function createDossier(input: { name: string }): Promise<Dossier> {
   })
 }
 
-export function updateDossier(id: string, input: { name: string }): Promise<Dossier> {
+// Title and presentation of a request (E05.07); an omitted part is left as it is, null clears it.
+export function updateDossier(id: string, input: UpdateDossierInput): Promise<Dossier> {
   return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -35,6 +36,18 @@ export function deleteDossier(id: string): Promise<void> {
 
 export function submitDossier(id: string): Promise<Dossier> {
   return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}/submit`, {
+    method: 'POST',
+  })
+}
+
+// E05.07: the owner publishes the request (presentation complete, profile submitted), or takes it
+// back to a draft. Neither opens nor closes a share.
+export function publishDossier(id: string): Promise<Dossier> {
+  return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}/publish`, { method: 'POST' })
+}
+
+export function unpublishDossier(id: string): Promise<Dossier> {
+  return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}/unpublish`, {
     method: 'POST',
   })
 }
