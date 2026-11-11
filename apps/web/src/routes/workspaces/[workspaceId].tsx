@@ -3,11 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import {
   INVESTOR_TYPE_LABELS,
   WORKSPACE_MEMBER_ROLE_LABELS,
+  canPrepareCompanies,
   type CurrentWorkspace,
 } from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/current-user/context'
+import { PreparedCompaniesSection } from '@/features/company-transfers/components/PreparedCompaniesSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
 import { useWorkspaceMemberships } from '@/features/workspaces/memberships-context'
@@ -130,6 +132,9 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
             </p>
           )}
         </section>
+
+        {/* E05.08: its conseillers prepare companies for entrepreneurs. */}
+        {canPrepareCompanies(membership) && <PreparedCompaniesSection workspaceId={workspace.id} />}
 
         {workspace.presentation && (
           <section aria-labelledby="ws-presentation-title">

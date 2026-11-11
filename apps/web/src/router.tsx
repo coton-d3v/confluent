@@ -8,6 +8,7 @@ import QuestionnaireRoute from '@/routes/dashboard/dossiers/nouveau/questionnair
 import RecapitulatifRoute from '@/routes/dashboard/dossiers/nouveau/recapitulatif'
 import DossierViewRoute from '@/routes/dashboard/dossiers/[slug]'
 import CompanyRoute from '@/routes/dashboard/entreprises/[companyId]'
+import CompanyOffersRoute from '@/routes/dashboard/propositions'
 import AdminRoute from '@/routes/admin'
 import AdminDossiersRoute from '@/routes/admin/dossiers'
 import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
@@ -63,6 +64,11 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard/entreprises/:companyId',
         element: <CompanyRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'dashboard/propositions',
+        element: <CompanyOffersRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'admin', element: <AdminRoute /> },

@@ -144,6 +144,8 @@ function DossierView({
     [companyId],
   )
   const isLastRequest = (companyQuery.data?.dossiers.length ?? 1) <= 1
+  // E05.08: a company the signed-in conseiller prepares for an entrepreneur: no share, no publication.
+  const inPreparation = dossierQuery.data?.company?.inPreparation === true
 
   function handleRequestChange(updated: Dossier) {
     if (updated.slug !== slug) {
@@ -355,26 +357,47 @@ function DossierView({
             >
               Modifier les réponses
             </Button>
-            <Sheet open={shareOpen} onOpenChange={setShareOpen}>
-              <SheetTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="h-11 self-start px-4 sm:self-auto"
-                  >
-                    Partager
-                  </Button>
-                }
-              />
-              <SharePanel
-                existingEntries={accessEntries}
-                onSubmitInvitation={handleInvitationSubmit}
-              />
-            </Sheet>
+            {!inPreparation && (
+              <Sheet open={shareOpen} onOpenChange={setShareOpen}>
+                <SheetTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="h-11 self-start px-4 sm:self-auto"
+                    >
+                      Partager
+                    </Button>
+                  }
+                />
+                <SharePanel
+                  existingEntries={accessEntries}
+                  onSubmitInvitation={handleInvitationSubmit}
+                />
+              </Sheet>
+            )}
           </div>
         ) : null}
       </div>
+
+      {inPreparation && (
+        <p
+          role="note"
+          className="mt-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+        >
+          Vous préparez cette entreprise pour un entrepreneur : complétez son profil, ses documents
+          et ses demandes. Elle ne peut être ni partagée ni publiée tant qu’il n’a pas accepté
+          votre proposition ; ensuite, elle sera la sienne et vous n’y aurez plus accès.{' '}
+          {dossierQuery.data?.company && (
+            <Link
+              to={`/dashboard/entreprises/${encodeURIComponent(dossierQuery.data.company.id)}`}
+              className="underline underline-offset-4"
+            >
+              Voir la proposition
+            </Link>
+          )}
+        </p>
+      )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
         {/* Four tabs do not fit on a phone: they wrap instead of widening the page. */}
@@ -397,6 +420,7 @@ function DossierView({
               key={`${dossierQuery.data.id}-${dossierQuery.data.updatedAt}`}
               dossier={dossierQuery.data}
               onChange={handleRequestChange}
+              inPreparation={inPreparation}
             />
           ) : hasPresentation(dossierQuery.data) ? (
             <RequestPresentation dossier={dossierQuery.data} />

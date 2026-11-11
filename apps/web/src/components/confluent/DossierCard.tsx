@@ -15,6 +15,8 @@ export interface DossierCardProps {
   // E05.07: for the owner, the company the request belongs to and its publication.
   companyName?: string
   publicationStatus?: 'draft' | 'published'
+  // E05.08: a company the signed-in conseiller prepares for an entrepreneur.
+  inPreparation?: boolean
   createdAt: string
   className?: string
 }
@@ -35,6 +37,7 @@ export function DossierCard({
   ownerName,
   companyName,
   publicationStatus,
+  inPreparation,
   createdAt,
   className,
 }: DossierCardProps) {
@@ -52,6 +55,7 @@ export function DossierCard({
   const ariaLabel = [
     name,
     companyName && `entreprise ${companyName}`,
+    inPreparation && 'préparée pour un entrepreneur',
     publicationLabel && `demande ${publicationLabel.toLowerCase()}`,
     `secteur ${sectorLabel}`,
     `stade ${maturityLabel}`,
@@ -79,6 +83,11 @@ export function DossierCard({
           {isShared && (
             <Badge variant="outline" className="shrink-0">
               Partagé avec moi
+            </Badge>
+          )}
+          {inPreparation && (
+            <Badge variant="outline" className="shrink-0">
+              En préparation
             </Badge>
           )}
           {publicationLabel && (
