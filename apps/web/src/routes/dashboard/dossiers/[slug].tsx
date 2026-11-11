@@ -256,13 +256,21 @@ function DossierView({
       </nav>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1
-          ref={headingRef}
-          tabIndex={-1}
-          className="font-heading text-2xl font-semibold text-foreground md:text-[28px] focus-visible:outline-none"
-        >
-          {displayName}
-        </h1>
+        <div className="min-w-0">
+          <h1
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-heading text-2xl font-semibold text-foreground md:text-[28px] focus-visible:outline-none"
+          >
+            {displayName}
+          </h1>
+          {/* The company the dossier finances (E05.04), given to its owner only. */}
+          {dossierQuery.data?.company && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Entreprise : {dossierQuery.data.company.name}
+            </p>
+          )}
+        </div>
         {isOwner && isDraft ? (
           <div className="flex gap-2 self-start sm:self-auto">
             <Button

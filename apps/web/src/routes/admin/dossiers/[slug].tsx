@@ -147,6 +147,11 @@ function AdminDossierDetailView({
       >
         {dossierName}
       </h1>
+      {detailQuery.data && (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Entreprise : {detailQuery.data.company.name} · {detailQuery.data.ownerEmail}
+        </p>
+      )}
 
       <div
         role="note"

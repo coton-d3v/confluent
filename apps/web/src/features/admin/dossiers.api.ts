@@ -3,6 +3,7 @@ import type {
   AdminDossierList,
   AnswerInput,
   AuditLog,
+  CompanySummary,
   Dossier,
   ShareLink,
 } from '@confluent/shared'
@@ -18,6 +19,8 @@ export function listAdminDossiers(page = 1, pageSize = 20): Promise<AdminDossier
 
 export interface AdminDossierDetail extends Dossier {
   ownerEmail: string
+  // The company the dossier finances (E05.04).
+  company: CompanySummary
   questionnaireVersion: ActiveQuestionnaire | null
   answers: Array<{ id: string; dossierId: string; fieldId: string; value: string }>
   shareLinks: ShareLink[]

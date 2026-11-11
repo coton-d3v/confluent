@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { canOwnCompanies } from '@confluent/shared'
 import { Button } from '@/components/ui/button'
 import { DossierCard } from '@/components/confluent/DossierCard'
 import { EmptyState } from '@/components/confluent/EmptyState'
@@ -22,6 +23,8 @@ export default function DashboardRoute() {
   }
 
   const list = dossiers ?? []
+  // Creating a dossier creates its company: offered to whoever may own one (E05.04).
+  const canCreate = canOwnCompanies(currentUser)
 
   return (
     <>
@@ -34,14 +37,16 @@ export default function DashboardRoute() {
         >
           Mes dossiers
         </h1>
-        <Button
-          type="button"
-          size="lg"
-          className="h-11 self-start px-4 sm:self-auto"
-          onClick={goToNew}
-        >
-          Créer un dossier
-        </Button>
+        {canCreate && (
+          <Button
+            type="button"
+            size="lg"
+            className="h-11 self-start px-4 sm:self-auto"
+            onClick={goToNew}
+          >
+            Créer un dossier
+          </Button>
+        )}
       </div>
       {isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
@@ -71,12 +76,18 @@ export default function DashboardRoute() {
             </li>
           ))}
         </ul>
-      ) : (
+      ) : canCreate ? (
         <EmptyState
           illustration={<EmptyDossiersIllustration />}
           title="Aucun dossier pour l'instant"
           description="Créez votre premier dossier pour commencer à partager votre projet avec des investisseurs."
           cta={{ label: 'Créer un dossier', onClick: goToNew }}
+        />
+      ) : (
+        <EmptyState
+          illustration={<EmptyDossiersIllustration />}
+          title="Aucun dossier partagé pour l'instant"
+          description="Les dossiers que des entrepreneurs partagent avec vous apparaîtront ici."
         />
       )}
     </>
