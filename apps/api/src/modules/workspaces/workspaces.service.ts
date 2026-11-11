@@ -17,7 +17,12 @@ import {
   StoredObjectMissingError,
   type StorageAdapter,
 } from '../documents/storage/storage.adapter'
-import { assertCanManageWorkspaces, type WorkspaceActor } from './workspace-access'
+import {
+  WorkspaceAccessService,
+  assertCanAdministerAllWorkspaces,
+  canAdministerAllWorkspaces,
+  type WorkspaceActor,
+} from './workspace-access'
 import { WorkspaceErrors } from './workspace-errors'
 import { detectLogoType } from './workspace-logo'
 
@@ -54,9 +59,10 @@ const SETTING_KEYS = [
   'emailDomain',
 ] as const
 
-// Workspaces and their settings (ROADMAP E05.01). Every read and write checks who acts with the
-// single workspace management rule, whatever the caller. Nothing is attached to a workspace yet:
-// memberships (E05.02) and isolation (E05.03) build on this table.
+// Workspaces and their settings (ROADMAP E05.01). Every read and write checks who acts first,
+// whatever the caller: creating and listing all workspaces is for administrators, setting up one
+// follows the single management rule (administrators and the workspace's managers, E05.02).
+// Isolation of the workspace's content (E05.03) builds on the same rule and memberships.
 @Injectable()
 export class WorkspacesService {
   private readonly logger = new Logger(WorkspacesService.name)
@@ -65,16 +71,17 @@ export class WorkspacesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(STORAGE_TOKEN) private readonly storage: StorageAdapter,
+    private readonly access: WorkspaceAccessService,
   ) {}
 
   async list(actor: WorkspaceActor): Promise<WorkspaceView[]> {
-    assertCanManageWorkspaces(actor)
+    assertCanAdministerAllWorkspaces(actor)
     const rows = await this.prisma.workspace.findMany({ orderBy: { name: 'asc' } })
     return Promise.all(rows.map((row) => this.toView(row)))
   }
 
   async get(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceView> {
-    assertCanManageWorkspaces(actor)
+    await this.access.assertCanManage(actor, workspaceId)
     return this.toView(await this.find(workspaceId))
   }
 
@@ -84,7 +91,7 @@ export class WorkspacesService {
     actor: WorkspaceActor,
     input: WorkspaceSettings & { slug?: string },
   ): Promise<WorkspaceView> {
-    assertCanManageWorkspaces(actor)
+    assertCanAdministerAllWorkspaces(actor)
     const slug = input.slug ?? derivedSlug(input.name)
     if (!workspaceSlugSchema.safeParse(slug).success) throw WorkspaceErrors.slugRequired()
     if (await this.prisma.workspace.findUnique({ where: { slug } })) {
@@ -116,19 +123,23 @@ export class WorkspacesService {
     return this.toView(created)
   }
 
-  // Only the settings present in `input` change; the slug never does.
+  // Only the settings present in `input` change; the slug never does. A manager cannot change the
+  // email domain: it bounds whom the managers themselves may invite.
   async update(
     actor: WorkspaceActor,
     workspaceId: string,
     input: Partial<WorkspaceSettings>,
   ): Promise<WorkspaceView> {
-    assertCanManageWorkspaces(actor)
+    await this.access.assertCanManage(actor, workspaceId)
     const { updated, changes } = await this.prisma.$transaction(async (tx) => {
-      const current = await lockWorkspace(tx, workspaceId)
+      const current = await this.lockForManager(tx, actor, workspaceId)
       const data: Partial<WorkspaceSettings> = {}
       for (const key of SETTING_KEYS) {
         const value = input[key]
         if (value !== undefined && value !== current[key]) Object.assign(data, { [key]: value })
+      }
+      if (data.emailDomain !== undefined && !canAdministerAllWorkspaces(actor)) {
+        throw WorkspaceErrors.emailDomainReserved()
       }
       const changed = Object.keys(data)
       if (changed.length === 0) return { updated: current, changes: changed }
@@ -154,7 +165,7 @@ export class WorkspacesService {
     workspaceId: string,
     buffer: Buffer | undefined,
   ): Promise<WorkspaceView> {
-    assertCanManageWorkspaces(actor)
+    await this.access.assertCanManage(actor, workspaceId)
     await this.find(workspaceId)
     if (!buffer || buffer.byteLength === 0) throw WorkspaceErrors.logoRequired()
     // Normally enforced earlier by the size guard and the multipart limit.
@@ -166,7 +177,7 @@ export class WorkspacesService {
     let replaced: { updated: Workspace; previousKey: string | null }
     try {
       replaced = await this.prisma.$transaction(async (tx) => {
-        const current = await lockWorkspace(tx, workspaceId)
+        const current = await this.lockForManager(tx, actor, workspaceId)
         const updated = await tx.workspace.update({
           where: { id: workspaceId },
           data: { logoKey: key },
@@ -187,9 +198,9 @@ export class WorkspacesService {
   }
 
   async removeLogo(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceView> {
-    assertCanManageWorkspaces(actor)
+    await this.access.assertCanManage(actor, workspaceId)
     const { updated, previousKey } = await this.prisma.$transaction(async (tx) => {
-      const current = await lockWorkspace(tx, workspaceId)
+      const current = await this.lockForManager(tx, actor, workspaceId)
       if (!current.logoKey) return { updated: current, previousKey: null }
       return {
         updated: await tx.workspace.update({ where: { id: workspaceId }, data: { logoKey: null } }),
@@ -205,6 +216,19 @@ export class WorkspacesService {
       })
     }
     return this.toView(updated)
+  }
+
+  // The right is checked first (nothing is told to whoever may not manage), then read again once the
+  // row is locked: a manager deactivated or deprived of the right while the request waited for the
+  // lock writes nothing (code review R53), as for the members.
+  private async lockForManager(
+    tx: Prisma.TransactionClient,
+    actor: WorkspaceActor,
+    workspaceId: string,
+  ): Promise<Workspace> {
+    const current = await lockWorkspace(tx, workspaceId)
+    await this.access.assertCanManage(actor, workspaceId, tx)
+    return current
   }
 
   private async find(workspaceId: string): Promise<Workspace> {
@@ -275,13 +299,21 @@ function derivedSlug(name: string): string {
   return slugify(name, '').slice(0, WORKSPACE_LIMITS.slugMax).replace(/-+$/, '')
 }
 
-// Every write to a workspace starts with this lock, inside its transaction, and reads the state only
-// afterwards: two logo replacements cannot both keep (or both delete) the same previous image.
+// Every write to a workspace — its settings, logo or members — starts with this lock, inside its
+// transaction, and reads the state only afterwards: two logo replacements cannot both keep (or both
+// delete) the same previous image, two managers cannot both give up the last management right.
+export async function lockWorkspaceRow(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM "workspaces" WHERE "id" = ${workspaceId} FOR UPDATE`
+}
+
 async function lockWorkspace(
   tx: Prisma.TransactionClient,
   workspaceId: string,
 ): Promise<Workspace> {
-  await tx.$queryRaw`SELECT 1 FROM "workspaces" WHERE "id" = ${workspaceId} FOR UPDATE`
+  await lockWorkspaceRow(tx, workspaceId)
   const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } })
   if (!workspace) throw WorkspaceErrors.notFound()
   return workspace

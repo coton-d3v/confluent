@@ -54,12 +54,17 @@ const LOGO_UPLOAD_OPTIONS = { limits: { fileSize: WORKSPACE_LOGO_MAX_BYTES, file
 
 const uuid = new ParseUUIDPipe()
 
-// Workspaces and their settings (ROADMAP E05.01). Who may manage them is decided by the service's
-// single rule (administrators of Confluent until E05.02), not by a guard of its own here.
+// Workspaces and their settings (ROADMAP E05.01). Who may act is decided by the service: creating
+// and listing all workspaces is for Confluent administrators; one workspace's settings and logo
+// follow the single management rule (administrators and the workspace's managers, E05.02).
 @ApiTags('Admin · Workspaces')
 @ApiBearerAuth('jwt')
 @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
-@ApiForbiddenResponse({ description: 'Compte non autorisé à gérer les workspaces.' })
+@ApiForbiddenResponse({
+  description:
+    'Création et liste : administrateurs seulement. Un workspace : administrateurs et gestionnaires ' +
+    'actifs de ce workspace ; le domaine email reste réservé aux administrateurs.',
+})
 @Controller('admin/workspaces')
 export class AdminWorkspacesController {
   constructor(private readonly workspaces: WorkspacesService) {}
@@ -68,7 +73,8 @@ export class AdminWorkspacesController {
   @ApiOperation({
     summary: 'Lister les workspaces',
     description:
-      'Tous les workspaces, triés par nom, avec leurs réglages. `logo.url` : URL signée (15 min) de ' +
+      'Tous les workspaces, triés par nom, avec leurs réglages (administrateurs de Confluent ; un ' +
+      'gestionnaire retrouve les siens par `GET /v1/workspaces/memberships`). `logo.url` : URL signée (15 min) de ' +
       'l’image dans le bucket privé, `null` si l’image est perdue (`missing`) ou le stockage injoignable ' +
       '(`unavailable`).',
   })
@@ -84,8 +90,8 @@ export class AdminWorkspacesController {
       'Crée un workspace (une structure). `slug` : identifiant public et définitif (minuscules, chiffres, ' +
       'tirets), déduit du nom s’il est omis ; jamais suffixé automatiquement. Réglages facultatifs : ' +
       '`programName`, `color` (`#RRGGBB`), `presentation` (texte simple, sans HTML), `contactEmail`, ' +
-      '`emailDomain` (domaine des adresses que le workspace pourra inviter, appliqué à partir des ' +
-      'invitations E05.02). Une chaîne vide vaut `null`.',
+      '`emailDomain` (domaine imposé aux adresses des conseillers invités). Une chaîne vide vaut ' +
+      '`null`. Réservé aux administrateurs de Confluent.',
   })
   @ApiCreatedResponse({ description: 'Workspace créé.' })
   @ApiBadRequestResponse({ description: 'Réglage invalide, ou aucun slug ne se déduit du nom.' })
@@ -112,7 +118,8 @@ export class AdminWorkspacesController {
     summary: 'Modifier les réglages d’un workspace',
     description:
       'Seuls les réglages présents changent ; `null` ou une chaîne vide efface un réglage facultatif. ' +
-      'Le `slug` ne se modifie pas (`400` s’il est envoyé).',
+      'Le `slug` ne se modifie pas (`400` s’il est envoyé). Le domaine email ne change que par un ' +
+      'administrateur de Confluent (`403` pour un gestionnaire : il borne ses propres invitations).',
   })
   @ApiBadRequestResponse({ description: 'Réglage invalide.' })
   @ApiNotFoundResponse({ description: 'Workspace inexistant.' })

@@ -17,6 +17,7 @@ import { DossiersModule } from '../dossiers/dossiers.module'
 import { AuthModule } from '../auth/auth.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
 import { AdminWorkspacesController } from './admin-workspaces.controller'
+import { AdminWorkspaceMembersController } from './admin-workspace-members.controller'
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AdminWorkspacesController } from './admin-workspaces.controller'
     AdminAnalyticsController,
     AdminSharesController,
     AdminWorkspacesController,
+    AdminWorkspaceMembersController,
   ],
   providers: [AdminDossiersService, AdminUsersService, AdminAnalyticsService, AdminSharesService],
   exports: [AdminDossiersService, AdminUsersService, AdminAnalyticsService, AdminSharesService],

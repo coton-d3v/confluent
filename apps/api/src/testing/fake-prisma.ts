@@ -46,7 +46,7 @@ function flattenWhere(where: Where = {}): Where {
 
 // Tables whose `updatedAt` matters to a test (an answer's date is its provenance's, E04.04), set on
 // every write like Prisma's `@updatedAt`.
-const UPDATED_AT = new Set(['dossierAnswer', 'workspace'])
+const UPDATED_AT = new Set(['dossierAnswer', 'workspace', 'workspaceMembership'])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
 // Like Prisma, an `undefined` value in `data` leaves the column unchanged.
@@ -99,24 +99,41 @@ export function createFakePrisma() {
     count: jest.fn(({ where }: { where?: Where } = {}) =>
       Promise.resolve([...table(name).values()].filter((r) => matches(r, where)).length),
     ),
-    create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
-      const row = {
-        id: randomUUID(),
-        createdAt: new Date(),
-        ...stamp(name),
-        ...defaults(),
-        ...data,
-      } as Row
-      table(name).set(row.id, row)
-      return Promise.resolve({ ...row })
-    }),
-    createMany: jest.fn(({ data }: { data: Array<Record<string, unknown>> }) => {
-      for (const d of data) {
-        const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...d } as Row
+    create: jest.fn(
+      ({ data, include }: { data: Record<string, unknown>; include?: Record<string, unknown> }) => {
+        const row = {
+          id: randomUUID(),
+          createdAt: new Date(),
+          ...stamp(name),
+          ...defaults(),
+          ...data,
+        } as Row
         table(name).set(row.id, row)
-      }
-      return Promise.resolve({ count: data.length })
-    }),
+        return Promise.resolve(withInclude(name, row, include)!)
+      },
+    ),
+    // `skipDuplicates`: rows colliding on a unique column are skipped, as ON CONFLICT DO NOTHING.
+    createMany: jest.fn(
+      ({
+        data,
+        skipDuplicates,
+      }: {
+        data: Array<Record<string, unknown>>
+        skipDuplicates?: boolean
+      }) => {
+        let count = 0
+        for (const d of data) {
+          const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...d } as Row
+          const clash = (UNIQUE_KEYS[name] ?? ['id']).some(
+            (k) => row[k] !== undefined && [...table(name).values()].some((r) => r[k] === row[k]),
+          )
+          if (skipDuplicates && clash) continue
+          table(name).set(row.id, row)
+          count++
+        }
+        return Promise.resolve({ count })
+      },
+    ),
     deleteMany: jest.fn(({ where }: { where?: Where } = {}) => {
       let count = 0
       for (const [id, row] of table(name)) {
@@ -127,11 +144,22 @@ export function createFakePrisma() {
       }
       return Promise.resolve({ count })
     }),
-    update: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
-      const row = [...table(name).values()].find((r) => matches(r, where))
-      if (!row) return Promise.reject(new Error(`${name} not found`))
-      return Promise.resolve({ ...Object.assign(row, defined(data), stamp(name)) })
-    }),
+    update: jest.fn(
+      ({
+        where,
+        data,
+        include,
+      }: {
+        where: Where
+        data: Record<string, unknown>
+        include?: Record<string, unknown>
+      }) => {
+        const row = [...table(name).values()].find((r) => matches(r, where))
+        if (!row) return Promise.reject(new Error(`${name} not found`))
+        Object.assign(row, defined(data), stamp(name))
+        return Promise.resolve(withInclude(name, row, include)!)
+      },
+    ),
     updateMany: jest.fn(({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       let count = 0
       for (const row of table(name).values()) {
@@ -234,6 +262,16 @@ export function createFakePrisma() {
       : {}),
   })
 
+  // Membership with its people and workspace (E05.02).
+  includes.workspaceMembership = (row, include) => ({
+    ...row,
+    ...(include.user ? { user: get('user', row.userId) } : {}),
+    ...(include.invitedBy
+      ? { invitedBy: row.invitedById ? (get('user', row.invitedById) ?? null) : null }
+      : {}),
+    ...(include.workspace ? { workspace: get('workspace', row.workspaceId) } : {}),
+  })
+
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),
@@ -280,6 +318,13 @@ export function createFakePrisma() {
     })),
     document: model('document', () => ({ fieldId: null })),
     workspace: model('workspace', () => ({ logoKey: null })),
+    workspaceMembership: model('workspaceMembership', () => ({
+      organization: null,
+      investorType: null,
+      canManageWorkspace: false,
+      invitedById: null,
+      deactivatedAt: null,
+    })),
   }
   self.prisma = prisma
   return { prisma, tables, table }

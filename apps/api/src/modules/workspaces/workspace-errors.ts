@@ -15,10 +15,50 @@ export const WorkspaceErrors = {
   forbidden: () =>
     new ForbiddenException({
       code: 'WORKSPACE_MANAGEMENT_FORBIDDEN',
-      message: 'La gestion des workspaces est réservée aux administrateurs de Confluent.',
+      message:
+        'La gestion de ce workspace est réservée aux administrateurs de Confluent et à ses gestionnaires.',
+    }),
+  administratorsOnly: () =>
+    new ForbiddenException({
+      code: 'WORKSPACE_ADMINISTRATION_FORBIDDEN',
+      message:
+        'La création et la liste de tous les workspaces sont réservées aux administrateurs de Confluent.',
+    }),
+  emailDomainReserved: () =>
+    new ForbiddenException({
+      code: 'WORKSPACE_EMAIL_DOMAIN_RESERVED',
+      message:
+        'Seul un administrateur de Confluent peut modifier le domaine email autorisé : il borne les invitations des gestionnaires.',
     }),
   notFound: () =>
     new NotFoundException({ code: 'WORKSPACE_NOT_FOUND', message: 'Workspace introuvable.' }),
+  memberNotFound: () =>
+    new NotFoundException({ code: 'WORKSPACE_MEMBER_NOT_FOUND', message: 'Membre introuvable.' }),
+  alreadyMember: (deactivated: boolean) =>
+    new ConflictException({
+      code: 'WORKSPACE_MEMBER_EXISTS',
+      message: deactivated
+        ? 'Cette personne est déjà membre de ce workspace, avec une appartenance désactivée : réactivez-la plutôt que de l’inviter.'
+        : 'Cette personne est déjà membre de ce workspace.',
+    }),
+  lastManager: () =>
+    new ConflictException({
+      code: 'WORKSPACE_LAST_MANAGER',
+      message:
+        'Vous êtes le dernier gestionnaire de ce workspace : donnez d’abord le droit de gestion à un autre conseiller.',
+    }),
+  emailDomainMismatch: (domain: string) =>
+    new BadRequestException({
+      code: 'WORKSPACE_EMAIL_DOMAIN_MISMATCH',
+      message: `Les conseillers de ce workspace ont une adresse @${domain} : invitez une adresse de ce domaine.`,
+      details: [{ path: ['email'], message: `Adresse @${domain} attendue pour un conseiller.` }],
+    }),
+  memberRule: (path: string, message: string) =>
+    new BadRequestException({
+      code: 'VALIDATION_ERROR',
+      message,
+      details: [{ path: [path], message }],
+    }),
   slugTaken: (slug: string) =>
     new ConflictException({
       code: 'WORKSPACE_SLUG_TAKEN',

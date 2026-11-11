@@ -5,7 +5,11 @@ import { createFakePrisma } from '../../testing/fake-prisma'
 import type { AuditService } from '../audit/audit.service'
 import { MemoryStorageAdapter } from '../documents/storage/memory-storage.adapter'
 import { StorageQuotaExceededError } from '../documents/storage/storage.adapter'
-import { canManageWorkspaces } from './workspace-access'
+import {
+  WorkspaceAccessService,
+  canAdministerAllWorkspaces,
+  canManageWorkspace,
+} from './workspace-access'
 import { detectLogoType } from './workspace-logo'
 import { WorkspacesService } from './workspaces.service'
 
@@ -24,32 +28,117 @@ describe('WorkspacesService', () => {
     fake = createFakePrisma()
     storage = new MemoryStorageAdapter()
     const audit = { record: jest.fn() } as unknown as AuditService
-    service = new WorkspacesService(fake.prisma as unknown as PrismaService, audit, storage)
+    const prisma = fake.prisma as unknown as PrismaService
+    service = new WorkspacesService(prisma, audit, storage, new WorkspaceAccessService(prisma))
   })
 
+  // A membership of `workspaceId` for `userId`, as E05.02 stores it.
+  const member = (
+    workspaceId: string,
+    userId: string,
+    fields: Partial<{ role: string; canManageWorkspace: boolean; deactivatedAt: Date | null }>,
+  ) =>
+    fake.prisma.workspaceMembership.create({
+      data: {
+        workspaceId,
+        userId,
+        role: 'conseiller',
+        canManageWorkspace: false,
+        deactivatedAt: null,
+        ...fields,
+      },
+    })
+
   describe('management rule', () => {
-    it('is reserved to administrators and closed for any other or unknown role', () => {
-      expect(canManageWorkspaces({ role: 'admin' })).toBe(true)
+    it('keeps creating and listing all workspaces to administrators, closed for any other role', () => {
+      expect(canAdministerAllWorkspaces({ role: 'admin' })).toBe(true)
       for (const role of ['entrepreneur', 'financeur', 'conseiller', 'ADMIN', '']) {
-        expect(canManageWorkspaces({ role })).toBe(false)
+        expect(canAdministerAllWorkspaces({ role })).toBe(false)
       }
+    })
+
+    it('lets one workspace be managed by an administrator or an active conseiller holding the right', () => {
+      const manager = { role: 'conseiller', canManageWorkspace: true, deactivatedAt: null }
+      expect(canManageWorkspace({ role: 'admin' }, null)).toBe(true)
+      expect(canManageWorkspace({ role: 'entrepreneur' }, manager)).toBe(true)
+      expect(canManageWorkspace({ role: 'financeur' }, manager)).toBe(true)
+      // Closed by default: no membership, no right, deactivated, investisseur or unknown role.
+      for (const role of ['entrepreneur', 'financeur', 'ADMIN', '']) {
+        expect(canManageWorkspace({ role }, null)).toBe(false)
+      }
+      const refused = [
+        { ...manager, canManageWorkspace: false },
+        { ...manager, deactivatedAt: new Date() },
+        { ...manager, role: 'investisseur' },
+        { ...manager, role: 'gestionnaire' },
+        { ...manager, role: '' },
+      ]
+      for (const membership of refused) {
+        expect(canManageWorkspace({ role: 'financeur' }, membership)).toBe(false)
+      }
+    })
+
+    it('reads the membership of the workspace concerned at each call', async () => {
+      const cci = await service.create(ADMIN, { name: 'CCI Touraine' })
+      const club = await service.create(ADMIN, { name: 'Club deal' })
+      const manager = { id: 'u-1', role: 'financeur' }
+      const row = await member(cci.id, manager.id, { canManageWorkspace: true })
+      await expect(service.get(manager, cci.id)).resolves.toMatchObject({ id: cci.id })
+      // Another workspace, the list of all and creation stay out of reach.
+      expect(statusOf(await service.get(manager, club.id).catch((e: unknown) => e))).toBe(403)
+      expect(statusOf(await service.list(manager).catch((e: unknown) => e))).toBe(403)
+      expect(
+        statusOf(await service.create(manager, { name: 'Pirate' }).catch((e: unknown) => e)),
+      ).toBe(403)
+      // Deactivated: refused at the next call.
+      fake.table('workspaceMembership').get(row.id)!.deactivatedAt = new Date()
+      expect(statusOf(await service.get(manager, cci.id).catch((e: unknown) => e))).toBe(403)
+    })
+
+    it('keeps the email domain to administrators: it bounds the managers’ own invitations', async () => {
+      const ws = await service.create(ADMIN, { name: 'CCI Touraine', emailDomain: 'cci.fr' })
+      const manager = { id: 'u-1', role: 'entrepreneur' }
+      await member(ws.id, manager.id, { canManageWorkspace: true })
+      const err = await service
+        .update(manager, ws.id, { emailDomain: null })
+        .catch((e: unknown) => e)
+      expect(statusOf(err)).toBe(403)
+      expect(fake.table('workspace').get(ws.id)?.emailDomain).toBe('cci.fr')
+      // The same value sent back with other settings is not a change.
+      await expect(
+        service.update(manager, ws.id, {
+          name: 'CCI Touraine-Val de Loire',
+          emailDomain: 'cci.fr',
+        }),
+      ).resolves.toMatchObject({ name: 'CCI Touraine-Val de Loire', emailDomain: 'cci.fr' })
+      await expect(service.update(ADMIN, ws.id, { emailDomain: null })).resolves.toMatchObject({
+        emailDomain: null,
+      })
     })
 
     it('is checked before anything is read, written or stored, whatever the caller', async () => {
       const ws = await service.create(ADMIN, { name: 'CCI Touraine' })
+      // A member without the right, an investisseur flagged as manager by a direct write.
+      await member(ws.id, 'u-2', { canManageWorkspace: false })
+      await member(ws.id, 'u-3', { role: 'investisseur', canManageWorkspace: true })
       jest.clearAllMocks()
       const upload = jest.spyOn(storage, 'upload')
-      const someone = { id: 'u-1', role: 'entrepreneur' }
-      const calls = [
-        () => service.list(someone),
-        () => service.get(someone, ws.id),
-        () => service.create(someone, { name: 'Pirate' }),
-        () => service.update(someone, ws.id, { name: 'Pirate' }),
-        () => service.setLogo(someone, ws.id, PNG),
-        () => service.removeLogo(someone, ws.id),
-      ]
-      for (const call of calls) {
-        expect(statusOf(await call().catch((e: unknown) => e))).toBe(403)
+      for (const someone of [
+        { id: 'u-1', role: 'entrepreneur' },
+        { id: 'u-2', role: 'financeur' },
+        { id: 'u-3', role: 'financeur' },
+      ]) {
+        const calls = [
+          () => service.list(someone),
+          () => service.get(someone, ws.id),
+          () => service.create(someone, { name: 'Pirate' }),
+          () => service.update(someone, ws.id, { name: 'Pirate' }),
+          () => service.setLogo(someone, ws.id, PNG),
+          () => service.removeLogo(someone, ws.id),
+        ]
+        for (const call of calls) {
+          expect(statusOf(await call().catch((e: unknown) => e))).toBe(403)
+        }
       }
       expect(fake.prisma.workspace.findUnique).not.toHaveBeenCalled()
       expect(fake.prisma.workspace.findMany).not.toHaveBeenCalled()

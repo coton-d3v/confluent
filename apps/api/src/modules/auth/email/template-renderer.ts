@@ -4,11 +4,12 @@ import type { Locale } from './email-transport'
 
 const TEMPLATES_DIR = join(__dirname, 'templates')
 
-export type TemplateName = 'magic-link' | 'share-invite'
+export type TemplateName = 'magic-link' | 'share-invite' | 'workspace-invite'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
   'share-invite': { dossierName: string; shareUrl: string }
+  'workspace-invite': { workspaceName: string; roleLabel: string; signInUrl: string }
 }
 
 export interface RenderedEmail {
