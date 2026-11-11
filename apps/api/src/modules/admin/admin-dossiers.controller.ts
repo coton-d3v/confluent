@@ -47,7 +47,8 @@ export class AdminDossiersController {
     summary: 'Lister TOUS les dossiers (paginé)',
     description:
       'Retourne les dossiers de **toute la plateforme** — aucun filtre ownership. Pagination `page/pageSize` ' +
-      '(défaut 1/20, max 100/page). Inclut `ownerEmail` + `activeShareLinksCount` dérivé pour la vue admin.',
+      '(défaut 1/20, max 100/page). Inclut `ownerEmail`, `companyName` (entreprise du dossier, E05.04) + ' +
+      '`activeShareLinksCount` dérivé pour la vue admin.',
   })
   @ApiQuery({ name: 'page', required: false, description: 'Numéro de page (défaut 1)' })
   @ApiQuery({
@@ -66,7 +67,8 @@ export class AdminDossiersController {
   @ApiOperation({
     summary: 'Détail admin d’un dossier',
     description:
-      'Retourne le dossier avec relations complètes : `answers`, `shareLinks`, `documents`, `ownerEmail`. ' +
+      'Retourne le dossier avec relations complètes : `answers`, `shareLinks`, `documents`, `ownerEmail`, ' +
+      '`company` (entreprise du dossier, E05.04). ' +
       'Plus riche que la vue entrepreneur `GET /v1/dossiers/:id`.',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })

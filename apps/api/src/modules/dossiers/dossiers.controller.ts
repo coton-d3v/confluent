@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req } from
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -38,20 +39,27 @@ export class DossiersController {
   @ApiOperation({
     summary: 'Créer un dossier',
     description:
-      'Crée un dossier possédé par l’user JWT. Un slug URL-safe est dérivé du `name` (collision-free). ' +
+      'Crée un dossier possédé par l’user JWT, avec son entreprise (E05.04) : une entreprise du même ' +
+      'nom, possédée par le même compte (`companyId`, `company`). Réservé aux porteurs de projet ' +
+      '(entrepreneur) et aux administrateurs. Un slug URL-safe est dérivé du `name` (collision-free). ' +
       'Le dossier est automatiquement lié à la version active du questionnaire (snapshot immuable — FR14).',
   })
-  @ApiCreatedResponse({ description: 'Dossier créé.' })
-  create(@Req() req: Request, @Body() body: CreateDossierDto): Promise<Dossier> {
-    return this.service.create({ userId: currentUser(req).id, name: body.name })
+  @ApiCreatedResponse({ description: 'Dossier créé avec son entreprise.' })
+  @ApiForbiddenResponse({
+    description: 'Compte qui ne peut pas posséder d’entreprise (financeur).',
+  })
+  create(@Req() req: Request, @Body() body: CreateDossierDto) {
+    return this.service.create({ owner: currentUser(req), name: body.name })
   }
 
   @Get()
   @ApiOperation({
     summary: 'Lister mes dossiers',
     description:
-      'Retourne uniquement les dossiers possédés par l’user JWT, triés par date de création desc. ' +
-      'Jamais les dossiers des autres — même pas en cas de bug : le filtre `userId` est appliqué systématiquement.',
+      'Retourne uniquement les dossiers possédés par l’user JWT, triés par date de création desc, avec ' +
+      'leur entreprise (`company`). Jamais les dossiers des autres — même pas en cas de bug : le filtre ' +
+      '`userId` est appliqué systématiquement. Un financeur reçoit les dossiers partagés avec lui, sans ' +
+      'leur entreprise.',
   })
   @ApiOkResponse({ description: 'Liste des dossiers de l’user.' })
   list(@Req() req: Request): Promise<Dossier[]> {
@@ -96,7 +104,8 @@ export class DossiersController {
     summary: 'Supprimer un dossier',
     description:
       'Cascade sur `dossier_answers`, `share_links`, `documents`. Les entrées `audit_log` sont conservées ' +
-      '(append-only — `dossier_id` devient `null` via `ON DELETE SET NULL`). Seul le propriétaire peut supprimer.',
+      '(append-only — `dossier_id` devient `null` via `ON DELETE SET NULL`). Seul le propriétaire peut supprimer. ' +
+      'L’entreprise part avec son dernier dossier : jusqu’à E05.05, elle ne porte que son nom.',
   })
   @ApiNoContentResponse({ description: 'Dossier supprimé.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })

@@ -46,7 +46,7 @@ function flattenWhere(where: Where = {}): Where {
 
 // Tables whose `updatedAt` matters to a test (an answer's date is its provenance's, E04.04), set on
 // every write like Prisma's `@updatedAt`.
-const UPDATED_AT = new Set(['dossierAnswer', 'workspace', 'workspaceMembership'])
+const UPDATED_AT = new Set(['dossierAnswer', 'workspace', 'workspaceMembership', 'company'])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
 // Like Prisma, an `undefined` value in `data` leaves the column unchanged.
@@ -134,6 +134,12 @@ export function createFakePrisma() {
         return Promise.resolve({ count })
       },
     ),
+    delete: jest.fn(({ where }: { where: Where }) => {
+      const row = [...table(name).values()].find((r) => matches(r, where))
+      if (!row) return Promise.reject(new Error(`${name} not found`))
+      table(name).delete(row.id)
+      return Promise.resolve({ ...row })
+    }),
     deleteMany: jest.fn(({ where }: { where?: Where } = {}) => {
       let count = 0
       for (const [id, row] of table(name)) {
@@ -240,9 +246,20 @@ export function createFakePrisma() {
     return { ...row, grant: withClient }
   }
 
-  // Dossier with its version's fields and its answers, as read by the classification.
+  // Dossier with its version's fields and its answers, as read by the classification; with its
+  // company and owner (E05.04).
   includes.dossier = (row, include) => ({
     ...row,
+    ...(include.company ? { company: get('company', row.companyId) } : {}),
+    ...(include.user ? { user: get('user', row.userId) } : {}),
+    ...(include.shareLinks
+      ? {
+          shareLinks: filtered('shareLink', {
+            ...((include.shareLinks as { where?: Where }).where ?? {}),
+            dossierId: row.id,
+          }),
+        }
+      : {}),
     ...(include.answers ? { answers: filtered('dossierAnswer', { dossierId: row.id }) } : {}),
     ...(include.questionnaireVersion
       ? {
@@ -250,6 +267,18 @@ export function createFakePrisma() {
             ...get('questionnaireVersion', row.questionnaireVersionId),
             fields: filtered('questionnaireField', { versionId: row.questionnaireVersionId }),
           },
+        }
+      : {}),
+  })
+
+  // Company with its dossiers, newest first (E05.04).
+  includes.company = (row, include) => ({
+    ...row,
+    ...(include.dossiers
+      ? {
+          dossiers: sorted('dossier', filtered('dossier', { companyId: row.id }), {
+            createdAt: 'desc',
+          }),
         }
       : {}),
   })
@@ -266,6 +295,14 @@ export function createFakePrisma() {
   includes.workspaceMembership = (row, include) => ({
     ...row,
     ...(include.user ? { user: get('user', row.userId) } : {}),
+    ...(include.shareLinks
+      ? {
+          shareLinks: filtered('shareLink', {
+            ...((include.shareLinks as { where?: Where }).where ?? {}),
+            dossierId: row.id,
+          }),
+        }
+      : {}),
     ...(include.invitedBy
       ? { invitedBy: row.invitedById ? (get('user', row.invitedById) ?? null) : null }
       : {}),
@@ -292,7 +329,21 @@ export function createFakePrisma() {
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
     oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
-    dossier: model('dossier', () => ({ submittedAt: null })),
+    company: model('company'),
+    dossier: model('dossier', () => ({
+      submittedAt: null,
+      sector: null,
+      maturityStage: null,
+      ancrageCvl: null,
+      tagTechnologique: null,
+      axe1Projet: null,
+      axe2Financier: null,
+      axe3Origine: null,
+      deeptechScore: null,
+      preCreation: null,
+      classificationSources: null,
+      updatedAt: new Date(),
+    })),
     shareLink: model('shareLink'),
     questionnaire: model('questionnaire', () => ({ archivedAt: null, updatedAt: new Date() })),
     questionnaireVersion: model('questionnaireVersion', () => ({

@@ -1,153 +1,209 @@
-import { Test, TestingModule } from '@nestjs/testing'
-import { INestApplication } from '@nestjs/common'
+import { Test } from '@nestjs/testing'
+import type { INestApplication } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
+import { ZodValidationPipe } from 'nestjs-zod'
 import request from 'supertest'
 import type { App } from 'supertest/types'
-import cookieParser from 'cookie-parser'
+import { companySchema, dossierSchema } from '@confluent/shared'
 import { AppModule } from './../src/app.module'
+import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
-import { AuditService } from './../src/modules/audit/audit.service'
-import { ZodValidationPipe } from 'nestjs-zod'
-import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
+import { createFakePrisma } from '../src/testing/fake-prisma'
 
-describe('DossiersController (e2e)', () => {
+const SOPHIE = {
+  id: '7d3c1b0e-0000-4000-8000-000000000001',
+  email: 'sophie@biosensio.fr',
+  role: 'entrepreneur',
+}
+const MARC = {
+  id: '7d3c1b0e-0000-4000-8000-000000000002',
+  email: 'marc@agrotech.fr',
+  role: 'entrepreneur',
+}
+const FINANCEUR = {
+  id: '7d3c1b0e-0000-4000-8000-000000000003',
+  email: 'fin@fonds.fr',
+  role: 'financeur',
+}
+const ADMIN = {
+  id: '7d3c1b0e-0000-4000-8000-000000000004',
+  email: 'admin@confluent.fr',
+  role: 'admin',
+}
+const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000'
+
+// Dossiers and the company each one finances (ROADMAP E05.04), on the stateful fake Prisma.
+describe('Dossiers and companies (e2e)', () => {
   let app: INestApplication<App>
-  let jwt: JwtService
-  let token: string
-  let dossierFindUnique: jest.Mock
-  let dossierFindMany: jest.Mock
-  let dossierCreate: jest.Mock
-  let dossierUpdate: jest.Mock
-  let dossierDelete: jest.Mock
-
-  beforeAll(() => {
-    process.env.JWT_SECRET = 'a'.repeat(32)
-    process.env.JWT_REFRESH_SECRET = 'b'.repeat(32)
-  })
+  let fake: ReturnType<typeof createFakePrisma>
+  const tokens: Record<string, string> = {}
 
   beforeEach(async () => {
-    dossierFindUnique = jest.fn()
-    dossierFindMany = jest.fn().mockResolvedValue([])
-    dossierCreate = jest.fn()
-    dossierUpdate = jest.fn()
-    dossierDelete = jest.fn().mockResolvedValue({})
-
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+    fake = createFakePrisma()
+    const p = fake.prisma
+    for (const u of [SOPHIE, MARC, FINANCEUR, ADMIN]) {
+      await p.user.create({ data: { ...u, emailVerifiedAt: new Date() } })
+    }
+    await p.questionnaire.create({
+      data: { id: 'form-1', slug: 'dossier', name: 'Dossier', usage: 'dossier' },
     })
+    await p.questionnaireVersion.create({
+      data: {
+        id: '7d3c1b0e-0000-4000-8000-0000000000f1',
+        questionnaireId: 'form-1',
+        version: 1,
+        status: 'published',
+      },
+    })
+    const moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
-      .useValue({
-        onModuleInit: async () => {},
-        onModuleDestroy: async () => {},
-        user: {
-          findUnique: jest
-            .fn()
-            .mockResolvedValue({ id: 'user-1', email: 'sophie@biosensio.fr', isActive: true }),
-        },
-        magicLinkToken: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
-        shareLink: { findUnique: jest.fn() },
-        dossier: {
-          findUnique: dossierFindUnique,
-          findMany: dossierFindMany,
-          create: dossierCreate,
-          update: dossierUpdate,
-          delete: dossierDelete,
-        },
-        questionnaire: {
-          findUnique: jest.fn().mockResolvedValue({ id: 'form-1', usage: 'dossier' }),
-        },
-        questionnaireVersion: {
-          findFirst: jest.fn().mockResolvedValue({ id: 'qv-1', version: 1 }),
-          create: jest.fn(),
-        },
-        auditLog: { create: jest.fn() },
-      })
+      .useValue(p)
       .overrideProvider(EMAIL_TRANSPORT)
       .useValue({ sendMagicLink: jest.fn(), sendShareInvite: jest.fn() })
-      .overrideProvider(AuditService)
-      .useValue({ record: jest.fn() })
       .compile()
-
     app = moduleFixture.createNestApplication()
-    app.use(cookieParser())
     app.setGlobalPrefix('v1', { exclude: ['/'] })
     app.useGlobalPipes(new ZodValidationPipe())
     app.useGlobalFilters(new GlobalExceptionFilter())
     await app.init()
-
-    jwt = app.get(JwtService)
-    token = await jwt.signAsync(
-      { sub: 'user-1', email: 'sophie@biosensio.fr', role: 'entrepreneur' },
-      { secret: process.env.JWT_SECRET, expiresIn: 60 },
-    )
+    for (const u of [SOPHIE, MARC, FINANCEUR, ADMIN]) {
+      tokens[u.id] = await new JwtService().signAsync(
+        { sub: u.id, email: u.email, role: u.role },
+        { secret: process.env.JWT_SECRET },
+      )
+    }
   })
 
   afterEach(async () => {
     await app.close()
   })
 
-  it('GET /v1/dossiers — 401 without JWT', async () => {
-    await request(app.getHttpServer()).get('/v1/dossiers').expect(401)
+  const as = (user: { id: string }) => ({
+    get: (url: string) =>
+      request(app.getHttpServer()).get(url).set('Authorization', `Bearer ${tokens[user.id]}`),
+    post: (url: string, body?: object) =>
+      request(app.getHttpServer())
+        .post(url)
+        .set('Authorization', `Bearer ${tokens[user.id]}`)
+        .send(body),
+    patch: (url: string, body: object) =>
+      request(app.getHttpServer())
+        .patch(url)
+        .set('Authorization', `Bearer ${tokens[user.id]}`)
+        .send(body),
+    delete: (url: string) =>
+      request(app.getHttpServer()).delete(url).set('Authorization', `Bearer ${tokens[user.id]}`),
   })
 
-  it('POST /v1/dossiers — creates + 201', async () => {
-    dossierFindMany.mockResolvedValue([])
-    dossierCreate.mockImplementation(async (args: { data: Record<string, unknown> }) =>
-      Promise.resolve({
-        id: 'd-1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ...args.data,
-      }),
-    )
-    const res = await request(app.getHttpServer())
-      .post('/v1/dossiers')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Biosensio' })
-      .expect(201)
-    expect(res.body.name).toBe('Biosensio')
-    expect(res.body.slug).toBe('biosensio')
+  const create = async (user: { id: string }, name: string) =>
+    (await as(user).post('/v1/dossiers', { name }).expect(201)).body
+
+  it('requires a session for dossiers and companies', async () => {
+    for (const url of ['/v1/dossiers', '/v1/companies', `/v1/companies/${UNKNOWN_ID}`]) {
+      await request(app.getHttpServer()).get(url).expect(401)
+    }
   })
 
-  it('GET /v1/dossiers — returns caller-scoped list', async () => {
-    dossierFindMany.mockResolvedValue([{ id: 'd-1', userId: 'user-1', name: 'X', slug: 'x' }])
-    const res = await request(app.getHttpServer())
-      .get('/v1/dossiers')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200)
-    expect(dossierFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: 'user-1' } }),
-    )
-    expect(res.body).toHaveLength(1)
+  it('creates a dossier with its company, named after it and owned by the same account', async () => {
+    const body = await create(SOPHIE, 'Biosensio')
+    expect(body).toMatchObject({ name: 'Biosensio', slug: 'biosensio', userId: SOPHIE.id })
+    expect(body.company).toEqual({ id: body.companyId, name: 'Biosensio' })
+    expect(dossierSchema.safeParse(body).error?.issues ?? []).toEqual([])
+    expect(fake.table('company').get(body.companyId)).toMatchObject({
+      ownerId: SOPHIE.id,
+      name: 'Biosensio',
+    })
+    // A second dossier of the same name: its own company and a unique slug.
+    const again = await create(SOPHIE, 'Biosensio')
+    expect(again.slug).toBe('biosensio-2')
+    expect(again.companyId).not.toBe(body.companyId)
   })
 
-  it('GET /v1/dossiers/:id — 404 when dossier belongs to another user', async () => {
-    dossierFindUnique.mockResolvedValue({ id: 'd-x', userId: 'other-user' })
-    await request(app.getHttpServer())
-      .get('/v1/dossiers/d-x')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(404)
+  it('lets an administrator create a dossier, as before, and refuses a financeur', async () => {
+    expect((await create(ADMIN, 'Test')).company.name).toBe('Test')
+    const res = await as(FINANCEUR).post('/v1/dossiers', { name: 'Fonds' }).expect(403)
+    expect(res.body.error).toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Seuls les porteurs de projet créent une entreprise et ses dossiers.',
+    })
+    expect([...fake.table('company').values()].map((c) => c.ownerId)).toEqual([ADMIN.id])
+    expect(fake.table('dossier').size).toBe(1)
   })
 
-  it('PATCH /v1/dossiers/:id — updates name + slug', async () => {
-    dossierFindUnique.mockResolvedValue({ id: 'd-1', userId: 'user-1', name: 'Old', slug: 'old' })
-    dossierFindMany.mockResolvedValue([])
-    dossierUpdate.mockResolvedValue({ id: 'd-1', userId: 'user-1', name: 'New Name', slug: 'new-name' })
-    const res = await request(app.getHttpServer())
-      .patch('/v1/dossiers/d-1')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'New Name' })
-      .expect(200)
+  it('lists and reads only the caller’s dossiers, with their company', async () => {
+    const own = await create(SOPHIE, 'Biosensio')
+    const other = await create(MARC, 'Agrotech')
+
+    const list = (await as(SOPHIE).get('/v1/dossiers').expect(200)).body
+    expect(list.map((d: { id: string }) => d.id)).toEqual([own.id])
+    expect(list[0].company).toEqual({ id: own.companyId, name: 'Biosensio' })
+
+    const detail = (await as(SOPHIE).get(`/v1/dossiers/${own.id}`).expect(200)).body
+    expect(detail.company).toEqual({ id: own.companyId, name: 'Biosensio' })
+    await as(SOPHIE).get(`/v1/dossiers/${other.id}`).expect(404)
+  })
+
+  it('shows the owner their companies and their dossiers, never another account’s', async () => {
+    const own = await create(SOPHIE, 'Biosensio')
+    const other = await create(MARC, 'Agrotech')
+
+    const companies = (await as(SOPHIE).get('/v1/companies').expect(200)).body
+    expect(companies).toHaveLength(1)
+    expect(companySchema.safeParse(companies[0]).success).toBe(true)
+    expect(companies[0]).toMatchObject({
+      id: own.companyId,
+      name: 'Biosensio',
+      dossiers: [{ id: own.id, slug: 'biosensio', name: 'Biosensio', submittedAt: null }],
+    })
+    expect(companies[0]).not.toHaveProperty('ownerId')
+    const one = (await as(SOPHIE).get(`/v1/companies/${own.companyId}`).expect(200)).body
+    expect(one).toEqual(companies[0])
+
+    // Another account's company, an unknown one, a malformed identifier: the same answer.
+    const foreign = await as(SOPHIE).get(`/v1/companies/${other.companyId}`).expect(404)
+    const unknown = await as(SOPHIE).get(`/v1/companies/${UNKNOWN_ID}`).expect(404)
+    const malformed = await as(SOPHIE).get('/v1/companies/pas-un-uuid').expect(404)
+    expect(foreign.body).toEqual(unknown.body)
+    expect(malformed.body).toEqual(unknown.body)
+    expect(foreign.body.error).toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'Entreprise introuvable.',
+    })
+    // Neither a financeur nor an administrator reads a company here.
+    expect((await as(FINANCEUR).get('/v1/companies').expect(200)).body).toEqual([])
+    await as(FINANCEUR).get(`/v1/companies/${own.companyId}`).expect(404)
+    await as(ADMIN).get(`/v1/companies/${own.companyId}`).expect(404)
+  })
+
+  it('shows administrators the company of every dossier', async () => {
+    const own = await create(SOPHIE, 'Biosensio')
+    const list = (await as(ADMIN).get('/v1/admin/dossiers').expect(200)).body
+    expect(list.items).toEqual([
+      expect.objectContaining({ id: own.id, ownerEmail: SOPHIE.email, companyName: 'Biosensio' }),
+    ])
+    const detail = (await as(ADMIN).get(`/v1/admin/dossiers/${own.id}`).expect(200)).body
+    expect(detail.company).toMatchObject({ id: own.companyId, name: 'Biosensio' })
+    await as(SOPHIE).get('/v1/admin/dossiers').expect(403)
+  })
+
+  it('renames a dossier, leaving its company as it is', async () => {
+    const own = await create(SOPHIE, 'Old')
+    const res = await as(SOPHIE).patch(`/v1/dossiers/${own.id}`, { name: 'New Name' }).expect(200)
     expect(res.body.slug).toBe('new-name')
+    expect(fake.table('company').get(own.companyId)!.name).toBe('Old')
+    await as(MARC).patch(`/v1/dossiers/${own.id}`, { name: 'Pris' }).expect(404)
   })
 
-  it('DELETE /v1/dossiers/:id — 204', async () => {
-    dossierFindUnique.mockResolvedValue({ id: 'd-1', userId: 'user-1' })
-    await request(app.getHttpServer())
-      .delete('/v1/dossiers/d-1')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(204)
-    expect(dossierDelete).toHaveBeenCalledWith({ where: { id: 'd-1' } })
+  it('deletes a dossier with its company, only for its owner', async () => {
+    const own = await create(SOPHIE, 'Biosensio')
+    await as(MARC).delete(`/v1/dossiers/${own.id}`).expect(404)
+    expect(fake.table('company').has(own.companyId)).toBe(true)
+
+    await as(SOPHIE).delete(`/v1/dossiers/${own.id}`).expect(204)
+    expect(fake.table('dossier').has(own.id)).toBe(false)
+    expect(fake.table('company').has(own.companyId)).toBe(false)
+    await as(SOPHIE).get(`/v1/companies/${own.companyId}`).expect(404)
+    expect((await as(SOPHIE).get('/v1/companies').expect(200)).body).toEqual([])
   })
 })

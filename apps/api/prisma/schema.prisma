@@ -90,6 +90,7 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
+  companies        Company[]
   dossiers         Dossier[]
   magicLinkTokens  MagicLinkToken[]
   refreshSessions  RefreshSession[]
@@ -222,9 +223,34 @@ model QuestionnaireField {
   @@map("questionnaire_fields")
 }
 
+// The company an entrepreneur presents (ROADMAP E05.04): owner of the common profile and, from
+// E05.06, of the document library; its financing dossiers are `dossiers`. It belongs to no workspace
+// (it applies to several). Until E05.05 moves the profile answers and documents onto it, they stay on
+// its dossier and a company is created with each new dossier. Name format: CHECK constraint
+// (migration 20261112000000_companies).
+model Company {
+  id        String   @id @default(uuid())
+  ownerId   String   @map("owner_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dossiers Dossier[]
+
+  // Target of the dossiers' (company, owner) foreign key.
+  @@unique([id, ownerId])
+  @@index([ownerId])
+  @@map("companies")
+}
+
+// A financing dossier of a company (ROADMAP E05.04).
 model Dossier {
   id                     String    @id @default(uuid())
+  // The owner of the company, never set on its own: the (company_id, user_id) foreign key keeps it
+  // equal to `companies.owner_id`, and a change of owner (E05.08) cascades to it.
   userId                 String    @map("user_id")
+  companyId              String    @map("company_id")
   name                   String
   slug                   String    @unique
   questionnaireVersionId String    @map("questionnaire_version_id")
@@ -245,6 +271,9 @@ model Dossier {
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NoAction: a company keeps its dossiers (checked at the end of the statement, so deleting an
+  // account still removes both).
+  company              Company              @relation(fields: [companyId, userId], references: [id, ownerId], onDelete: NoAction, onUpdate: Cascade)
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
   answers              DossierAnswer[]
   shareLinks           ShareLink[]
@@ -252,6 +281,7 @@ model Dossier {
   auditLogs            AuditLog[]
 
   @@index([userId])
+  @@index([companyId])
   @@index([slug])
   @@map("dossiers")
 }

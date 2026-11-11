@@ -1,4 +1,4 @@
-import { PrismaClient, type user_role } from '@prisma/client'
+import { PrismaClient, type Prisma, type user_role } from '@prisma/client'
 import { QUESTIONNAIRE_V1_FIELDS } from '../src/modules/questionnaires/questionnaire.seed'
 import { createVersionStructure } from '../src/modules/questionnaires/questionnaire-structure'
 
@@ -108,19 +108,30 @@ async function main(): Promise<void> {
     orderBy: { version: 'desc' },
   })
 
+  // A dossier comes with its own company, named after it (E05.04); an existing one is kept as is.
+  const seedDossier = async (
+    data: Omit<Prisma.DossierUncheckedCreateInput, 'userId' | 'companyId'> & { slug: string },
+  ) => {
+    const existing = await prisma.dossier.findUnique({ where: { slug: data.slug } })
+    if (existing) return existing
+    return prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: { ownerId: entrepreneur.id, name: data.name },
+      })
+      return tx.dossier.create({
+        data: { ...data, userId: entrepreneur.id, companyId: company.id },
+      })
+    })
+  }
+
   // 4.a) Submitted dossier with answers + classification.
-  const biosensio = await prisma.dossier.upsert({
-    where: { slug: 'biosensio' },
-    update: {},
-    create: {
-      userId: entrepreneur.id,
-      name: 'Biosensio',
-      slug: 'biosensio',
-      questionnaireVersionId: activeVersion.id,
-      sector: 'Biotech',
-      maturityStage: 'Seed',
-      submittedAt: new Date('2026-03-15T10:00:00.000Z'),
-    },
+  const biosensio = await seedDossier({
+    name: 'Biosensio',
+    slug: 'biosensio',
+    questionnaireVersionId: activeVersion.id,
+    sector: 'Biotech',
+    maturityStage: 'Seed',
+    submittedAt: new Date('2026-03-15T10:00:00.000Z'),
   })
   const biosensioAnswerCount = await prisma.dossierAnswer.count({
     where: { dossierId: biosensio.id },
@@ -142,15 +153,10 @@ async function main(): Promise<void> {
   }
 
   // 4.b) Draft dossier — no answers, not submitted yet (useful for "empty state" UI tests).
-  await prisma.dossier.upsert({
-    where: { slug: 'agrotech-innovations' },
-    update: {},
-    create: {
-      userId: entrepreneur.id,
-      name: 'Agrotech Innovations',
-      slug: 'agrotech-innovations',
-      questionnaireVersionId: activeVersion.id,
-    },
+  await seedDossier({
+    name: 'Agrotech Innovations',
+    slug: 'agrotech-innovations',
+    questionnaireVersionId: activeVersion.id,
   })
   console.log('[seed] dossier "agrotech-innovations" (draft)')
 

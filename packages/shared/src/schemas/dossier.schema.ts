@@ -1,8 +1,12 @@
 import { z } from 'zod';
+import { COMPANY_NAME_MAX_LENGTH, companySummarySchema } from './company.schema.js';
 
 export const dossierSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
+  // The company the dossier finances (E05.04); `company` is given to its owner only.
+  companyId: z.string().uuid(),
+  company: companySummarySchema.optional(),
   name: z.string().min(1).max(200),
   slug: z.string().min(1),
   questionnaireVersionId: z.string().uuid(),
@@ -22,8 +26,9 @@ export const dossierSchema = z.object({
   ownerName: z.string().optional(),
 });
 
+// Until E05.07 a new dossier comes with its own company, named after it.
 export const createDossierSchema = z.object({
-  name: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(COMPANY_NAME_MAX_LENGTH),
 });
 
 export const updateDossierSchema = z
@@ -40,6 +45,7 @@ export const adminDossierListItemSchema = z.object({
   maturityStage: z.string().nullable(),
   tagTechnologique: z.string().nullable(),
   ownerEmail: z.string().email(),
+  companyName: z.string(),
   createdAt: z.string().datetime(),
   activeShareLinksCount: z.number().int().nonnegative(),
 });

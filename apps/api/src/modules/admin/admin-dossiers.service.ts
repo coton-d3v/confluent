@@ -16,6 +16,7 @@ export interface AdminDossierListItem {
   maturityStage: string | null
   tagTechnologique: string | null
   ownerEmail: string
+  companyName: string
   createdAt: Date
   activeShareLinksCount: number
 }
@@ -45,6 +46,7 @@ export class AdminDossiersService {
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { email: true } },
+          company: { select: { name: true } },
           shareLinks: { where: { status: 'active' }, select: { id: true } },
         },
       }),
@@ -58,6 +60,7 @@ export class AdminDossiersService {
       maturityStage: d.maturityStage,
       tagTechnologique: d.tagTechnologique,
       ownerEmail: d.user.email,
+      companyName: d.company.name,
       createdAt: d.createdAt,
       activeShareLinksCount: d.shareLinks.length,
     }))
@@ -66,13 +69,18 @@ export class AdminDossiersService {
 
   // The dossier with its own questionnaire version (never the currently published one): answers
   // and edits must target the fields the dossier was created with.
-  async detail(
-    id: string,
-  ): Promise<Dossier & { ownerEmail: string; questionnaireVersion: VersionStructure | null }> {
+  async detail(id: string): Promise<
+    Dossier & {
+      ownerEmail: string
+      company: { id: string; name: string }
+      questionnaireVersion: VersionStructure | null
+    }
+  > {
     const dossier = await this.prisma.dossier.findUnique({
       where: { id },
       include: {
         user: { select: { email: true } },
+        company: { select: { id: true, name: true } },
         answers: true,
         shareLinks: true,
         documents: true,

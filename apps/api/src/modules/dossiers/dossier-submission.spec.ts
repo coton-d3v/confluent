@@ -6,6 +6,7 @@ import { createVersionStructure } from '../questionnaires/questionnaire-structur
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { DossiersService } from './dossiers.service'
+import { CompaniesService } from '../companies/companies.service'
 
 async function setup() {
   const fake = createFakePrisma()
@@ -59,6 +60,7 @@ async function setup() {
     new QuestionnairesService(p as never),
     { evaluate: classify } as unknown as ClassificationService,
     audit as unknown as AuditService,
+    new CompaniesService(p as never),
   )
   const fieldId = (key: string) =>
     [...fake.table('questionnaireField').values()].find((f) => f.key === key)!.id

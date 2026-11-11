@@ -132,19 +132,28 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         orderIndex: 0,
       },
     })
+    // Every dossier belongs to a company of its owner (E05.04).
+    await p.company.create({
+      data: { id: 'c-11111111-1111-4111-8111-111111111111', ownerId: 'u-1', name: 'Biosensio' },
+    })
     await p.dossier.create({
       data: {
         id: '11111111-1111-4111-8111-111111111111',
         userId: 'u-1',
+        companyId: 'c-11111111-1111-4111-8111-111111111111',
         name: 'Biosensio',
         slug: 'biosensio',
         questionnaireVersionId: 'v-2',
       },
     })
+    await p.company.create({
+      data: { id: 'c-22222222-2222-4222-8222-222222222222', ownerId: 'u-2', name: 'Autre' },
+    })
     await p.dossier.create({
       data: {
         id: '22222222-2222-4222-8222-222222222222',
         userId: 'u-2',
+        companyId: 'c-22222222-2222-4222-8222-222222222222',
         name: 'Autre',
         slug: 'autre',
         questionnaireVersionId: 'v-2',
@@ -864,6 +873,11 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(idsOf(created)).toEqual(['f-name', 'f-site', 'f-stage', 'f-kbis'])
       const row = [...fake.table('dossier').values()].find((d) => d.name === 'Hydrogène Vert')
       expect(row).toMatchObject({ userId: 'u-1', questionnaireVersionId: 'v-2' })
+      // With its own company, of the same owner and name (E05.04).
+      expect(fake.table('company').get(row!.companyId as string)).toMatchObject({
+        ownerId: 'u-1',
+        name: 'Hydrogène Vert',
+      })
       // Journaled with the new dossier.
       const audit = [...fake.table('auditLog').values()].filter(
         (a) => (a.metadata as { tool?: string })?.tool === 'create_dossier',
