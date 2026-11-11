@@ -10,7 +10,6 @@ import {
   Patch,
   Post,
   Put,
-  UseGuards,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -38,7 +37,6 @@ import {
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { SITE_ORIGIN } from '../audit/action-origin'
-import { AdminGuard } from '../auth/guards/admin.guard'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { FormDraftsService, type FormVersionView } from '../questionnaires/form-drafts.service'
 import {
@@ -65,12 +63,13 @@ const revisionOf = (header: string | undefined) =>
   header?.replace(/^(W\/)?"(.*)"$/, '$2') || undefined
 
 // Form builder (ROADMAP E03.02, E03.03, E03.07, E03.08). Structure edits address `…/draft/…`: the
-// published and archived versions, read by dossiers, cannot be reached for writing.
+// published and archived versions, read by dossiers, cannot be reached for writing. Who may read or
+// change forms is decided by the services' single form design rule (E04.07), the one the MCP tools
+// go through too, not by a guard of its own here.
 @ApiTags('Admin · Formulaires')
 @ApiBearerAuth('jwt')
 @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
-@ApiForbiddenResponse({ description: 'JWT sans rôle `admin`.' })
-@UseGuards(AdminGuard)
+@ApiForbiddenResponse({ description: 'Compte non autorisé à concevoir les formulaires.' })
 @Controller('admin/forms')
 export class AdminFormsController {
   constructor(
@@ -85,8 +84,8 @@ export class AdminFormsController {
       'Tous les formulaires, archivés compris (`archivedAt`), avec leur version publiée et leur brouillon.',
   })
   @ApiOkResponse({ description: 'Formulaires.' })
-  list(): Promise<FormSummaryView[]> {
-    return this.forms.list()
+  list(@CurrentUser() user: AuthenticatedUser): Promise<FormSummaryView[]> {
+    return this.forms.list(user)
   }
 
   @Post()
@@ -106,8 +105,11 @@ export class AdminFormsController {
   @Get(':formId')
   @ApiOperation({ summary: 'Détail d’un formulaire et de toutes ses versions' })
   @ApiNotFoundResponse({ description: 'Formulaire inexistant.' })
-  get(@Param('formId', uuid) formId: string): Promise<FormDetailView> {
-    return this.forms.get(formId)
+  get(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormDetailView> {
+    return this.forms.get(user, formId)
   }
 
   @Patch(':formId')
@@ -190,15 +192,19 @@ export class AdminFormsController {
   version(
     @Param('formId', uuid) formId: string,
     @Param('versionId', uuid) versionId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormVersionView> {
-    return this.drafts.getVersion(formId, versionId)
+    return this.drafts.getVersion(user, formId, versionId)
   }
 
   @Get(':formId/draft')
   @ApiOperation({ summary: 'Brouillon en cours' })
   @ApiNotFoundResponse({ description: 'Aucun brouillon.' })
-  draft(@Param('formId', uuid) formId: string): Promise<FormVersionView> {
-    return this.drafts.getDraft(formId)
+  draft(
+    @Param('formId', uuid) formId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FormVersionView> {
+    return this.drafts.getDraft(user, formId)
   }
 
   @Post(':formId/draft')

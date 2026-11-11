@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { ActionOrigin } from '../audit/action-origin'
@@ -6,6 +7,43 @@ import type { McpCaller } from './mcp.tools'
 
 // A refusal or a problem worded for the assistant, passed on as is (in French).
 export class ToolError extends Error {}
+
+export class BuilderError extends ToolError {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+  ) {
+    super(message)
+  }
+}
+
+// The builder's refusals are written for administrators (FormErrors): passed on as they are.
+export function toToolError(err: unknown): unknown {
+  if (!(err instanceof HttpException)) return err
+  const body = err.getResponse() as
+    | { code?: unknown; message?: unknown; details?: unknown }
+    | string
+  if (typeof body !== 'object' || typeof body.message !== 'string') return err
+  // What prevents a publication (DRAFT_INVALID): the draft's problems, as the builder lists them.
+  const details = Array.isArray(body.details)
+    ? (body.details as Array<{ message?: unknown }>)
+        .filter((d) => typeof d.message === 'string')
+        .map((d) => `\n- ${d.message as string}`)
+        .join('')
+    : ''
+  return new BuilderError(
+    body.message + details,
+    typeof body.code === 'string' ? body.code : undefined,
+  )
+}
+
+export async function builderCall<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation()
+  } catch (err) {
+    throw toToolError(err)
+  }
+}
 
 // The dossier, form or document a tool call is about, journaled with the call (E01.07).
 export interface ToolTrace {

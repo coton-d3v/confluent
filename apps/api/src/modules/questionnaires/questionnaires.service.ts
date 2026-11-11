@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type {
   Prisma,
+  Questionnaire,
   QuestionnaireField,
   QuestionnaireSection,
   QuestionnaireVersion,
@@ -37,6 +38,17 @@ export class QuestionnairesService {
   async getActive(): Promise<VersionStructure> {
     const version = await this.ensureBootstrap()
     return (await this.getVersion(version.id))!
+  }
+
+  // The form a project owner answers — the dossier form and its published version — as an AI
+  // application describes it (E04.01). Reading it is not designing forms: no form design right is
+  // needed, and nothing else (other forms, drafts, archived versions) is reachable from here.
+  async getActiveForm(): Promise<VersionStructure & { form: Questionnaire }> {
+    const structure = await this.getActive()
+    const form = await this.prisma.questionnaire.findUnique({
+      where: { id: structure.version.questionnaireId },
+    })
+    return { form: form!, ...structure }
   }
 
   async ensureBootstrap(): Promise<QuestionnaireVersion> {

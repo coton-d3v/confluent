@@ -54,7 +54,7 @@ describe('FormsService', () => {
   it('refuses to archive the form assigned to a usage (it serves new dossiers)', async () => {
     const { forms, questionnaires } = setup()
     await questionnaires.getActive()
-    const [dossierForm] = await forms.list()
+    const [dossierForm] = await forms.list(ADMIN)
     expect(dossierForm.usage).toBe('dossier')
     await expect(forms.archive(ADMIN, dossierForm.id)).rejects.toBeInstanceOf(ConflictException)
   })
@@ -62,11 +62,11 @@ describe('FormsService', () => {
   it('duplicates the published version into the draft of a new unassigned form, keys included', async () => {
     const { forms, drafts, questionnaires } = setup()
     const active = await questionnaires.getActive()
-    const [source] = await forms.list()
+    const [source] = await forms.list(ADMIN)
 
     const copy = await forms.duplicate(ADMIN, source.id, 'Profil (copie)')
     expect(copy).toMatchObject({ usage: null, published: null, draft: { version: 1 } })
-    const draft = await drafts.getDraft(copy.id)
+    const draft = await drafts.getDraft(ADMIN, copy.id)
     expect(draft.sections.map((s) => s.title)).toEqual(active.sections.map((s) => s.title))
     expect(draft.fields.map((f) => [f.key, f.label])).toEqual(
       active.fields.map((f) => [f.key, f.label]),
@@ -78,7 +78,7 @@ describe('FormsService', () => {
   it('moves the dossier usage to a published form: new dossiers then use its version', async () => {
     const { fake, forms, drafts, questionnaires } = setup()
     const before = await questionnaires.getActive()
-    const [profile] = await forms.list()
+    const [profile] = await forms.list(ADMIN)
 
     const next = await forms.create(ADMIN, 'Profil entreprise 2027')
     await expect(forms.assignUsage(ADMIN, next.id, 'dossier')).rejects.toBeInstanceOf(
@@ -95,7 +95,7 @@ describe('FormsService', () => {
 
     const assigned = await forms.assignUsage(ADMIN, next.id, 'dossier')
     expect(assigned.usage).toBe('dossier')
-    expect((await forms.get(profile.id)).usage).toBeNull()
+    expect((await forms.get(ADMIN, profile.id)).usage).toBeNull()
     const active = await questionnaires.getActive()
     expect(active.version.id).toBe(published.version.id)
     expect(active.version.id).not.toBe(before.version.id)
@@ -109,5 +109,45 @@ describe('FormsService', () => {
     await expect(forms.assignUsage(ADMIN, profile.id, 'dossier')).rejects.toBeInstanceOf(
       ConflictException,
     )
+  })
+})
+
+describe('single form design rule on reads (E04.07)', () => {
+  const MISSING = '00000000-0000-4000-8000-000000000000'
+  const codeOf = (read: Promise<unknown>) =>
+    read.then(
+      () => 'read',
+      (err: { getResponse?: () => { code?: string } }) => err.getResponse?.().code,
+    )
+
+  it('refuses every builder read to anyone but an administrator, before looking the form up', async () => {
+    const { forms, drafts } = setup()
+    const form = await forms.create(ADMIN, 'Candidature')
+    const draftId = form.draft!.id
+    // Closed by default: a role the rule does not know, or none, reads nothing.
+    for (const actor of [
+      { id: 'u-1', role: 'entrepreneur' },
+      { id: 'u-2', role: 'financeur' },
+      { id: 'u-3', role: 'superviseur' },
+      { id: 'u-4', role: '' },
+    ]) {
+      const reads = [
+        () => forms.list(actor),
+        () => forms.get(actor, form.id),
+        () => forms.summary(actor, form.id),
+        () => drafts.getDraft(actor, form.id),
+        () => drafts.getVersion(actor, form.id, draftId),
+        // Same refusal for a form that does not exist: nothing is told about forms.
+        () => forms.get(actor, MISSING),
+        () => drafts.getDraft(actor, MISSING),
+      ]
+      for (const read of reads) {
+        expect({ role: actor.role, code: await codeOf(read()) }).toEqual({
+          role: actor.role,
+          code: 'FORM_DESIGN_FORBIDDEN',
+        })
+      }
+    }
+    expect(await codeOf(drafts.getVersion(ADMIN, form.id, draftId))).toBe('read')
   })
 })

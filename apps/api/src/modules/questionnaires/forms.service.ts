@@ -25,8 +25,8 @@ export interface FormDetailView extends FormSummaryView {
 }
 
 // Form-level operations of the builder: create, rename, duplicate, archive, restore. Structure
-// editing lives in FormDraftsService. Reused as is by the MCP tools (E03.13 → E04); every write
-// checks who acts with the single form design rule (E04.07), whatever the caller.
+// editing lives in FormDraftsService. Reused as is by the MCP tools (E03.13 → E04); every read and
+// write checks who acts with the single form design rule (E04.07), whatever the caller.
 @Injectable()
 export class FormsService {
   constructor(
@@ -34,7 +34,9 @@ export class FormsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(): Promise<FormSummaryView[]> {
+  // Reading every form, drafts included, is part of designing them (E04.07): same rule as writes.
+  async list(actor: FormDesigner): Promise<FormSummaryView[]> {
+    assertCanDesignForms(actor)
     const [forms, versions] = await Promise.all([
       this.prisma.questionnaire.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.questionnaireVersion.findMany({
@@ -49,7 +51,8 @@ export class FormsService {
     )
   }
 
-  async get(formId: string): Promise<FormDetailView> {
+  async get(actor: FormDesigner, formId: string): Promise<FormDetailView> {
+    assertCanDesignForms(actor)
     const form = await this.findForm(formId)
     const versions = await this.prisma.questionnaireVersion.findMany({
       where: { questionnaireId: formId },
@@ -58,7 +61,8 @@ export class FormsService {
     return { ...toSummary(form, versions), versions }
   }
 
-  async summary(formId: string): Promise<FormSummaryView> {
+  async summary(actor: FormDesigner, formId: string): Promise<FormSummaryView> {
+    assertCanDesignForms(actor)
     const form = await this.findForm(formId)
     const versions = await this.prisma.questionnaireVersion.findMany({
       where: { questionnaireId: formId, status: { in: ['draft', 'published'] } },
@@ -83,7 +87,7 @@ export class FormsService {
       actorId: actor.id,
       metadata: { formId: form.id, name },
     })
-    return this.get(form.id)
+    return this.get(actor, form.id)
   }
 
   // The slug is the form's stable identifier: renaming keeps it.
@@ -99,7 +103,7 @@ export class FormsService {
       actorId: actor.id,
       metadata: { formId, change: 'renamed', from: form.name, to: name },
     })
-    return this.get(formId)
+    return this.get(actor, formId)
   }
 
   // Copies the published version (or, failing that, the latest one) into the draft of a new form.
@@ -134,7 +138,7 @@ export class FormsService {
         duplicatedFrom: { formId, versionId: source?.id ?? null },
       },
     })
-    return this.get(copy.id)
+    return this.get(actor, copy.id)
   }
 
   // The form takes `usage` over from the form that had it, in one transaction: new dossiers are then
@@ -161,7 +165,7 @@ export class FormsService {
       await tx.questionnaire.update({ where: { id: formId }, data: { usage } })
       return { published, replaced: current }
     })
-    if (!assigned) return this.get(formId)
+    if (!assigned) return this.get(actor, formId)
     const { published, replaced } = assigned
     await this.audit.record({
       actionType: 'form_updated',
@@ -174,7 +178,7 @@ export class FormsService {
         replacedFormId: replaced?.id ?? null,
       },
     })
-    return this.get(formId)
+    return this.get(actor, formId)
   }
 
   // An archived form is kept with all its versions (dossiers still read theirs) but can no longer be
@@ -195,7 +199,7 @@ export class FormsService {
         metadata: { formId, change: 'archived' },
       })
     }
-    return this.get(formId)
+    return this.get(actor, formId)
   }
 
   async restore(actor: FormDesigner, formId: string): Promise<FormDetailView> {
@@ -213,7 +217,7 @@ export class FormsService {
         metadata: { formId, change: 'restored' },
       })
     }
-    return this.get(formId)
+    return this.get(actor, formId)
   }
 
   async findForm(formId: string): Promise<Questionnaire> {

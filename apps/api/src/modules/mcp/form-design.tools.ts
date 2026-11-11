@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
@@ -17,7 +17,7 @@ import { z, type ZodTypeAny } from 'zod'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
-import { assertCanDesignForms } from '../questionnaires/form-design-access'
+import { assertCanDesignForms, type FormDesigner } from '../questionnaires/form-design-access'
 import { FormDraftsService, type FormVersionView } from '../questionnaires/form-drafts.service'
 import { FormsService } from '../questionnaires/forms.service'
 import { DOSSIER_FORM } from '../questionnaires/questionnaires.service'
@@ -25,11 +25,14 @@ import { readChoices } from '../questionnaires/questionnaire-structure'
 import { readLevelOf } from './form-description'
 import type { McpCaller } from './mcp.tools'
 import {
+  BuilderError,
   CONSEQUENTIAL_ACTION,
   ToolError,
   UUID,
+  builderCall,
   mcpOrigin,
   sameName,
+  toToolError,
   userInstruction,
   type ToolRunner,
   type ToolTrace,
@@ -160,11 +163,11 @@ export class FormDesignTools {
       ({ name, allowDuplicate }) =>
         run('create_form', null, async (trace) => {
           this.authorize(caller)
-          if (!allowDuplicate) await this.refuseSameName(name)
+          if (!allowDuplicate) await this.refuseSameName(actor, name)
           const created = await builderCall(() => this.forms.create(actor, name))
           trace.formId = created.id
           return this.outline(
-            await this.drafts.getDraft(created.id),
+            await this.drafts.getDraft(actor, created.id),
             'Formulaire créé avec un brouillon vide, visible dans le constructeur du site. ' +
               'Ajoutez une première section avec add_form_section.',
           )
@@ -193,11 +196,11 @@ export class FormDesignTools {
         run('duplicate_form', form, async (trace) => {
           this.authorize(caller)
           const source = await this.resolve(form, trace)
-          if (!allowDuplicate) await this.refuseSameName(name)
+          if (!allowDuplicate) await this.refuseSameName(actor, name)
           const copy = await builderCall(() => this.forms.duplicate(actor, source, name))
           trace.formId = copy.id
           return this.outline(
-            await this.drafts.getDraft(copy.id),
+            await this.drafts.getDraft(actor, copy.id),
             'Copie créée : son brouillon reprend la structure de l’original, modifiable sans le toucher.',
           )
         }),
@@ -224,7 +227,7 @@ export class FormDesignTools {
           })
           if (existing) {
             return this.outline(
-              await this.drafts.getDraft(formId),
+              await this.drafts.getDraft(actor, formId),
               'Un brouillon était déjà en cours : il est repris tel quel.',
             )
           }
@@ -237,7 +240,7 @@ export class FormDesignTools {
             // Opened meanwhile (site, other conversation): the single draft is the one to go on with.
             if (!(err instanceof BuilderError) || err.code !== 'DRAFT_EXISTS') throw err
             return this.outline(
-              await this.drafts.getDraft(formId),
+              await this.drafts.getDraft(actor, formId),
               'Un brouillon venait d’être ouvert : il est repris tel quel.',
             )
           }
@@ -559,8 +562,8 @@ export class FormDesignTools {
     return form.id
   }
 
-  private async refuseSameName(name: string): Promise<void> {
-    const same = (await this.forms.list()).find((f) => !f.archivedAt && sameName(f.name, name))
+  private async refuseSameName(actor: FormDesigner, name: string): Promise<void> {
+    const same = (await this.forms.list(actor)).find((f) => !f.archivedAt && sameName(f.name, name))
     if (same) {
       throw new ToolError(
         `Un formulaire « ${same.name} » existe déjà (${same.slug}) : modifiez son brouillon ` +
@@ -656,41 +659,4 @@ function contract<S extends ZodTypeAny>(schema: S, input: unknown): z.output<S> 
     )
   }
   return parsed.data as z.output<S>
-}
-
-class BuilderError extends ToolError {
-  constructor(
-    message: string,
-    readonly code: string | undefined,
-  ) {
-    super(message)
-  }
-}
-
-// The builder's refusals are written for administrators (FormErrors): passed on as they are.
-function toToolError(err: unknown): unknown {
-  if (!(err instanceof HttpException)) return err
-  const body = err.getResponse() as
-    | { code?: unknown; message?: unknown; details?: unknown }
-    | string
-  if (typeof body !== 'object' || typeof body.message !== 'string') return err
-  // What prevents a publication (DRAFT_INVALID): the draft's problems, as the builder lists them.
-  const details = Array.isArray(body.details)
-    ? (body.details as Array<{ message?: unknown }>)
-        .filter((d) => typeof d.message === 'string')
-        .map((d) => `\n- ${d.message as string}`)
-        .join('')
-    : ''
-  return new BuilderError(
-    body.message + details,
-    typeof body.code === 'string' ? body.code : undefined,
-  )
-}
-
-async function builderCall<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation()
-  } catch (err) {
-    throw toToolError(err)
-  }
 }

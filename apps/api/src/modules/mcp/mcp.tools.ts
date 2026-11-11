@@ -12,9 +12,11 @@ import {
   answerOriginSchema,
   missingRequiredAnswers,
   type AccessLevel,
+  type DraftProblem,
 } from '@confluent/shared'
 import type {
   Dossier,
+  Questionnaire,
   QuestionnaireField,
   QuestionnaireSection,
   QuestionnaireVersion,
@@ -43,7 +45,11 @@ import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
 import { canDesignForms } from '../questionnaires/form-design-access'
 import { FormDraftsService } from '../questionnaires/form-drafts.service'
 import { FormsService } from '../questionnaires/forms.service'
-import { DOSSIER_FORM, QuestionnairesService } from '../questionnaires/questionnaires.service'
+import {
+  DOSSIER_FORM,
+  QuestionnairesService,
+  type VersionStructure,
+} from '../questionnaires/questionnaires.service'
 import { readChoices } from '../questionnaires/questionnaire-structure'
 import {
   describeCompletion,
@@ -63,6 +69,7 @@ import {
   CONSEQUENTIAL_ACTION,
   ToolError,
   UUID,
+  builderCall,
   canOwnDossiers,
   mcpOrigin,
   refuseInstructionFromDocument,
@@ -293,9 +300,11 @@ export class McpToolsFactory {
       },
       () =>
         run('list_forms', null, async () => {
-          requireAdmin(caller)
-          const forms = await this.forms.list()
-          const details = await Promise.all(forms.map((f) => this.forms.get(f.id)))
+          // The services' single form design rule decides, as for the site's builder (E04.07).
+          const forms = await builderCall(() => this.forms.list(caller.user))
+          const details = await Promise.all(
+            forms.map((f) => builderCall(() => this.forms.get(caller.user, f.id))),
+          )
           return {
             forms: details.map((f) => ({
               id: f.id,
@@ -926,51 +935,45 @@ export class McpToolsFactory {
     }
   }
 
-  // E04.01: the definition of a form version. Project owners read the published form of new dossiers
-  // (what they will be asked); administrators read any form and version, draft included.
+  // E04.01: the definition of a form version. Two different readings (E04.07):
+  // - designing forms: any form and version, draft included, read through FormsService and
+  //   FormDraftsService, which decide it with the single form design rule, as for the site's builder;
+  // - answering: the published form of new dossiers, the one project owners fill in, read through
+  //   QuestionnairesService like the questionnaire in the site — not a design right.
   private async describeForm(
     caller: McpCaller,
     formRef: string | undefined,
     versionRef: number | 'brouillon' | undefined,
   ) {
-    // Reading every form and its draft goes with designing them (same rule as the builder, E04.07).
-    const isAdmin = canDesignForms(caller.user)
-    if (!isAdmin && caller.user.role !== 'entrepreneur') {
+    if (canDesignForms(caller.user)) return this.describeAnyForm(caller.user, formRef, versionRef)
+    if (caller.user.role !== 'entrepreneur') {
       throw new ToolError(
         'Les définitions de formulaires sont réservées aux porteurs de projet et aux administrateurs.',
       )
     }
-    const form = await this.prisma.questionnaire.findFirst({
-      where: formRef
-        ? UUID.test(formRef)
-          ? { id: formRef }
-          : { slug: formRef }
-        : { usage: DOSSIER_FORM.usage },
-    })
-    const readable = form && (isAdmin || (form.usage === DOSSIER_FORM.usage && !form.archivedAt))
-    if (!readable) {
-      throw new ToolError(
-        isAdmin
-          ? 'Formulaire introuvable. Utilisez list_forms.'
-          : 'Formulaire introuvable : seul le formulaire des nouveaux dossiers est lisible.',
-      )
-    }
-    // Whether a draft exists is the administrators' business: refused before looking.
-    if (!isAdmin && versionRef === 'brouillon') {
-      throw new ToolError('Seule la version publiée est lisible.')
-    }
-    const versions = await this.prisma.questionnaireVersion.findMany({
-      where: { questionnaireId: form.id },
-      orderBy: { version: 'desc' },
-    })
-    const published = versions.find((v) => v.status === 'published')
-    const draft = versions.find((v) => v.status === 'draft')
+    return this.describeFormToAnswer(formRef, versionRef)
+  }
+
+  private async describeAnyForm(
+    actor: AuthenticatedUser,
+    formRef: string | undefined,
+    versionRef: number | 'brouillon' | undefined,
+  ) {
+    // Looked up among the forms the account may read: the services refuse whoever may not design
+    // before reading anything.
+    const found = (await builderCall(() => this.forms.list(actor))).find((f) =>
+      formRef ? f.id === formRef || f.slug === formRef : f.usage === DOSSIER_FORM.usage,
+    )
+    if (!found) throw new ToolError('Formulaire introuvable. Utilisez list_forms.')
+    const form = await builderCall(() => this.forms.get(actor, found.id))
+    const published = form.versions.find((v) => v.status === 'published')
+    const draft = form.versions.find((v) => v.status === 'draft')
     const target =
       versionRef === 'brouillon'
         ? draft
         : versionRef !== undefined
-          ? versions.find((v) => v.version === versionRef)
-          : (published ?? (isAdmin ? draft : undefined))
+          ? form.versions.find((v) => v.version === versionRef)
+          : (published ?? draft)
     if (!target) {
       throw new ToolError(
         versionRef === 'brouillon'
@@ -978,58 +981,31 @@ export class McpToolsFactory {
           : 'Version introuvable pour ce formulaire.',
       )
     }
-    if (!isAdmin && target.status !== 'published') {
+    const view = await builderCall(() => this.formDrafts.getVersion(actor, form.id, target.id))
+    return formDefinition(form, { published, draft }, view, { designer: true })
+  }
+
+  // Only the published version of the form of new dossiers. Whether a draft or another version
+  // exists is the designers' business: the same refusal whatever is asked.
+  private async describeFormToAnswer(
+    formRef: string | undefined,
+    versionRef: number | 'brouillon' | undefined,
+  ) {
+    const active = await this.questionnaires.getActiveForm()
+    if (formRef && formRef !== active.form.id && formRef !== active.form.slug) {
+      throw new ToolError(
+        'Formulaire introuvable : seul le formulaire des nouveaux dossiers est lisible.',
+      )
+    }
+    if (versionRef !== undefined && versionRef !== active.version.version) {
       throw new ToolError('Seule la version publiée est lisible.')
     }
-    const view = await this.formDrafts.getVersion(form.id, target.id)
-    const labels = new Map(view.fields.map((f) => [f.id, f.label]))
-    return {
-      form: {
-        id: form.id,
-        slug: form.slug,
-        name: form.name,
-        usage: form.usage,
-        archived: form.archivedAt !== null,
-        publishedVersion: published?.version ?? null,
-        draftVersion: isAdmin ? (draft?.version ?? null) : null,
-      },
-      version: {
-        version: target.version,
-        status: target.status,
-        publishedAt: target.publishedAt,
-        ...(target.status === 'draft'
-          ? {
-              note: 'Brouillon : modifiable, aucun dossier ne l’utilise tant qu’il n’est pas publié.',
-              // For the form design tools (E04.06): refused if the draft changed meanwhile.
-              revision: target.updatedAt.toISOString(),
-            }
-          : {}),
-      },
-      summary: {
-        sections: view.sections.length,
-        fields: view.fields.length,
-        required: view.fields.filter((f) => f.required).length,
-      },
-      // Administrators get the ids the form design tools address, and a draft's empty sections.
-      sections: groupBySection(
-        view.sections,
-        view.fields,
-        (f) => describeField(f, { withReadLevel: true }),
-        { withIds: isAdmin, keepEmpty: target.status === 'draft' },
-      ),
-      // What prevents publishing a draft (same checks as the builder).
-      ...(target.status === 'draft'
-        ? {
-            problems: view.problems.map((p) => ({
-              message: p.message,
-              ...(p.sectionId ? { sectionId: p.sectionId } : {}),
-              ...(p.fieldId
-                ? { fieldId: p.fieldId, field: labels.get(p.fieldId) ?? p.fieldId }
-                : {}),
-            })),
-          }
-        : {}),
-    }
+    return formDefinition(
+      active.form,
+      { published: active.version, draft: undefined },
+      { ...active, problems: [] },
+      { designer: false },
+    )
   }
 
   // What the owner has filled in: the dossier's own form version, its answers and attachments.
@@ -1275,6 +1251,62 @@ export class McpToolsFactory {
   }
 }
 
+// What get_form returns: the version's definition, without answers. Designers get the ids the form
+// design tools address, the draft's number, a draft's empty sections and what prevents publishing it.
+function formDefinition(
+  form: Pick<Questionnaire, 'id' | 'slug' | 'name' | 'usage' | 'archivedAt'>,
+  versions: { published?: QuestionnaireVersion; draft?: QuestionnaireVersion },
+  view: VersionStructure & { problems: DraftProblem[] },
+  { designer }: { designer: boolean },
+) {
+  const target = view.version
+  const labels = new Map(view.fields.map((f) => [f.id, f.label]))
+  return {
+    form: {
+      id: form.id,
+      slug: form.slug,
+      name: form.name,
+      usage: form.usage,
+      archived: form.archivedAt !== null,
+      publishedVersion: versions.published?.version ?? null,
+      draftVersion: designer ? (versions.draft?.version ?? null) : null,
+    },
+    version: {
+      version: target.version,
+      status: target.status,
+      publishedAt: target.publishedAt,
+      ...(target.status === 'draft'
+        ? {
+            note: 'Brouillon : modifiable, aucun dossier ne l’utilise tant qu’il n’est pas publié.',
+            // For the form design tools (E04.06): refused if the draft changed meanwhile.
+            revision: target.updatedAt.toISOString(),
+          }
+        : {}),
+    },
+    summary: {
+      sections: view.sections.length,
+      fields: view.fields.length,
+      required: view.fields.filter((f) => f.required).length,
+    },
+    sections: groupBySection(
+      view.sections,
+      view.fields,
+      (f) => describeField(f, { withReadLevel: true }),
+      { withIds: designer, keepEmpty: target.status === 'draft' },
+    ),
+    // Same checks as the builder.
+    ...(target.status === 'draft'
+      ? {
+          problems: view.problems.map((p) => ({
+            message: p.message,
+            ...(p.sectionId ? { sectionId: p.sectionId } : {}),
+            ...(p.fieldId ? { fieldId: p.fieldId, field: labels.get(p.fieldId) ?? p.fieldId } : {}),
+          })),
+        }
+      : {}),
+  }
+}
+
 // Documents answering each attachment field, as the level may read them. No download URL: the
 // content is read with read_document (E04.03).
 function documentsByField(groups: DocumentGroup[]) {
@@ -1466,12 +1498,6 @@ function requireWrite(caller: McpCaller): void {
 
 function requireOwner(dossier: Dossier, caller: McpCaller, message: string): void {
   if (dossier.userId !== caller.user.id) throw new ToolError(message)
-}
-
-function requireAdmin(caller: McpCaller): void {
-  if (!canDesignForms(caller.user)) {
-    throw new ToolError('Réservé aux administrateurs de Confluent.')
-  }
 }
 
 // The current answer; for a list, the choice key with the label it displays.

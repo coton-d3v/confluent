@@ -66,4 +66,18 @@ describe('QuestionnairesService', () => {
       'montant',
     ])
   })
+
+  it('gives the form new dossiers answer with its published version, and nothing else (E04.07)', async () => {
+    const { fake, svc } = setup()
+    const active = await svc.getActiveForm()
+    expect(active.form).toMatchObject({ slug: 'profil-entreprise', usage: 'dossier' })
+    expect(active.version).toMatchObject({ questionnaireId: active.form.id, status: 'published' })
+    expect(active.fields).toHaveLength(12)
+
+    // A draft of the next version exists: what is answered stays the published version.
+    await fake.prisma.questionnaireVersion.create({
+      data: { questionnaireId: active.form.id, version: 2, status: 'draft' },
+    })
+    expect((await svc.getActiveForm()).version.id).toBe(active.version.id)
+  })
 })

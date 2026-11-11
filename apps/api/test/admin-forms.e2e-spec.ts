@@ -199,4 +199,64 @@ describe('/v1/admin/forms (e2e)', () => {
       .expect(400)
     expect(draft.body.error.code).toBe('VALIDATION_ERROR')
   })
+
+  it('reads forms through the single form design rule: refused to any other role, even a demoted administrator (E04.07)', async () => {
+    const created = await call('post', '').send({ name: 'Candidature' }).expect(201)
+    const formId = created.body.id as string
+    const draftId = created.body.draft.id as string
+    const missing = '00000000-0000-4000-8000-000000000000'
+    for (const [id, role] of [
+      ['f-1', 'financeur'],
+      ['x-1', 'superviseur'],
+    ]) {
+      await fake.prisma.user.create({
+        data: { id, email: `${id}@confluent.dev`, role, emailVerifiedAt: new Date() },
+      })
+    }
+    const sign = (sub: string, role: string) =>
+      new JwtService().signAsync(
+        { sub, email: `${sub}@confluent.dev`, role },
+        { secret: process.env.JWT_SECRET },
+      )
+    // The role comes from the database: an unknown one is refused (closed by default).
+    const others = [entrepreneur, await sign('f-1', 'financeur'), await sign('x-1', 'admin')]
+    const refusal = 'La conception des formulaires est réservée aux administrateurs de Confluent.'
+    const reads = [
+      '',
+      `/${formId}`,
+      `/${formId}/draft`,
+      `/${formId}/versions/${draftId}`,
+      // A form that does not exist gets the same refusal: nothing is told about forms.
+      `/${missing}`,
+      `/${missing}/draft`,
+    ]
+    for (const jwt of others) {
+      for (const path of reads) {
+        const res = await call('get', path, jwt)
+        expect({ path, status: res.status, message: res.body.error?.message }).toEqual({
+          path,
+          status: 403,
+          message: refusal,
+        })
+      }
+    }
+    // Answering the form of new dossiers is not designing forms: a project owner still reads it.
+    const active = await request(app.getHttpServer())
+      .get('/v1/questionnaires/active')
+      .set('Authorization', `Bearer ${entrepreneur}`)
+      .expect(200)
+    expect(active.body.version.status).toBe('published')
+
+    // A demoted administrator is refused from the next request, with the same token.
+    await call('get', `/${formId}/draft`).expect(200)
+    await fake.prisma.user.update({ where: { id: 'admin-1' }, data: { role: 'entrepreneur' } })
+    for (const path of reads.slice(0, 4)) {
+      const res = await call('get', path)
+      expect({ path, status: res.status, message: res.body.error?.message }).toEqual({
+        path,
+        status: 403,
+        message: refusal,
+      })
+    }
+  })
 })

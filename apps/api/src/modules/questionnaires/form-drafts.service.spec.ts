@@ -116,7 +116,7 @@ describe('FormDraftsService', () => {
     })
 
     // V1, read by existing dossiers, is unchanged.
-    const v1Again = await s.drafts.getVersion(form.id, v1.version.id)
+    const v1Again = await s.drafts.getVersion(ADMIN, form.id, v1.version.id)
     expect(byKey(v1Again, 'stade_de_financement')).toMatchObject({
       label: 'Stade de financement',
       choices: [
@@ -127,7 +127,7 @@ describe('FormDraftsService', () => {
 
     const published = await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     expect(published.version).toMatchObject({ status: 'published', version: 2 })
-    const v1Final = await s.drafts.getVersion(form.id, v1.version.id)
+    const v1Final = await s.drafts.getVersion(ADMIN, form.id, v1.version.id)
     expect(v1Final.version.status).toBe('archived')
     expect([...s.fake.table('auditLog').values()].map((a) => a.actionType)).toEqual([
       'form_created',
@@ -162,7 +162,7 @@ describe('FormDraftsService', () => {
 
     const attempt = s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     await expect(attempt).rejects.toBeInstanceOf(UnprocessableEntityException)
-    expect((await s.drafts.getDraft(form.id)).version.status).toBe('draft')
+    expect((await s.drafts.getDraft(ADMIN, form.id)).version.status).toBe('draft')
   })
 
   it('changing a list into another type drops its choices', async () => {
@@ -240,19 +240,19 @@ describe('FormDraftsService', () => {
     await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     const draft = await s.drafts.createDraft(ADMIN, form.id)
     await s.drafts.discardDraft(ADMIN, form.id)
-    await expect(s.drafts.getDraft(form.id)).rejects.toBeInstanceOf(NotFoundException)
+    await expect(s.drafts.getDraft(ADMIN, form.id)).rejects.toBeInstanceOf(NotFoundException)
     expect([...s.fake.table('questionnaireField').values()].map((f) => f.versionId)).not.toContain(
       draft.version.id,
     )
-    expect((await s.forms.get(form.id)).published).toMatchObject({ version: 1 })
+    expect((await s.forms.get(ADMIN, form.id)).published).toMatchObject({ version: 1 })
   })
 
   it('never reads a version through another form', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
     const other = await s.forms.create(ADMIN, 'Autre')
-    const draft = await s.drafts.getDraft(form.id)
-    await expect(s.drafts.getVersion(other.id, draft.version.id)).rejects.toBeInstanceOf(
+    const draft = await s.drafts.getDraft(ADMIN, form.id)
+    await expect(s.drafts.getVersion(ADMIN, other.id, draft.version.id)).rejects.toBeInstanceOf(
       NotFoundException,
     )
   })
@@ -296,7 +296,7 @@ describe('FormDraftsService', () => {
         await expect(write()).rejects.toBeInstanceOf(ForbiddenException)
       }
       expect(JSON.stringify([...s.fake.table('questionnaireField').values()])).toBe(before)
-      expect((await s.forms.list()).map((f) => f.name)).toEqual(['Candidature'])
+      expect((await s.forms.list(ADMIN)).map((f) => f.name)).toEqual(['Candidature'])
     },
   )
 })
