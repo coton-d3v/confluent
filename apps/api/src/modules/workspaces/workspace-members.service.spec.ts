@@ -245,13 +245,15 @@ describe('WorkspaceMembersService', () => {
         },
       })
       jest.clearAllMocks()
+      // Not in the workspace (another workspace's manager included): 404, as for a workspace that
+      // does not exist. A member without the right: 403.
       const outsiders = [
-        { id: 'nobody', role: 'entrepreneur' },
-        { id: investor.user.id, role: 'financeur' },
-        { id: advisor.user.id, role: 'financeur' },
-        otherManager,
-      ]
-      for (const actor of outsiders) {
+        [{ id: 'nobody', role: 'entrepreneur' }, 404],
+        [{ id: investor.user.id, role: 'financeur' }, 403],
+        [{ id: advisor.user.id, role: 'financeur' }, 403],
+        [otherManager, 404],
+      ] as const
+      for (const [actor, status] of outsiders) {
         const calls = [
           () => service.list(actor, workspaceId),
           () =>
@@ -260,12 +262,13 @@ describe('WorkspaceMembersService', () => {
           () => service.deactivate(actor, workspaceId, membershipOf(MANAGER.id).id),
           () => service.reactivate(actor, workspaceId, advisor.id),
         ]
-        for (const call of calls) expect(statusOf(await failure(call()))).toBe(403)
+        for (const call of calls) expect(statusOf(await failure(call()))).toBe(status)
       }
-      // A missing workspace is not revealed either.
       expect(
-        statusOf(await failure(service.list(outsiders[0], '00000000-0000-4000-8000-000000000000'))),
-      ).toBe(403)
+        statusOf(
+          await failure(service.list(outsiders[0][0], '00000000-0000-4000-8000-000000000000')),
+        ),
+      ).toBe(404)
       expect(fake.prisma.workspaceMembership.create).not.toHaveBeenCalled()
       expect(fake.prisma.workspaceMembership.update).not.toHaveBeenCalled()
       expect(fake.prisma.user.createMany).not.toHaveBeenCalled()
@@ -283,8 +286,9 @@ describe('WorkspaceMembersService', () => {
       await expect(service.list(luc, workspaceId)).resolves.toHaveLength(2)
       const deactivated = await service.deactivate(MANAGER, workspaceId, second.id)
       expect(deactivated).toMatchObject({ status: 'deactivated', canManageWorkspace: true })
-      expect(statusOf(await failure(service.list(luc, workspaceId)))).toBe(403)
-      expect(statusOf(await failure(workspaces.get(luc, workspaceId)))).toBe(403)
+      expect(statusOf(await failure(service.list(luc, workspaceId)))).toBe(404)
+      expect(statusOf(await failure(workspaces.get(luc, workspaceId)))).toBe(404)
+      expect(statusOf(await failure(workspaces.enter(luc, workspaceId)))).toBe(404)
       expect(fake.table('user').get(luc.id)?.isActive).toBe(true)
       expect(await service.listMine(luc)).toEqual([])
       // Reactivated: the right it held comes back.
@@ -458,5 +462,8 @@ describe('WorkspaceMembersService', () => {
       ['CCI Touraine', 'conseiller', true],
     ])
     expect(mine[0]).toMatchObject({ id: member.id, workspace: { color: '#0f766e' } })
+    // A role this version does not know grants nothing, so it is not offered to switch to (E05.03).
+    fake.table('workspaceMembership').get(member.id)!.role = 'observateur'
+    expect((await service.listMine(MANAGER)).map((m) => m.workspace.name)).toEqual(['CCI Touraine'])
   })
 })

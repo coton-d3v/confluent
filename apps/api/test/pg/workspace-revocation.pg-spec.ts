@@ -11,7 +11,8 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0
 
 // Code review R53: a manager's right is read again once the workspace row is locked. A request
 // already past its first check, then waiting for the lock while the manager is deactivated, writes
-// nothing — settings, logo replaced or removed.
+// nothing — settings, logo replaced or removed. Since E05.03 a deactivated member is no longer a
+// member: 404, like any workspace one cannot enter; a member deprived of the right gets 403.
 describe('workspace settings after a concurrent revocation (PostgreSQL)', () => {
   const prisma = testDatabase()
   // Records every object put in the bucket, to check none is left behind.
@@ -106,7 +107,7 @@ describe('workspace settings after a concurrent revocation (PostgreSQL)', () => 
       () => service.update(actor, workspaceId, { name: 'Après révocation' }),
       deactivate(membership.id),
     )
-    expect(outcome).toBe(403)
+    expect(outcome).toBe(404)
     const row = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } })
     expect(row.name).toBe('Avant révocation')
   })
@@ -142,7 +143,7 @@ describe('workspace settings after a concurrent revocation (PostgreSQL)', () => 
       () => service.setLogo(actor, workspaceId, PNG),
       deactivate(membership.id),
     )
-    expect(outcome).toBe(403)
+    expect(outcome).toBe(404)
     const after = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } })
     expect(after.logoKey).toBe(before.logoKey)
     expect(await storage.exists(before.logoKey!)).toBe(true)

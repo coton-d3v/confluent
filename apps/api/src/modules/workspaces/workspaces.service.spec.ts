@@ -84,15 +84,15 @@ describe('WorkspacesService', () => {
       const manager = { id: 'u-1', role: 'financeur' }
       const row = await member(cci.id, manager.id, { canManageWorkspace: true })
       await expect(service.get(manager, cci.id)).resolves.toMatchObject({ id: cci.id })
-      // Another workspace, the list of all and creation stay out of reach.
-      expect(statusOf(await service.get(manager, club.id).catch((e: unknown) => e))).toBe(403)
+      // Another workspace is not even revealed; the list of all and creation stay out of reach.
+      expect(statusOf(await service.get(manager, club.id).catch((e: unknown) => e))).toBe(404)
       expect(statusOf(await service.list(manager).catch((e: unknown) => e))).toBe(403)
       expect(
         statusOf(await service.create(manager, { name: 'Pirate' }).catch((e: unknown) => e)),
       ).toBe(403)
-      // Deactivated: refused at the next call.
+      // Deactivated: refused at the next call, as if the workspace did not exist.
       fake.table('workspaceMembership').get(row.id)!.deactivatedAt = new Date()
-      expect(statusOf(await service.get(manager, cci.id).catch((e: unknown) => e))).toBe(403)
+      expect(statusOf(await service.get(manager, cci.id).catch((e: unknown) => e))).toBe(404)
     })
 
     it('keeps the email domain to administrators: it bounds the managers’ own invitations', async () => {
@@ -123,21 +123,23 @@ describe('WorkspacesService', () => {
       await member(ws.id, 'u-3', { role: 'investisseur', canManageWorkspace: true })
       jest.clearAllMocks()
       const upload = jest.spyOn(storage, 'upload')
-      for (const someone of [
-        { id: 'u-1', role: 'entrepreneur' },
-        { id: 'u-2', role: 'financeur' },
-        { id: 'u-3', role: 'financeur' },
-      ]) {
+      // Outside the workspace: 404, as for a workspace that does not exist; a member without the
+      // right: 403. Listing all and creating: 403 for both.
+      for (const [someone, outside] of [
+        [{ id: 'u-1', role: 'entrepreneur' }, 404],
+        [{ id: 'u-2', role: 'financeur' }, 403],
+        [{ id: 'u-3', role: 'financeur' }, 403],
+      ] as const) {
         const calls = [
-          () => service.list(someone),
-          () => service.get(someone, ws.id),
-          () => service.create(someone, { name: 'Pirate' }),
-          () => service.update(someone, ws.id, { name: 'Pirate' }),
-          () => service.setLogo(someone, ws.id, PNG),
-          () => service.removeLogo(someone, ws.id),
-        ]
-        for (const call of calls) {
-          expect(statusOf(await call().catch((e: unknown) => e))).toBe(403)
+          [() => service.list(someone), 403],
+          [() => service.get(someone, ws.id), outside],
+          [() => service.create(someone, { name: 'Pirate' }), 403],
+          [() => service.update(someone, ws.id, { name: 'Pirate' }), outside],
+          [() => service.setLogo(someone, ws.id, PNG), outside],
+          [() => service.removeLogo(someone, ws.id), outside],
+        ] as const
+        for (const [call, status] of calls) {
+          expect(statusOf(await call().catch((e: unknown) => e))).toBe(status)
         }
       }
       expect(fake.prisma.workspace.findUnique).not.toHaveBeenCalled()

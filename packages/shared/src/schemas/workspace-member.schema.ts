@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { workspaceSchema } from './workspace.schema.js'
 
 // Memberships of a workspace (ROADMAP E05.02): a person's role in one structure, distinct from the
 // account's global role. Same rules for the site (immediate feedback) and the API (authoritative);
@@ -169,8 +170,19 @@ export const myWorkspaceMembershipSchema = z.object({
   }),
 })
 
+// The workspace a person enters (ROADMAP E05.03), as any of its active members — or a Confluent
+// administrator — sees it: its identity without the management settings, their own membership
+// (null for an administrator who is not a member) and whether they may manage it. Choosing it in the
+// site is no authorization: the API checks the membership again at each request.
+export const currentWorkspaceSchema = z.object({
+  workspace: workspaceSchema.omit({ emailDomain: true, createdAt: true, updatedAt: true }),
+  membership: myWorkspaceMembershipSchema.omit({ workspace: true }).nullable(),
+  canManageWorkspace: z.boolean(),
+})
+
 export type InviteWorkspaceMemberInput = z.input<typeof inviteWorkspaceMemberSchema>
 export type UpdateWorkspaceMemberInput = z.input<typeof updateWorkspaceMemberSchema>
 export type WorkspaceMember = z.infer<typeof workspaceMemberSchema>
 export type WorkspaceMemberInvitation = z.infer<typeof workspaceMemberInvitationSchema>
 export type MyWorkspaceMembership = z.infer<typeof myWorkspaceMembershipSchema>
+export type CurrentWorkspace = z.infer<typeof currentWorkspaceSchema>

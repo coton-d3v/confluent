@@ -148,8 +148,11 @@ describe('workspace members (PostgreSQL)', () => {
         service.deactivate(a.actor, workspaceId, b.membershipId),
         service.update(b.actor, workspaceId, a.membershipId, { canManageWorkspace: false }),
       ])
-      // The second one no longer manages the workspace once the first is done.
-      expect(results.map(statusOf).sort()).toEqual([403, 'fulfilled'])
+      // The second one no longer manages the workspace once the first is done: 403 when demoted,
+      // 404 when deactivated (no longer in the workspace at all, E05.03).
+      const [refused, done] = results.map(statusOf).sort()
+      expect(done).toBe('fulfilled')
+      expect([403, 404]).toContain(refused)
       expect(await activeManagers(workspaceId)).toBe(1)
     }
   })

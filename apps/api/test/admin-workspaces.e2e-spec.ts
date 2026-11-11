@@ -176,7 +176,8 @@ describe('/v1/admin/workspaces (e2e)', () => {
     await call('patch', `/${ws.id}`).send({}).expect(400)
     await call('patch', '/00000000-0000-4000-8000-000000000000').send({ name: 'x' }).expect(404)
     await call('get', '/00000000-0000-4000-8000-000000000000').expect(404)
-    await call('get', '/pas-un-uuid').expect(400)
+    // A malformed identifier names no workspace either (E05.03: checked before the parameter pipe).
+    await call('get', '/pas-un-uuid').expect(404)
   })
 
   it('stores the logo in the private bucket, replaces it and removes it', async () => {
@@ -232,18 +233,24 @@ describe('/v1/admin/workspaces (e2e)', () => {
     'refuses every workspace operation to a %s account',
     async (role) => {
       const ws = await createCci()
-      const refusals = [
+      for (const send of [
         () => call('get', '', role),
         () => call('post', '', role).send({ name: 'Pirate' }),
+      ]) {
+        const res = await send()
+        expect(res.status).toBe(403)
+        expect(res.body.error.message).toContain('aux administrateurs de Confluent')
+      }
+      // Not a member: the workspace is not even revealed (E05.03).
+      for (const send of [
         () => call('get', `/${ws.id}`, role),
         () => call('patch', `/${ws.id}`, role).send({ name: 'Pirate' }),
         () => uploadLogo(ws.id, PNG, role),
         () => call('delete', `/${ws.id}/logo`, role),
-      ]
-      for (const send of refusals) {
+      ]) {
         const res = await send()
-        expect(res.status).toBe(403)
-        expect(res.body.error.message).toContain('aux administrateurs de Confluent')
+        expect(res.status).toBe(404)
+        expect(res.body.error.message).toBe('Workspace introuvable, ou vous n’en êtes pas membre.')
       }
       expect(fake.table('workspace').size).toBe(1)
       expect(fake.table('workspace').get(ws.id)).toMatchObject({

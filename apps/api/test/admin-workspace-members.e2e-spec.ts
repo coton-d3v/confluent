@@ -179,7 +179,13 @@ describe('workspace members (e2e)', () => {
       canManageWorkspace: true,
     }).expect(201)
 
-    for (const as of ['advisor', 'investor', 'entrepreneur'] as const) {
+    // A member without the right or an investor: 403. Not in the workspace (an entrepreneur, another
+    // workspace's manager): 404, as for a workspace that does not exist (E05.03).
+    for (const [as, status] of [
+      ['advisor', 403],
+      ['investor', 403],
+      ['entrepreneur', 404],
+    ] as const) {
       const refusals = [
         () => call('get', `/admin/workspaces/${id}`, as),
         () => call('patch', `/admin/workspaces/${id}`, as).send({ name: 'Pirate' }),
@@ -191,19 +197,19 @@ describe('workspace members (e2e)', () => {
           call('patch', `${members(id)}/${managerMembershipId}`, as).send({ organization: 'X' }),
         () => call('post', `${members(id)}/${managerMembershipId}/deactivate`, as),
         () => call('post', `${members(id)}/${managerMembershipId}/reactivate`, as),
-        // Creating and listing all workspaces stay for administrators, managers included.
-        () => call('get', '/admin/workspaces', as),
-        () => call('post', '/admin/workspaces', as).send({ name: 'Pirate' }),
       ]
       for (const send of refusals) {
         const res = await send()
-        expect(res.status).toBe(403)
+        expect(res.status).toBe(status)
       }
+      // Creating and listing all workspaces stay for administrators, managers included.
+      await call('get', '/admin/workspaces', as).expect(403)
+      await call('post', '/admin/workspaces', as).send({ name: 'Pirate' }).expect(403)
     }
     await call('get', '/admin/workspaces', 'manager').expect(403)
-    await call('get', `/admin/workspaces/${club}`, 'manager').expect(403)
-    // An unknown workspace is not revealed to a non-manager.
-    await call('get', members('00000000-0000-4000-8000-000000000000'), 'manager').expect(403)
+    await call('get', `/admin/workspaces/${club}`, 'manager').expect(404)
+    // An unknown workspace is not revealed to a non-member.
+    await call('get', members('00000000-0000-4000-8000-000000000000'), 'manager').expect(404)
     await call('get', members('00000000-0000-4000-8000-000000000000')).expect(404)
 
     expect(fake.table('workspace').get(id)).toMatchObject({ name: 'CCI Touraine', logoKey: null })
@@ -303,8 +309,9 @@ describe('workspace members (e2e)', () => {
     const off = await call('post', `${path}/deactivate`, 'manager').expect(201)
     expect(off.body).toMatchObject({ status: 'deactivated', canManageWorkspace: true })
     expect(off.body.deactivatedAt).toEqual(expect.any(String))
-    // Same token, next request: refused. The account still signs in and keeps its other rights.
-    await call('get', members(id), 'advisor').expect(403)
+    // Same token, next request: refused, as if the workspace did not exist. The account still signs
+    // in and keeps its other rights.
+    await call('get', members(id), 'advisor').expect(404)
     await call('get', '/workspaces/memberships', 'advisor').expect(200).expect([])
     expect(fake.table('user').get('advisor')?.isActive).toBe(true)
     // Listed after the active members, history kept.
@@ -327,7 +334,7 @@ describe('workspace members (e2e)', () => {
     await call('get', members(id), 'manager').expect(200)
     // An administrator may: the workspace is managed by administrators, as at its creation.
     await call('post', `${own}/deactivate`).expect(201)
-    await call('get', members(id), 'manager').expect(403)
+    await call('get', members(id), 'manager').expect(404)
   })
 
   it('lists no workspace for an account without membership, and requires a session', async () => {

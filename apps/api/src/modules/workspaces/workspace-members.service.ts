@@ -15,6 +15,7 @@ import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transp
 import {
   WorkspaceAccessService,
   canAdministerAllWorkspaces,
+  isActiveMembership,
   type WorkspaceActor,
 } from './workspace-access'
 import { WorkspaceErrors } from './workspace-errors'
@@ -88,9 +89,6 @@ export class WorkspaceMembersService {
 
   async list(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceMemberView[]> {
     await this.access.assertCanManage(actor, workspaceId)
-    if (!(await this.prisma.workspace.findUnique({ where: { id: workspaceId } }))) {
-      throw WorkspaceErrors.notFound()
-    }
     const rows = await this.prisma.workspaceMembership.findMany({
       where: { workspaceId },
       include: WITH_PEOPLE,
@@ -105,13 +103,15 @@ export class WorkspaceMembersService {
       )
   }
 
-  // The signed-in person's active memberships (their workspaces), whatever their rights in them.
+  // The signed-in person's active memberships — the workspaces they may enter and switch between
+  // (E05.03) — whatever their rights in them. Only their own: no identifier comes from the client.
   async listMine(actor: WorkspaceActor): Promise<MyMembershipView[]> {
     const rows = await this.prisma.workspaceMembership.findMany({
       where: { userId: actor.id, deactivatedAt: null },
       include: { workspace: true },
     })
     return rows
+      .filter(isActiveMembership)
       .map((row) => ({
         id: row.id,
         role: row.role as WorkspaceMemberRole,
@@ -286,18 +286,15 @@ export class WorkspaceMembersService {
     return toView(member)
   }
 
-  // Lock first, then the rule (after the lock, see the class comment), then the workspace: whoever
-  // may not manage it learns nothing of its existence.
+  // Lock first, then the rule (after the lock, see the class comment), which reads the workspace:
+  // whoever is not in it learns nothing of its existence.
   private async lockForManager(
     tx: Prisma.TransactionClient,
     actor: WorkspaceActor,
     workspaceId: string,
   ): Promise<Workspace> {
     await lockWorkspaceRow(tx, workspaceId)
-    await this.access.assertCanManage(actor, workspaceId, tx)
-    const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } })
-    if (!workspace) throw WorkspaceErrors.notFound()
-    return workspace
+    return (await this.access.assertCanManage(actor, workspaceId, tx)).workspace
   }
 
   // A manager cannot give up the last management right of the workspace (theirs, since they act

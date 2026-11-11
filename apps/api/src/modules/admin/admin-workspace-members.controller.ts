@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common'
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -15,6 +15,7 @@ import { inviteWorkspaceMemberSchema, updateWorkspaceMemberSchema } from '@confl
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
 import {
   WorkspaceMembersService,
   type WorkspaceMemberView,
@@ -31,9 +32,13 @@ const uuid = new ParseUUIDPipe()
 @ApiBearerAuth('jwt')
 @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
 @ApiForbiddenResponse({
-  description: 'Ni administrateur de Confluent, ni gestionnaire actif de ce workspace.',
+  description: 'Membre du workspace sans le droit de le gérer.',
 })
-@ApiNotFoundResponse({ description: 'Workspace ou membre inexistant.' })
+@ApiNotFoundResponse({
+  description:
+    'Workspace inexistant ou dont le compte n’est pas membre actif (même réponse), ou membre inexistant.',
+})
+@UseGuards(WorkspaceAccessGuard)
 @Controller('admin/workspaces/:workspaceId/members')
 export class AdminWorkspaceMembersController {
   constructor(private readonly members: WorkspaceMembersService) {}
