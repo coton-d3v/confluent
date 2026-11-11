@@ -4,6 +4,7 @@ import type {
   CandidatureSupportPath,
   ReceivedSupportPath,
   ReceivedSupportStep,
+  SupportPhase,
   SupportStepHistoryEntry,
 } from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,8 @@ import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/Confi
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 import { getReceivedSupportPath, getSupportPath, setSupportStepValidation } from '../api'
+import { progressText } from '../presentation'
+import { SupportPhaseBadge } from './SupportPhase'
 
 export type SupportPathScope =
   | { side: 'owner'; candidatureId: string }
@@ -45,7 +48,8 @@ const load = (scope: SupportPathScope): Promise<Path> =>
 // with their explanation and whether the structure validated them. The owner reads it (from the
 // draft on, never learning which conseiller validated); the workspace's conseillers validate a step
 // or withdraw its validation, see who validated and the history. A step changed meanwhile by
-// someone else is refused by the API: the path is then reloaded, nothing overwritten.
+// someone else is refused by the API: the path is then reloaded, nothing overwritten. E06.07: both
+// sides read the phase the API computes, and the current step is marked.
 export function SupportPathPanel({ scope, intro }: { scope: SupportPathScope; intro: ReactNode }) {
   const query = useAsync(() => load(scope), [JSON.stringify(scope)])
   const [current, setCurrent] = useState<Path | null>(null)
@@ -94,8 +98,7 @@ function Body({
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const steps = data.steps as Step[]
-  const inPath = steps.filter((s) => s.active)
-  const validated = inPath.filter((s) => s.validatedAt !== null).length
+  const { progress } = data
   const history = 'history' in data ? data.history : null
 
   async function set(step: Step, value: boolean) {
@@ -142,10 +145,15 @@ function Body({
 
   return (
     <>
-      <p role="status" className="text-sm font-medium text-foreground">
-        {validated} étape{validated > 1 ? 's' : ''} validée{validated > 1 ? 's' : ''} sur{' '}
-        {inPath.length}
-      </p>
+      <div role="status" className="flex flex-col gap-1">
+        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+          Phase <SupportPhaseBadge phase={progress.phase} />
+        </p>
+        {progressText(progress) && (
+          <p className="wrap-anywhere text-sm text-foreground">{progressText(progress)}</p>
+        )}
+        <p className="text-xs text-muted-foreground">{PHASE_HINT[scope.side][progress.phase]}</p>
+      </div>
       <ol aria-label="Étapes du parcours" className="flex flex-col divide-y divide-border">
         {steps.map((step, index) => (
           <li key={step.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start">
@@ -158,6 +166,8 @@ function Body({
                     Validée le {dateFr(step.validatedAt)}
                     {scope.side === 'owner' ? ' par la structure' : ''}
                   </Badge>
+                ) : step.id === progress.currentStep?.id ? (
+                  <Badge variant="secondary">Étape en cours</Badge>
                 ) : (
                   <Badge variant="outline">À valider</Badge>
                 )}
@@ -210,6 +220,25 @@ function Body({
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </>
   )
+}
+
+// What each phase means (E06.07), to each side.
+const PHASE_HINT: Record<SupportPathScope['side'], Record<SupportPhase, string>> = {
+  owner: {
+    in_progress:
+      'Votre candidature est en préparation : la structure valide chaque étape au fil de l’accompagnement.',
+    ready:
+      'Toutes les étapes du parcours sont validées par la structure : votre candidature est prête à lever.',
+    no_path:
+      'La structure n’utilise plus d’étape de parcours : aucune phase n’est calculée pour l’instant.',
+  },
+  workspace: {
+    in_progress:
+      'En préparation tant qu’une étape active du parcours reste à valider ; l’étape en cours est la première d’entre elles.',
+    ready: 'Prête à lever : toutes les étapes actives du parcours sont validées.',
+    no_path:
+      'Sans parcours : aucune étape n’est active dans le parcours de votre structure, aucune candidature n’est déclarée prête.',
+  },
 }
 
 function History({ entries }: { entries: SupportStepHistoryEntry[] }) {

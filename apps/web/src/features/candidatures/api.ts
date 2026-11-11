@@ -5,9 +5,9 @@ import type {
   CandidatureAnswer,
   CandidatureSummary,
   CandidatureWorkspace,
+  Portfolio,
+  PortfolioQuery,
   ReceivedCandidature,
-  ReceivedCandidatureListItem,
-  ReceivedCandidaturesQuery,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
@@ -52,17 +52,17 @@ export const changeFinancingStatus = (candidatureId: string, change: ChangeFinan
     body: JSON.stringify(change),
   })
 
-// The workspace's side: its conseillers read the candidatures it receives, filtered by scheme,
-// verification and financing status when asked (E06.05).
-export const listReceivedCandidatures = (
-  workspaceId: string,
-  filter: ReceivedCandidaturesQuery = {},
-) => {
+// The workspace's side: its conseillers follow the candidatures it receives in its portfolio
+// (E06.07) — counted by phase and current step, filtered by phase, step, financing status and
+// scheme (E06.05), a page at a time.
+export const getPortfolio = (workspaceId: string, filter: PortfolioQuery = {}) => {
   const query = new URLSearchParams(
-    Object.entries(filter).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    Object.entries(filter).flatMap(([key, value]) =>
+      value === undefined || value === '' ? [] : [[key, String(value)]],
+    ),
   ).toString()
-  return apiRequest<ReceivedCandidatureListItem[]>(
-    `/v1/workspaces/${id(workspaceId)}/candidatures${query ? `?${query}` : ''}`,
+  return apiRequest<Portfolio>(
+    `/v1/workspaces/${id(workspaceId)}/portfolio${query ? `?${query}` : ''}`,
   )
 }
 
