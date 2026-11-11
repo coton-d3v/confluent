@@ -1,6 +1,7 @@
 import type {
   AnswerInput,
   Candidature,
+  ChangeFinancingStatusInput,
   CandidatureAnswer,
   CandidatureSummary,
   CandidatureWorkspace,
@@ -39,8 +40,16 @@ export const saveCandidatureAnswers = (candidatureId: string, answers: AnswerInp
 export const submitCandidature = (candidatureId: string) =>
   apiRequest<Candidature>(`/v1/candidatures/${id(candidatureId)}/submit`, { method: 'POST' })
 
+// A draft only: once sent, the structure keeps it and its owner abandons it (E06.01).
 export const withdrawCandidature = (candidatureId: string) =>
   apiRequest<void>(`/v1/candidatures/${id(candidatureId)}`, { method: 'DELETE' })
+
+// E06.01: the financing status of a sent candidature, from the status the client saw.
+export const changeFinancingStatus = (candidatureId: string, change: ChangeFinancingStatusInput) =>
+  apiRequest<Candidature>(`/v1/candidatures/${id(candidatureId)}/financing-status`, {
+    method: 'POST',
+    body: JSON.stringify(change),
+  })
 
 // The workspace's side: its conseillers read the candidatures it receives.
 export const listReceivedCandidatures = (workspaceId: string) =>
@@ -49,4 +58,14 @@ export const listReceivedCandidatures = (workspaceId: string) =>
 export const getReceivedCandidature = (workspaceId: string, candidatureId: string) =>
   apiRequest<ReceivedCandidature>(
     `/v1/workspaces/${id(workspaceId)}/candidatures/${id(candidatureId)}`,
+  )
+
+export const changeReceivedFinancingStatus = (
+  workspaceId: string,
+  candidatureId: string,
+  change: ChangeFinancingStatusInput,
+) =>
+  apiRequest<ReceivedCandidature>(
+    `/v1/workspaces/${id(workspaceId)}/candidatures/${id(candidatureId)}/financing-status`,
+    { method: 'POST', body: JSON.stringify(change) },
   )

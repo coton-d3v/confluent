@@ -3,6 +3,7 @@ import { Info } from 'lucide-react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCurrentUser } from '@/features/current-user/context'
+import { DOSSIER_PUBLICATION_STATUS_LABELS, publicationStatusOf } from '@confluent/shared'
 import {
   adminRevokeShare,
   getAdminDossier,
@@ -153,7 +154,7 @@ function AdminDossierDetailView({
       {detailQuery.data && (
         <p className="mt-1 text-sm text-muted-foreground">
           Entreprise : {detailQuery.data.company.name} · {detailQuery.data.ownerEmail} ·{' '}
-          {detailQuery.data.publicationStatus === 'published' ? 'Demande publiée' : 'Demande en brouillon'}
+          Demande : {DOSSIER_PUBLICATION_STATUS_LABELS[publicationStatusOf(detailQuery.data.publicationStatus)].toLowerCase()}
         </p>
       )}
       {detailQuery.data && <AdminRequest detail={detailQuery.data} />}

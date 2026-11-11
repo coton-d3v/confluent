@@ -51,3 +51,14 @@ export function unpublishDossier(id: string): Promise<Dossier> {
     method: 'POST',
   })
 }
+
+// E06.01: the owner closes the request (archived), or reopens it as a draft.
+export function archiveDossier(id: string): Promise<Dossier> {
+  return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}/archive`, { method: 'POST' })
+}
+
+export function unarchiveDossier(id: string): Promise<Dossier> {
+  return apiRequest<Dossier>(`/v1/dossiers/${encodeURIComponent(id)}/unarchive`, {
+    method: 'POST',
+  })
+}

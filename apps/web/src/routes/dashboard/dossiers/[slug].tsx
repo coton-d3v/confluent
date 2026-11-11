@@ -39,7 +39,12 @@ import { RequestEditor } from '@/features/dossiers/components/RequestEditor'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { DossierCandidatures } from '@/features/candidatures/components/DossierCandidatures'
 import { hasPresentation } from '@/features/dossiers/presentation'
-import type { Dossier } from '@confluent/shared'
+import {
+  DOSSIER_PUBLICATION_STATUS_LABELS,
+  isArchived,
+  publicationStatusOf,
+  type Dossier,
+} from '@confluent/shared'
 
 const TAB_VALUES = {
   request: 'demande',
@@ -324,7 +329,7 @@ function DossierView({
                 {dossierQuery.data.company.name}
               </Link>
               {' · '}
-              {dossierQuery.data.publicationStatus === 'published' ? 'Publiée' : 'Brouillon'}
+              {DOSSIER_PUBLICATION_STATUS_LABELS[publicationStatusOf(dossierQuery.data.publicationStatus)]}
             </p>
           )}
         </div>
@@ -514,6 +519,7 @@ function DossierView({
               dossierId={dossierId}
               profileSubmitted={dossierQuery.data?.submittedAt != null}
               inPreparation={inPreparation}
+              archived={dossierQuery.data ? isArchived(dossierQuery.data) : false}
             />
           </TabsContent>
         )}

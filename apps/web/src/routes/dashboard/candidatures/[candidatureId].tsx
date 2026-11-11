@@ -11,12 +11,17 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
 import {
+  changeFinancingStatus,
   getCandidature,
   saveCandidatureAnswers,
   submitCandidature,
   withdrawCandidature,
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
+import {
+  FinancingStatusBadge,
+  FinancingStatusPanel,
+} from '@/features/candidatures/components/FinancingStatusPanel'
 import type { ApiError } from '@/lib/api-client'
 import { stripNonPrintable } from '@/lib/sanitize'
 import { useAsync } from '@/lib/useAsync'
@@ -162,12 +167,12 @@ function CandidatureEditor({
     setBusy(false)
   }
 
+  // A draft only: once sent, the structure follows the candidature and keeps it (E06.01).
   function askWithdraw() {
     setConfirm({
       title: 'Retirer la candidature ?',
-      description: submitted
-        ? `${workspace.name} ne pourra plus la lire. Vos réponses à son formulaire seront supprimées ; le profil de l’entreprise et la demande ne changent pas.`
-        : 'Vos réponses au formulaire de la structure seront supprimées ; le profil de l’entreprise et la demande ne changent pas.',
+      description:
+        'Vos réponses au formulaire de la structure seront supprimées ; le profil de l’entreprise et la demande ne changent pas.',
       confirmLabel: 'Retirer',
       onConfirm: () => {
         setBusy(true)
@@ -209,9 +214,11 @@ function CandidatureEditor({
           Candidature auprès de {workspace.name}
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant={submitted ? 'default' : 'outline'}>
-            {CANDIDATURE_STATUS_LABELS[candidature.status]}
-          </Badge>
+          {submitted ? (
+            <FinancingStatusBadge status={candidature.financingStatus} />
+          ) : (
+            <Badge variant="outline">{CANDIDATURE_STATUS_LABELS[candidature.status]}</Badge>
+          )}
           {workspace.programName && <span className="wrap-anywhere">{workspace.programName}</span>}
           <span>
             {candidature.submittedAt
@@ -222,6 +229,31 @@ function CandidatureEditor({
       </header>
 
       <div className="mt-6 flex max-w-3xl flex-col gap-6">
+        {submitted && (
+          <FinancingStatusPanel
+            actor="owner"
+            status={candidature.financingStatus}
+            changedAt={candidature.financingStatusChangedAt}
+            history={candidature.statusHistory}
+            describeBy={(change) => (change.by === 'owner' ? 'par vous' : `par ${workspace.name}`)}
+            intro={`Où en est votre demande auprès de ${workspace.name}. La structure indique le passage en comité, le financement ou le refus ; vous pouvez abandonner la demande auprès d’elle, puis la reprendre.`}
+            confirmText={() =>
+              `${workspace.name} verra que vous abandonnez votre demande auprès d’elle ; elle garde votre candidature. Vous pourrez la reprendre ensuite.`
+            }
+            onTransition={async (to) => {
+              onChange(
+                await changeFinancingStatus(candidature.id, {
+                  from: candidature.financingStatus,
+                  to,
+                }),
+              )
+            }}
+            onStale={() => {
+              void getCandidature(candidature.id).then(onChange, () => undefined)
+            }}
+          />
+        )}
+
         <section
           aria-label="Ce que la structure reçoit"
           className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
@@ -297,9 +329,11 @@ function CandidatureEditor({
                 Envoyer à {workspace.name}
               </Button>
             )}
-            <Button type="button" variant="ghost" disabled={busy} onClick={askWithdraw}>
-              Retirer la candidature
-            </Button>
+            {!submitted && (
+              <Button type="button" variant="ghost" disabled={busy} onClick={askWithdraw}>
+                Retirer la candidature
+              </Button>
+            )}
           </div>
         </form>
       </div>

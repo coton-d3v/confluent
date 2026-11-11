@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { formatAmount, financingTypeLabels } from '@/features/dossiers/presentation'
 import { useAsync } from '@/lib/useAsync'
 import { listReceivedCandidatures } from '../api'
+import { FinancingStatusBadge } from './FinancingStatusPanel'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -17,8 +18,8 @@ export function ReceivedCandidaturesSection({ workspaceId }: { workspaceId: stri
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Les demandes de financement que des entreprises présentent à votre structure : leur
-          profil commun et leurs réponses à votre formulaire. Une candidature en brouillon reste
-          invisible tant que l’entreprise ne l’a pas envoyée.
+          profil commun, leurs réponses à votre formulaire et leur statut de financement chez vous.
+          Une candidature en brouillon reste invisible tant que l’entreprise ne l’a pas envoyée.
         </p>
       </div>
       {query.isLoading && !query.data ? (
@@ -36,12 +37,15 @@ export function ReceivedCandidaturesSection({ workspaceId }: { workspaceId: stri
             const types = financingTypeLabels(c.dossier.financingTypes)
             return (
               <li key={c.id} className="rounded-lg border border-border bg-card px-4 py-3">
-                <Link
-                  to={`/workspaces/${workspaceId}/candidatures/${c.id}`}
-                  className="break-words text-base font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  {c.company.name} — {c.dossier.name}
-                </Link>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Link
+                    to={`/workspaces/${workspaceId}/candidatures/${c.id}`}
+                    className="min-w-0 break-words text-base font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    {c.company.name} — {c.dossier.name}
+                  </Link>
+                  <FinancingStatusBadge status={c.financingStatus} />
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground wrap-anywhere">
                   {[`Reçue le ${dateFr(c.submittedAt)}`, amount, types.join(', ') || null]
                     .filter(Boolean)

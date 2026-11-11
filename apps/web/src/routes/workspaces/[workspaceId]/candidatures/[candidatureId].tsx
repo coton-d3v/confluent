@@ -1,14 +1,30 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import type { ReceivedCandidature } from '@confluent/shared'
-import { getReceivedCandidature } from '@/features/candidatures/api'
+import type { ReceivedCandidature, ReceivedFinancingStatusChange } from '@confluent/shared'
+import {
+  changeReceivedFinancingStatus,
+  getReceivedCandidature,
+} from '@/features/candidatures/api'
 import { AnswersReadout } from '@/features/candidatures/components/AnswersReadout'
+import {
+  FinancingStatusBadge,
+  FinancingStatusPanel,
+} from '@/features/candidatures/components/FinancingStatusPanel'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
+
+const personOf = (p: { email: string; firstName: string | null; lastName: string | null }) =>
+  [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email
+
+// Who made a change, as the structure knows it: its member or the entrepreneur, by name.
+const describeBy = (change: ReceivedFinancingStatusChange) => {
+  const who = change.actor ? personOf(change.actor) : 'un compte supprimé'
+  return change.by === 'owner' ? `par le porteur de projet (${who})` : `par ${who}`
+}
 
 // ROADMAP E05.09: a candidature the workspace received, as its conseillers read it — the request's
 // presentation, the company's common profile and the answers to the workspace's own form.
@@ -34,6 +50,8 @@ function ReceivedCandidaturePage({
     () => getReceivedCandidature(workspaceId, candidatureId),
     [workspaceId, candidatureId],
   )
+  // The candidature as a change of its status left it, until the page is left.
+  const [current, setCurrent] = useState<ReceivedCandidature | null>(null)
   const back = (
     <Link to={`/workspaces/${workspaceId}`} className="text-sm text-foreground underline underline-offset-4">
       Retour au workspace
@@ -58,15 +76,23 @@ function ReceivedCandidaturePage({
     }
     return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
   }
-  return <ReceivedCandidatureView workspaceId={workspaceId} candidature={query.data} />
+  return (
+    <ReceivedCandidatureView
+      workspaceId={workspaceId}
+      candidature={current ?? query.data}
+      onChange={setCurrent}
+    />
+  )
 }
 
 function ReceivedCandidatureView({
   workspaceId,
   candidature,
+  onChange,
 }: {
   workspaceId: string
   candidature: ReceivedCandidature
+  onChange: (next: ReceivedCandidature) => void
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -92,6 +118,9 @@ function ReceivedCandidatureView({
         >
           {company.name} — {dossier.name}
         </h1>
+        <div className="mt-1">
+          <FinancingStatusBadge status={candidature.financingStatus} />
+        </div>
         <p className="text-sm text-muted-foreground wrap-anywhere">
           Reçue le {dateFr(candidature.submittedAt)} · {name ? `${name} · ` : ''}
           <a href={`mailto:${applicant.email}`} className="underline underline-offset-4">
@@ -101,11 +130,42 @@ function ReceivedCandidatureView({
       </header>
 
       <div className="mt-6 flex max-w-3xl flex-col gap-8">
+        <FinancingStatusPanel
+          actor="workspace"
+          status={candidature.financingStatus}
+          changedAt={candidature.financingStatusChangedAt}
+          history={candidature.statusHistory}
+          describeBy={describeBy}
+          intro="Où en est cette demande dans votre structure : vous seuls et l’entreprise le voyez, aucune autre structure ni aucun investisseur."
+          confirmText={(to) =>
+            to === 'abandoned'
+              ? 'L’entreprise verra que sa demande est notée abandonnée par votre structure. Vous pourrez la rouvrir.'
+              : 'L’entreprise verra ce statut sur sa candidature. Vous pourrez la rouvrir.'
+          }
+          onTransition={async (to) => {
+            onChange(
+              await changeReceivedFinancingStatus(workspaceId, candidature.id, {
+                from: candidature.financingStatus,
+                to,
+              }),
+            )
+          }}
+          onStale={() => {
+            void getReceivedCandidature(workspaceId, candidature.id).then(onChange, () => undefined)
+          }}
+        />
+
         <section aria-labelledby="rc-request">
           <h2 id="rc-request" className="font-heading text-lg font-semibold text-foreground">
             La demande
           </h2>
           <div className="mt-3">
+            {dossier.publicationStatus === 'archived' && (
+              <p className="mb-3 text-sm text-muted-foreground">
+                L’entreprise a archivé cette demande : elle l’a close de son côté, son statut chez
+                vous reste le vôtre.
+              </p>
+            )}
             {hasPresentation(dossier) ? (
               <RequestPresentation dossier={dossier} />
             ) : (
