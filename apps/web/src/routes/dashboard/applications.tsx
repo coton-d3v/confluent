@@ -79,6 +79,13 @@ export default function ApplicationsRoute() {
                       <li key={s.scope}>{s.label}</li>
                     ))}
                   </ul>
+                  {app.workspaces && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {app.workspaces.length === 0
+                        ? 'Aucun workspace : vos dossiers personnels seulement.'
+                        : `Workspaces : ${app.workspaces.map((w) => w.name).join(', ')}`}
+                    </p>
+                  )}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {app.connections > 1 && `${app.connections} connexions · `}
                     Connectée le {formatDate(app.connectedAt)} ·{' '}

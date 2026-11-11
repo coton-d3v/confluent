@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { LoaderCircleIcon, ShieldCheckIcon } from 'lucide-react'
-import { OAUTH_SCOPES } from '@confluent/shared'
+import { OAUTH_SCOPES, WORKSPACE_MEMBER_ROLE_LABELS } from '@confluent/shared'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { Button } from '@/components/ui/button'
@@ -56,20 +56,19 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
 const { write: WRITE } = OAUTH_SCOPES
 
 // Permissions offered on top of the level, each consented to on its own (the API lists the form
-// ones for an administrator only). Submitting and publishing act on the user's behalf: they start
-// unticked, so that approving without reading never grants them (code review R52).
+// ones to whoever designs forms only, the presentation ones to whoever may own companies).
+// Submitting, presenting and publishing act on the user's behalf: they start unticked, so that
+// approving without reading never grants them (code review R52). Listed here before the API offers
+// them (E05.10): an unknown permission would otherwise join the access level.
 const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
-  {
-    scope: OAUTH_SCOPES.formsWrite,
-    title: 'Concevoir les formulaires (administrateur)',
-    ticked: true,
-  },
+  { scope: OAUTH_SCOPES.formsWrite, title: 'Concevoir des formulaires', ticked: true },
   { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
   {
-    scope: OAUTH_SCOPES.formsPublish,
-    title: 'Publier un formulaire (administrateur)',
+    scope: OAUTH_SCOPES.present,
+    title: 'Présenter vos demandes de financement',
     ticked: false,
   },
+  { scope: OAUTH_SCOPES.formsPublish, title: 'Publier un formulaire', ticked: false },
 ]
 const OPTIONAL_SCOPES = new Set<string>(OPTIONAL_PERMISSIONS.map((p) => p.scope))
 
@@ -110,6 +109,16 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
     ...optional.filter((p) => ticked.has(p.scope)).map((p) => p.scope),
   ]
   const labelOf = (scope: string) => request.scopes.find((s) => s.scope === scope)?.label ?? scope
+  // E05.10: the workspaces the application may reach, none beforehand (closed by default).
+  const workspaces = request.workspaces ?? []
+  const [workspaceIds, setWorkspaceIds] = useState<Set<string>>(() => new Set())
+  const toggleWorkspace = (id: string, on: boolean) =>
+    setWorkspaceIds((current) => {
+      const next = new Set(current)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
   const [pending, setPending] = useState<'approve' | 'deny' | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -117,7 +126,11 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
     setPending(approve ? 'approve' : 'deny')
     setFailure(null)
     try {
-      const { redirectUrl } = await decideConsentRequest(request.id, approve, selected)
+      const { redirectUrl } = await decideConsentRequest(request.id, {
+        approve,
+        scopes: selected,
+        workspaceIds: workspaces.filter((w) => workspaceIds.has(w.id)).map((w) => w.id),
+      })
       // Leave Confluent: the client finishes the flow on its own redirect URI.
       window.location.assign(redirectUrl)
     } catch {
@@ -188,6 +201,37 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
             </p>
           )}
         </fieldset>
+
+        {workspaces.length > 0 && (
+          <fieldset className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+            <legend className="px-1 text-sm font-medium text-foreground">Workspaces</legend>
+            <p className="text-sm text-muted-foreground">
+              Cochez les workspaces dont l’application pourra voir le contenu, selon votre rôle
+              dans chacun. Sans case cochée, elle n’accède qu’à vos propres dossiers.
+            </p>
+            {workspaces.map((workspace) => (
+              <label
+                key={workspace.id}
+                className="flex items-start gap-3 border-t border-border pt-3 text-sm text-foreground"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  checked={workspaceIds.has(workspace.id)}
+                  onChange={(event) => toggleWorkspace(workspace.id, event.target.checked)}
+                  disabled={pending !== null}
+                />
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span className="break-words font-medium">{workspace.name}</span>
+                  <span className="text-muted-foreground">
+                    {WORKSPACE_MEMBER_ROLE_LABELS[workspace.role]}
+                    {workspace.programName ? ` · ${workspace.programName}` : ''}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
 
         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
           <p className="flex items-center gap-1.5">
