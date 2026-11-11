@@ -71,7 +71,10 @@ function buildModule(overrides: {
   self.prisma = prisma
   return {
     prisma,
-    audit: { record: overrides.auditRecord ?? jest.fn().mockResolvedValue(undefined) },
+    audit: {
+      record: overrides.auditRecord ?? jest.fn().mockResolvedValue(undefined),
+      recordIn: jest.fn().mockResolvedValue(undefined),
+    },
     config: {
       get: (k: string) =>
         ({
@@ -243,7 +246,9 @@ describe('ShareLinksService', () => {
       where: { id: 'sl-2', status: { not: 'revoked' } },
       data: { status: 'revoked', revokedAt: expect.any(Date) },
     })
-    expect(mocks.audit.record).toHaveBeenCalledWith(
+    // Journaled in the revocation's transaction.
+    expect(mocks.audit.recordIn).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ actionType: 'share_link_revoked', shareLinkId: 'sl-2' }),
     )
   })
@@ -257,6 +262,7 @@ describe('ShareLinksService', () => {
     const svc = await instantiate(mocks)
     await svc.revokeAsAdmin('d-1', 'sl-2', 'admin-1')
     expect(mocks.audit.record).not.toHaveBeenCalled()
+    expect(mocks.audit.recordIn).not.toHaveBeenCalled()
   })
 
   it('revoke throws 404 when the link does not belong to the dossier', async () => {
