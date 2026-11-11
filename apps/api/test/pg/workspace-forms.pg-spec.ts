@@ -12,14 +12,22 @@ import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements, statusesDown, statusesUp } from './sql-file'
+import {
+  CHECKS,
+  MIGRATIONS,
+  fundingPlansDown,
+  fundingPlansUp,
+  sqlStatements,
+  statusesDown,
+  statusesUp,
+} from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261115000000_workspace_forms/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261115000000_workspace_forms.down.sql'))
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_workspace_forms_loss = 'on'"
 // E06.01 builds on the candidatures: undone first, applied again last.
-const LATER_DOWN = statusesDown()
-const LATER_UP = statusesUp()
+const LATER_DOWN = [...fundingPlansDown(), ...statusesDown()]
+const LATER_UP = [...statusesUp(), ...fundingPlansUp()]
 
 class RolledBack extends Error {}
 

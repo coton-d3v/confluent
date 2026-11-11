@@ -12,10 +12,12 @@ import { FundingSourceCategoriesService } from '../../src/modules/funding-source
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, fundingPlansDown, sqlStatements } from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261118000000_funding_source_categories/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261118000000_funding_source_categories.down.sql'))
+// E06.03's plan lines reference the categories: undone first.
+const LATER_DOWN = fundingPlansDown()
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_funding_sources_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_funding_sources_loss = 'off'"
@@ -137,7 +139,7 @@ describe('funding source categories (PostgreSQL)', () => {
       )
       await rolledBack(async (tx) => {
         // As E06.01 leaves it: workspaces without categories.
-        await run(tx, DOWN)
+        await run(tx, [...LATER_DOWN, ...DOWN])
         expect(
           await rows(tx, `SELECT to_regclass('funding_source_categories')::text AS t`),
         ).toEqual([{ t: null }])
@@ -203,7 +205,7 @@ describe('funding source categories (PostgreSQL)', () => {
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await workspaceWithManagers()
       await rolledBack(async (tx) => {
-        await run(tx, DOWN)
+        await run(tx, [...LATER_DOWN, ...DOWN])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
