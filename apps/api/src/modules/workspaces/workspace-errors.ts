@@ -30,8 +30,12 @@ export const WorkspaceErrors = {
       message:
         'Seul un administrateur de Confluent peut modifier le domaine email autorisé : il borne les invitations des gestionnaires.',
     }),
+  // The same answer for a workspace that does not exist and one the account may not enter (E05.03).
   notFound: () =>
-    new NotFoundException({ code: 'WORKSPACE_NOT_FOUND', message: 'Workspace introuvable.' }),
+    new NotFoundException({
+      code: 'WORKSPACE_NOT_FOUND',
+      message: 'Workspace introuvable, ou vous n’en êtes pas membre.',
+    }),
   memberNotFound: () =>
     new NotFoundException({ code: 'WORKSPACE_MEMBER_NOT_FOUND', message: 'Membre introuvable.' }),
   alreadyMember: (deactivated: boolean) =>

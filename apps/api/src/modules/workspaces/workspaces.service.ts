@@ -6,6 +6,8 @@ import {
   WORKSPACE_LOGO_MAX_BYTES,
   workspaceSlugSchema,
   type DocumentAvailability,
+  type InvestorType,
+  type WorkspaceMemberRole,
 } from '@confluent/shared'
 import { slugify } from '../../common/slug'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -21,6 +23,7 @@ import {
   WorkspaceAccessService,
   assertCanAdministerAllWorkspaces,
   canAdministerAllWorkspaces,
+  canManageWorkspace,
   type WorkspaceActor,
 } from './workspace-access'
 import { WorkspaceErrors } from './workspace-errors'
@@ -50,6 +53,20 @@ export interface WorkspaceView {
   updatedAt: Date
 }
 
+// A workspace as one of its members sees it, with their membership (null for an administrator who
+// is not a member).
+export interface CurrentWorkspaceView {
+  workspace: Omit<WorkspaceView, 'emailDomain' | 'createdAt' | 'updatedAt'>
+  membership: {
+    id: string
+    role: WorkspaceMemberRole
+    organization: string | null
+    investorType: InvestorType | null
+    canManageWorkspace: boolean
+  } | null
+  canManageWorkspace: boolean
+}
+
 const SETTING_KEYS = [
   'name',
   'programName',
@@ -62,7 +79,7 @@ const SETTING_KEYS = [
 // Workspaces and their settings (ROADMAP E05.01). Every read and write checks who acts first,
 // whatever the caller: creating and listing all workspaces is for administrators, setting up one
 // follows the single management rule (administrators and the workspace's managers, E05.02).
-// Isolation of the workspace's content (E05.03) builds on the same rule and memberships.
+// Who may enter a workspace at all is resolved first, at each call (E05.03, `WorkspaceAccessService`).
 @Injectable()
 export class WorkspacesService {
   private readonly logger = new Logger(WorkspacesService.name)
@@ -81,8 +98,36 @@ export class WorkspacesService {
   }
 
   async get(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceView> {
-    await this.access.assertCanManage(actor, workspaceId)
-    return this.toView(await this.find(workspaceId))
+    const { workspace } = await this.access.assertCanManage(actor, workspaceId)
+    return this.toView(workspace)
+  }
+
+  // Entering a workspace (E05.03): what any of its active members — or an administrator — sees of
+  // it, with their own membership and whether they manage it. The email domain is a management
+  // setting, left out.
+  async enter(actor: WorkspaceActor, workspaceId: string): Promise<CurrentWorkspaceView> {
+    const { workspace, membership } = await this.access.resolve(actor, workspaceId)
+    const view = await this.toView(workspace)
+    return {
+      workspace: {
+        id: view.id,
+        slug: view.slug,
+        name: view.name,
+        programName: view.programName,
+        color: view.color,
+        presentation: view.presentation,
+        contactEmail: view.contactEmail,
+        logo: view.logo,
+      },
+      membership: membership && {
+        id: membership.id,
+        role: membership.role as WorkspaceMemberRole,
+        organization: membership.organization,
+        investorType: membership.investorType as InvestorType | null,
+        canManageWorkspace: membership.canManageWorkspace,
+      },
+      canManageWorkspace: canManageWorkspace(actor, membership),
+    }
   }
 
   // The slug is chosen once: derived from the name when not given, refused when already taken
@@ -166,7 +211,6 @@ export class WorkspacesService {
     buffer: Buffer | undefined,
   ): Promise<WorkspaceView> {
     await this.access.assertCanManage(actor, workspaceId)
-    await this.find(workspaceId)
     if (!buffer || buffer.byteLength === 0) throw WorkspaceErrors.logoRequired()
     // Normally enforced earlier by the size guard and the multipart limit.
     if (buffer.byteLength > WORKSPACE_LOGO_MAX_BYTES) throw WorkspaceErrors.logoTooLarge()
@@ -229,12 +273,6 @@ export class WorkspacesService {
     const current = await lockWorkspace(tx, workspaceId)
     await this.access.assertCanManage(actor, workspaceId, tx)
     return current
-  }
-
-  private async find(workspaceId: string): Promise<Workspace> {
-    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } })
-    if (!workspace) throw WorkspaceErrors.notFound()
-    return workspace
   }
 
   private async toView(row: Workspace): Promise<WorkspaceView> {
