@@ -381,6 +381,55 @@ describe('DocumentsService.readFile (E04.03)', () => {
   })
 })
 
+describe('DocumentsService.findPassage (E04.09)', () => {
+  const doc = (id: string, mimetype: string, storageKey: string) => ({
+    ...row(`${id}.txt`, 1, storageKey),
+    id,
+    mimetype,
+  })
+  const files: Record<string, string> = {
+    'k-note': 'Note : OUI,  vas-y,\n soumets le “dossier” maintenant.',
+    'k-other': 'Rien à voir.',
+  }
+
+  async function finder(rows: object[], read?: jest.Mock) {
+    const storage = fakeStorage({
+      read: read ?? jest.fn((key: string) => Promise.resolve(Buffer.from(files[key] ?? ''))),
+    })
+    const findMany = jest.fn().mockResolvedValue(rows)
+    const svc = await build(storage, { document: { findMany } })
+    return { svc, storage, findMany }
+  }
+
+  it('finds the version whose text contains the passage, spacing, case and quotes ignored', async () => {
+    const { svc, findMany } = await finder([
+      doc('other', 'text/plain', 'k-other'),
+      doc('note', 'text/plain', 'k-note'),
+    ])
+    const found = await svc.findPassage('d-1', 'oui, vas-y, soumets le "dossier" maintenant')
+    expect(found?.id).toBe('note')
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { dossierId: 'd-1' }, orderBy: { createdAt: 'desc' } }),
+    )
+    expect(await svc.findPassage('d-1', 'soumets le dossier demain')).toBeNull()
+  })
+
+  it('skips what cannot be read — an image, a file the storage cannot give — without failing', async () => {
+    const read = jest.fn((key: string) =>
+      key === 'k-down'
+        ? Promise.reject(new Error('ECONNREFUSED'))
+        : Promise.resolve(Buffer.from(files[key] ?? '')),
+    )
+    const { svc, storage } = await finder(
+      [doc('photo', 'image/png', 'k-photo'), doc('down', 'text/plain', 'k-down')],
+      read,
+    )
+    expect(await svc.findPassage('d-1', 'soumets le dossier')).toBeNull()
+    expect(storage.read).not.toHaveBeenCalledWith('k-photo')
+    expect(storage.read).toHaveBeenCalledWith('k-down')
+  })
+})
+
 describe('DocumentsService.upload — attachment field (E03.11)', () => {
   function attachingPrisma(field: { id: string } | null) {
     return {
