@@ -139,6 +139,14 @@ describe('workspace isolation (e2e)', () => {
           method: 'post',
           path: '/workspaces/:workspaceId/candidatures/:candidatureId/financing-status',
         },
+        // E06.02: the categories of sources of its financing plans.
+        { method: 'get', path: '/workspaces/:workspaceId/funding-source-categories' },
+        { method: 'post', path: '/admin/workspaces/:workspaceId/funding-source-categories' },
+        { method: 'put', path: '/admin/workspaces/:workspaceId/funding-source-categories/order' },
+        {
+          method: 'patch',
+          path: '/admin/workspaces/:workspaceId/funding-source-categories/:categoryId',
+        },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

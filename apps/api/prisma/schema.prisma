@@ -91,6 +91,7 @@ enum audit_action {
   dossier_archived
   dossier_unarchived
   candidature_status_changed
+  funding_source_categories_updated
 
   @@map("audit_action")
 }
@@ -822,8 +823,32 @@ model Workspace {
   companyTransfers  CompanyTransfer[]
   forms             Questionnaire[]
   candidatures      Candidature[]
+  fundingSources    FundingSourceCategory[]
 
   @@map("workspaces")
+}
+
+// ROADMAP E06.02, decision D04 (to be confirmed): the categories a workspace splits financing plans
+// into, D04's six by default (@confluent/shared `funding-source.schema.ts`). `key` and `family` are
+// fixed at creation — what later tasks reference —, `label`, `position` and `active` are the
+// managers' configuration. Deactivated, never deleted. CHECK: closed family, key pattern, label
+// trimmed and bounded, position ≥ 0.
+model FundingSourceCategory {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  key         String
+  label       String
+  family      String
+  position    Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, label])
+  @@map("funding_source_categories")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

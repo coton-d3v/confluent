@@ -55,6 +55,7 @@ const UPDATED_AT = new Set([
   'dossierDocument',
   'candidature',
   'candidatureAnswer',
+  'fundingSourceCategory',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -134,7 +135,13 @@ export function createFakePrisma() {
       }) => {
         let count = 0
         for (const d of data) {
-          const row = { id: randomUUID(), createdAt: new Date(), ...defaults(), ...d } as Row
+          const row = {
+            id: randomUUID(),
+            createdAt: new Date(),
+            ...stamp(name),
+            ...defaults(),
+            ...d,
+          } as Row
           const clash = (UNIQUE_KEYS[name] ?? ['id']).some(
             (k) => row[k] !== undefined && [...table(name).values()].some((r) => r[k] === row[k]),
           )
@@ -495,6 +502,7 @@ export function createFakePrisma() {
     document: model('document', () => ({ restoredFromId: null })),
     dossierDocument: model('dossierDocument', () => ({ pinnedVersionId: null })),
     workspace: model('workspace', () => ({ logoKey: null })),
+    fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,
