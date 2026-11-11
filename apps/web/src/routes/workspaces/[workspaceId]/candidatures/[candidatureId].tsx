@@ -11,6 +11,7 @@ import { RequestPresentation } from '@/features/dossiers/components/RequestPrese
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { InterventionsPanel } from '@/features/interventions/components/InterventionsPanel'
+import { ReceivedPoolPublication } from '@/features/candidatures/components/PoolPublicationPanel'
 import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
@@ -158,6 +159,11 @@ function ReceivedCandidatureView({
           onStale={() => {
             void getReceivedCandidature(workspaceId, candidature.id).then(onChange, () => undefined)
           }}
+        />
+
+        <ReceivedPoolPublication
+          publication={candidature.poolPublication}
+          financingStatus={candidature.financingStatus}
         />
 
         <SupportPathPanel

@@ -155,7 +155,7 @@ export function RequestEditor({
       onChange(updated)
       toast.success(
         published
-          ? 'Demande repassée en brouillon : vos partages restent ouverts, sans sa présentation.'
+          ? 'Demande repassée en brouillon : vos partages restent ouverts, sans sa présentation ; ses publications dans les viviers sont en pause.'
           : 'Demande publiée : vos destinataires voient désormais sa présentation.',
       )
     } catch (err) {
@@ -176,7 +176,7 @@ export function RequestEditor({
       onChange(archive ? await archiveDossier(dossier.id) : await unarchiveDossier(dossier.id))
       toast.success(
         archive
-          ? 'Demande archivée : elle est close, vos partages ne montrent plus sa présentation.'
+          ? 'Demande archivée : elle est close, vos partages ne montrent plus sa présentation et elle est retirée des viviers.'
           : 'Demande désarchivée : elle est de nouveau en brouillon.',
       )
     } catch (err) {
@@ -195,7 +195,7 @@ export function RequestEditor({
     setConfirm({
       title: 'Archiver la demande ?',
       description:
-        'La demande est close : sa présentation n’est plus modifiable, elle ne peut plus être publiée ni présentée à une nouvelle structure, et vos destinataires ne voient plus sa présentation. Vos partages restent ouverts et chaque structure garde son statut de financement. Vous pourrez la désarchiver.',
+        'La demande est close : sa présentation n’est plus modifiable, elle ne peut plus être publiée ni présentée à une nouvelle structure, et vos destinataires ne voient plus sa présentation. Elle est retirée des viviers où vous l’avez publiée ; la désarchiver ne l’y remet pas. Vos partages restent ouverts et chaque structure garde son statut de financement. Vous pourrez la désarchiver.',
       confirmLabel: 'Archiver',
       onConfirm: () => void changeArchiving(true),
     })
@@ -250,7 +250,7 @@ export function RequestEditor({
           <>
             <p className="text-sm text-muted-foreground">
               {published
-                ? `Publiée le ${new Date(dossier.publishedAt ?? '').toLocaleDateString('fr-FR')}. Les destinataires de vos partages voient sa présentation ; elle pourra être proposée aux structures que vous choisirez.`
+                ? `Publiée le ${new Date(dossier.publishedAt ?? '').toLocaleDateString('fr-FR')}. Les destinataires de vos partages voient sa présentation ; vous pouvez la publier dans le vivier de chaque structure à laquelle vous l’envoyez (onglet « Candidatures »). Repasser en brouillon met ces publications en pause.`
                 : 'En brouillon, les destinataires de vos partages voient le profil et les documents choisis, pas encore la présentation de la demande. Publier n’ouvre ni ne ferme aucun partage.'}
             </p>
             {!published && missing.length > 0 && (
@@ -399,11 +399,17 @@ export function RequestEditor({
             })()}
             {fieldError('amountEur', ids.amount)}
           </div>
-          <fieldset className="flex flex-col gap-2" aria-describedby={errors.financingTypes ? `${ids.types}-error` : undefined}>
+          <fieldset
+            className="flex flex-col gap-2"
+            aria-describedby={errors.financingTypes ? `${ids.types}-error` : undefined}
+          >
             <legend className="text-sm font-medium text-foreground">Types de financement</legend>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {FINANCING_TYPES.map((type) => (
-                <label key={type} className="flex min-h-11 items-center gap-2 text-sm text-foreground">
+                <label
+                  key={type}
+                  className="flex min-h-11 items-center gap-2 text-sm text-foreground"
+                >
                   <input
                     type="checkbox"
                     className="size-4"

@@ -18,6 +18,7 @@ import {
   withdrawCandidature,
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
+import { PoolPublicationPanel } from '@/features/candidatures/components/PoolPublicationPanel'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
@@ -251,6 +252,16 @@ function CandidatureEditor({
                 }),
               )
             }}
+            onStale={() => {
+              void getCandidature(candidature.id).then(onChange, () => undefined)
+            }}
+          />
+        )}
+
+        {submitted && (
+          <PoolPublicationPanel
+            candidature={candidature}
+            onChange={onChange}
             onStale={() => {
               void getCandidature(candidature.id).then(onChange, () => undefined)
             }}

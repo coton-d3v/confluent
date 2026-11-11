@@ -10,6 +10,7 @@ import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 import { createCandidature, listCandidatureWorkspaces, listDossierCandidatures } from '../api'
 import { FinancingStatusBadge } from './FinancingStatusPanel'
+import { PoolPublicationBadge } from './PoolPublicationPanel'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -107,11 +108,15 @@ function CandidatureRow({ candidature }: { candidature: CandidatureSummary }) {
         >
           {workspace.name}
         </Link>
-        {status === 'submitted' ? (
-          <FinancingStatusBadge status={candidature.financingStatus} />
-        ) : (
-          <Badge variant="outline">{CANDIDATURE_STATUS_LABELS[status]}</Badge>
-        )}
+        <span className="flex flex-wrap items-center gap-1.5">
+          {status === 'submitted' ? (
+            <FinancingStatusBadge status={candidature.financingStatus} />
+          ) : (
+            <Badge variant="outline">{CANDIDATURE_STATUS_LABELS[status]}</Badge>
+          )}
+          {/* E07.02: published in the structure's pool. */}
+          <PoolPublicationBadge publication={candidature.poolPublication} />
+        </span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground wrap-anywhere">
         {workspace.programName ? `${workspace.programName} · ` : ''}
