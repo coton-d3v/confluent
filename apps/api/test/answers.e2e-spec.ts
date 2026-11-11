@@ -265,4 +265,166 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       ])
     })
   })
+
+  describe('proposals: confirmation, correction and history (E04.05)', () => {
+    const sign = (sub: string, email: string, role: string) =>
+      new JwtService().signAsync({ sub, email, role }, { secret: process.env.JWT_SECRET })
+    const list = (token = jwt) =>
+      request(app.getHttpServer())
+        .get('/v1/dossiers/d-1/answers')
+        .set('Authorization', `Bearer ${token}`)
+    const confirm = (fieldId: string, body: object, token = jwt) =>
+      request(app.getHttpServer())
+        .post(`/v1/dossiers/d-1/answers/${fieldId}/confirm`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body)
+    type Row = { fieldId: string; value: string; updatedAt: string } & Record<string, unknown>
+    const byField = async (fieldId: string) =>
+      ((await list().expect(200)).body as Row[]).find((a) => a.fieldId === fieldId)!
+
+    // A proposal an AI assistant wrote through MCP, read in the dossier's business plan.
+    beforeEach(async () => {
+      await fake.prisma.document.create({
+        data: {
+          id: 'doc-1',
+          dossierId: 'd-1',
+          filename: 'bp.pdf',
+          version: 1,
+          mimetype: 'application/pdf',
+        },
+      })
+      await fake.prisma.dossierAnswer.create({
+        data: {
+          dossierId: 'd-1',
+          fieldId: F_NAME,
+          value: 'Biosensio SAS',
+          origin: 'ai',
+          confirmation: 'pending',
+          channel: 'mcp',
+          authorId: 'u-1',
+          clientName: 'Claude',
+          sourceDocumentId: 'doc-1',
+          sourceLocation: 'Page 1',
+          sourceExcerpt: 'Dénomination : Biosensio SAS',
+        },
+      })
+    })
+
+    it('shows the owner a proposal to confirm, then confirms it as shown, keeping its pending state', async () => {
+      const shown = await byField(F_NAME)
+      expect(shown).toMatchObject({
+        provenance: { origin: 'ai', confirmation: 'pending', clientName: 'Claude' },
+        history: [],
+      })
+
+      const res = await confirm(F_NAME, { value: shown.value, updatedAt: shown.updatedAt }).expect(
+        200,
+      )
+      expect(res.body).toMatchObject({
+        fieldId: F_NAME,
+        value: 'Biosensio SAS',
+        provenance: {
+          origin: 'ai',
+          confirmation: 'confirmed',
+          channel: 'site',
+          authorId: 'u-1',
+          clientName: null,
+          source: { documentId: 'doc-1', filename: 'bp.pdf', location: 'Page 1' },
+        },
+        history: [
+          {
+            value: 'Biosensio SAS',
+            provenance: {
+              origin: 'ai',
+              confirmation: 'pending',
+              channel: 'mcp',
+              clientName: 'Claude',
+              recordedAt: shown.updatedAt,
+              source: { excerpt: 'Dénomination : Biosensio SAS' },
+            },
+            replacedAt: expect.any(String),
+          },
+        ],
+      })
+      expect(await byField(F_NAME)).toEqual(res.body)
+
+      // Confirmed already: a second confirmation of what was shown changes nothing.
+      const again = await confirm(F_NAME, {
+        value: shown.value,
+        updatedAt: shown.updatedAt,
+      }).expect(409)
+      expect(again.body.error.code).toBe('CONFLICT')
+      expect(fake.table('dossierAnswerRevision').size).toBe(1)
+    })
+
+    it('confirms nothing that changed since it was shown', async () => {
+      const shown = await byField(F_NAME)
+      // The assistant proposes another value meanwhile.
+      const row = [...fake.table('dossierAnswer').values()][0]
+      await fake.prisma.dossierAnswer.update({ where: { id: row.id }, data: { value: 'Biosens' } })
+
+      const res = await confirm(F_NAME, { value: shown.value, updatedAt: shown.updatedAt }).expect(
+        409,
+      )
+      expect(res.body.error.message).toContain('a changé depuis son affichage')
+      expect(await byField(F_NAME)).toMatchObject({
+        value: 'Biosens',
+        provenance: { confirmation: 'pending' },
+      })
+      expect(fake.table('dossierAnswerRevision').size).toBe(0)
+      await confirm(F_NAME, { value: shown.value }).expect(400)
+    })
+
+    it('keeps a corrected proposal in the history; the correction is the person’s own input', async () => {
+      await put([{ fieldId: F_NAME, value: 'Biosensio' }]).expect(200)
+      // Further edits of their own value are not kept.
+      const res = await put([{ fieldId: F_NAME, value: 'Biosensio SA' }]).expect(200)
+      expect(res.body).toEqual([
+        expect.objectContaining({
+          value: 'Biosensio SA',
+          provenance: expect.objectContaining({ origin: 'human', channel: 'site', source: null }),
+          history: [
+            expect.objectContaining({
+              value: 'Biosensio SAS',
+              provenance: expect.objectContaining({
+                origin: 'ai',
+                confirmation: 'pending',
+                clientName: 'Claude',
+              }),
+            }),
+          ],
+        }),
+      ])
+      await confirm(F_NAME, {
+        value: 'Biosensio SA',
+        updatedAt: res.body[0].updatedAt,
+      }).expect(409)
+    })
+
+    it('never shows the history to a financeur, nor lets him confirm', async () => {
+      await put([{ fieldId: F_NAME, value: 'Biosensio' }]).expect(200)
+      await fake.prisma.user.create({
+        data: {
+          id: 'u-fin',
+          email: 'bob@invest.fr',
+          role: 'financeur',
+          emailVerifiedAt: new Date(),
+        },
+      })
+      await fake.prisma.shareLink.create({
+        data: {
+          dossierId: 'd-1',
+          recipientEmail: 'bob@invest.fr',
+          status: 'active',
+          accessLevel: 'complet',
+          token: 't-1',
+        },
+      })
+      const fin = await sign('u-fin', 'bob@invest.fr', 'financeur')
+      const seen = await list(fin).expect(200)
+      expect(JSON.stringify(seen.body)).not.toMatch(/history|provenance|Claude|Dénomination/)
+      const row = (seen.body as Row[])[0]
+      await confirm(F_NAME, { value: row.value, updatedAt: row.updatedAt }, fin).expect(404)
+    })
+  })
 })

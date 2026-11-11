@@ -46,6 +46,16 @@ export const answerProvenanceSchema = z.object({
     .nullable(),
 })
 
+// A state an answer held before it gave way (E04.05): kept when an AI assistant is involved — a
+// proposal corrected, replaced or confirmed, or a value replaced by a proposal. `provenance` is
+// that state's (null for a value saved before provenance was recorded); `replacedAt` is when it
+// gave way.
+export const answerRevisionSchema = z.object({
+  value: z.string(),
+  provenance: answerProvenanceSchema.nullable(),
+  replacedAt: z.string().datetime(),
+})
+
 export const answerRowSchema = z.object({
   id: z.string().uuid(),
   dossierId: z.string().uuid(),
@@ -55,6 +65,15 @@ export const answerRowSchema = z.object({
   updatedAt: z.string().datetime(),
   // Owner only: absent for a shared reader; null for an answer saved before provenance was recorded.
   provenance: answerProvenanceSchema.nullable().optional(),
+  // Owner only, newest first: the states this answer held before (E04.05).
+  history: z.array(answerRevisionSchema).optional(),
+})
+
+// The owner confirms an AI proposal as they saw it (E04.05): its value and its `updatedAt`. If the
+// answer changed since, nothing is confirmed.
+export const confirmAnswerSchema = z.object({
+  value: z.string().max(10_000),
+  updatedAt: z.string().datetime(),
 })
 
 export type AnswerInput = z.infer<typeof answerSchema>
@@ -63,4 +82,6 @@ export type AnswerOrigin = z.infer<typeof answerOriginSchema>
 export type AnswerConfirmation = z.infer<typeof answerConfirmationSchema>
 export type AnswerChannel = z.infer<typeof answerChannelSchema>
 export type AnswerProvenance = z.infer<typeof answerProvenanceSchema>
+export type AnswerRevision = z.infer<typeof answerRevisionSchema>
 export type AnswerRow = z.infer<typeof answerRowSchema>
+export type ConfirmAnswerInput = z.infer<typeof confirmAnswerSchema>

@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common'
-import type { Dossier, DossierAnswer, Prisma } from '@prisma/client'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import type { Dossier, DossierAnswer, DossierAnswerRevision, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
   ClassificationService,
@@ -8,8 +8,10 @@ import {
 import { lockDossier } from '../dossiers/dossier-lock'
 import {
   declarationErrors,
+  keepsRevision,
   provenanceColumns,
   provenanceView,
+  revisionOf,
   type AnswerAuthor,
   type AnswerDeclaration,
   type AnswerProvenanceView,
@@ -24,7 +26,15 @@ export interface AnswerInput extends AnswerDeclaration {
   value: string
 }
 
-// An answer as the API returns it: its provenance only for the dossier's owner (E04.04).
+// A state an answer held before it gave way (E04.05).
+export interface AnswerRevisionView {
+  value: string
+  provenance: AnswerProvenanceView | null
+  replacedAt: Date
+}
+
+// An answer as the API returns it: its provenance (E04.04) and history (E04.05) only for the
+// dossier's owner.
 export interface AnswerView {
   id: string
   dossierId: string
@@ -33,7 +43,12 @@ export interface AnswerView {
   createdAt: Date
   updatedAt: Date
   provenance?: AnswerProvenanceView | null
+  history?: AnswerRevisionView[]
 }
+
+// What a reader sees of each answer: a shared reader the value only; the owner its provenance too,
+// and in the site its history (the MCP shows the provenance only).
+export type AnswerDetail = 'value' | 'provenance' | 'history'
 
 @Injectable()
 export class AnswersService {
@@ -50,20 +65,38 @@ export class AnswersService {
     })
   }
 
-  // With their provenance when `withProvenance` (the owner): shared readers never see it.
-  async listViews(dossierId: string, withProvenance: boolean): Promise<AnswerView[]> {
-    return this.views(dossierId, await this.listForDossier(dossierId), withProvenance)
+  async listViews(dossierId: string, detail: AnswerDetail): Promise<AnswerView[]> {
+    return this.views(dossierId, await this.listForDossier(dossierId), detail)
   }
 
   async views(
     dossierId: string,
     rows: DossierAnswer[],
-    withProvenance: boolean,
+    detail: AnswerDetail,
   ): Promise<AnswerView[]> {
-    if (!withProvenance) return rows.map((row) => answerView(row))
-    const documents = await this.prisma.document.findMany({ where: { dossierId } })
+    if (detail === 'value') return rows.map((row) => answerView(row))
+    const [documents, revisions] = await Promise.all([
+      this.prisma.document.findMany({ where: { dossierId } }),
+      detail === 'history' && rows.length
+        ? this.prisma.dossierAnswerRevision.findMany({
+            where: { answerId: { in: rows.map((r) => r.id) } },
+            orderBy: { replacedAt: 'desc' },
+          })
+        : Promise.resolve([] as DossierAnswerRevision[]),
+    ])
     const byId = new Map(documents.map((d) => [d.id, d]))
-    return rows.map((row) => answerView(row, provenanceView(row, byId)))
+    return rows.map((row) => {
+      const view = answerView(row, provenanceView(row, row.updatedAt, byId))
+      if (detail !== 'history') return view
+      const history = revisions
+        .filter((r) => r.answerId === row.id)
+        .map((r) => ({
+          value: r.value,
+          provenance: provenanceView(r, r.recordedAt, byId),
+          replacedAt: r.replacedAt,
+        }))
+      return { ...view, history }
+    })
   }
 
   // The only way to write answers (site, admin, MCP): every field must belong to the dossier's own
@@ -107,6 +140,53 @@ export class AnswersService {
       return saved
     })
   }
+
+  // The owner confirms an AI proposal as it was shown to them (E04.05): same value and source, now
+  // confirmed by them through `author`'s channel; the pending state goes to the history. Under the
+  // dossier's lock, like any write: nothing is confirmed if the answer changed since it was shown
+  // (`expected`), or is no proposal waiting for confirmation.
+  async confirmProposal(
+    dossier: Pick<Dossier, 'id'>,
+    fieldId: string,
+    expected: { value: string; updatedAt: Date },
+    author: AnswerAuthor,
+  ): Promise<DossierAnswer> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockDossier(tx, dossier.id)
+      const current = await tx.dossierAnswer.findUnique({
+        where: { dossierId_fieldId: { dossierId: dossier.id, fieldId } },
+      })
+      if (!current) {
+        throw new NotFoundException({ code: 'ANSWER_NOT_FOUND', message: 'Réponse introuvable.' })
+      }
+      if (
+        current.value !== expected.value ||
+        current.updatedAt.getTime() !== expected.updatedAt.getTime()
+      ) {
+        throw new ConflictException({
+          code: 'ANSWER_CHANGED',
+          message:
+            'Cette réponse a changé depuis son affichage. Vérifiez la valeur actuelle avant de la confirmer.',
+        })
+      }
+      if (current.origin !== 'ai' || current.confirmation !== 'pending') {
+        throw new ConflictException({
+          code: 'NOT_A_PROPOSAL',
+          message: 'Cette réponse n’est pas une proposition à confirmer.',
+        })
+      }
+      await tx.dossierAnswerRevision.create({ data: revisionOf(current) })
+      return tx.dossierAnswer.update({
+        where: { id: current.id },
+        data: {
+          confirmation: 'confirmed',
+          channel: author.channel,
+          authorId: author.userId,
+          clientName: author.channel === 'mcp' ? (author.clientName ?? null) : null,
+        },
+      })
+    })
+  }
 }
 
 function answerView(row: DossierAnswer, provenance?: AnswerProvenanceView | null): AnswerView {
@@ -122,18 +202,30 @@ async function upsertMany(
   author: AnswerAuthor,
   sources: Array<CheckedSource | null>,
 ): Promise<DossierAnswer[]> {
+  const previous = new Map(
+    (
+      await tx.dossierAnswer.findMany({
+        where: { dossierId, fieldId: { in: answers.map((a) => a.fieldId) } },
+      })
+    ).map((row) => [row.fieldId, row]),
+  )
   // One statement at a time: an interactive transaction runs on a single connection.
   const saved: DossierAnswer[] = []
   for (const [i, a] of answers.entries()) {
-    // The provenance is the new value's: a source cited for an earlier value does not stay.
+    // The provenance is the new value's: a source cited for an earlier value does not stay — the
+    // state it replaces goes to the history when an AI assistant is involved (E04.05).
     const provenance = provenanceColumns(a, author, sources[i])
-    saved.push(
-      await tx.dossierAnswer.upsert({
-        where: { dossierId_fieldId: { dossierId, fieldId: a.fieldId } },
-        create: { dossierId, fieldId: a.fieldId, value: a.value, ...provenance },
-        update: { value: a.value, ...provenance },
-      }),
-    )
+    const before = previous.get(a.fieldId)
+    if (before && keepsRevision(before, { value: a.value, ...provenance })) {
+      await tx.dossierAnswerRevision.create({ data: revisionOf(before) })
+    }
+    const row = await tx.dossierAnswer.upsert({
+      where: { dossierId_fieldId: { dossierId, fieldId: a.fieldId } },
+      create: { dossierId, fieldId: a.fieldId, value: a.value, ...provenance },
+      update: { value: a.value, ...provenance },
+    })
+    previous.set(a.fieldId, row)
+    saved.push(row)
   }
   return saved
 }

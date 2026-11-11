@@ -1385,9 +1385,21 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
             ],
           },
         })
-        expect(
-          [...fake.table('dossierAnswer').values()].find((r) => r.fieldId === 'f-capital'),
-        ).toMatchObject({ confirmation: 'confirmed', sourceLocation: 'Page 2' })
+        const capital = [...fake.table('dossierAnswer').values()].find(
+          (r) => r.fieldId === 'f-capital',
+        )!
+        expect(capital).toMatchObject({ confirmation: 'confirmed', sourceLocation: 'Page 2' })
+        // The proposal it was is kept in the answer's history (E04.05).
+        expect([...fake.table('dossierAnswerRevision').values()]).toEqual([
+          expect.objectContaining({
+            answerId: capital.id,
+            value: '10 000 EUR',
+            origin: 'ai',
+            confirmation: 'pending',
+            clientName: 'Claude',
+            sourceExcerpt: 'capital social :  10 000 eur',
+          }),
+        ])
         await c.close()
 
         // A financeur sees the answers his share allows, never their provenance.

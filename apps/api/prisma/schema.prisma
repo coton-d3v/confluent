@@ -87,8 +87,9 @@ model User {
   magicLinkTokens  MagicLinkToken[]
   refreshSessions  RefreshSession[]
   oauthGrants      OAuthGrant[]
-  auditLogsAsActor AuditLog[]       @relation("AuditLogActor")
+  auditLogsAsActor AuditLog[]              @relation("AuditLogActor")
   answersWritten   DossierAnswer[]
+  revisionsWritten DossierAnswerRevision[]
 
   @@map("users")
 }
@@ -259,9 +260,10 @@ model Document {
   fieldId    String?  @map("field_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  dossier Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  field   QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
-  citedBy DossierAnswer[]
+  dossier          Dossier                 @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  field            QuestionnaireField?     @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  citedBy          DossierAnswer[]
+  citedByRevisions DossierAnswerRevision[]
 
   @@unique([dossierId, fieldId, filename, version])
   @@index([dossierId])
@@ -288,15 +290,45 @@ model DossierAnswer {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  dossier        Dossier            @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  field          QuestionnaireField @relation(fields: [fieldId], references: [id])
-  author         User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  sourceDocument Document?          @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  dossier        Dossier                 @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  field          QuestionnaireField      @relation(fields: [fieldId], references: [id])
+  author         User?                   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceDocument Document?               @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  revisions      DossierAnswerRevision[]
 
   @@unique([dossierId, fieldId])
   @@index([authorId])
   @@index([sourceDocumentId])
   @@map("dossier_answers")
+}
+
+// A state an answer held before it gave way (E04.05), kept when an AI assistant is involved: a
+// proposal corrected, replaced or confirmed, or a value replaced by a proposal. Same provenance
+// columns as `DossierAnswer`; `recordedAt` is when that state was written, `replacedAt` when it
+// gave way. Closed values: see the CHECK constraints.
+model DossierAnswerRevision {
+  id               String   @id @default(uuid())
+  answerId         String   @map("answer_id")
+  value            String
+  origin           String? // human | ai
+  confirmation     String? // confirmed | pending
+  channel          String? // site | admin | mcp
+  authorId         String?  @map("author_id")
+  clientName       String?  @map("client_name")
+  sourceDocumentId String?  @map("source_document_id")
+  sourceLocation   String?  @map("source_location")
+  sourceExcerpt    String?  @map("source_excerpt")
+  recordedAt       DateTime @map("recorded_at")
+  replacedAt       DateTime @default(now()) @map("replaced_at")
+
+  answer         DossierAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  author         User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  sourceDocument Document?     @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([answerId])
+  @@index([authorId])
+  @@index([sourceDocumentId])
+  @@map("dossier_answer_revisions")
 }
 
 model ShareLink {

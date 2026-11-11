@@ -55,6 +55,8 @@ describe('AnswersService', () => {
   async function build(
     stored: { submittedAt: Date | null } = { submittedAt: null },
     checked: Awaited<ReturnType<AnswerSourcesService['check']>> | null = null,
+    // The answers already stored (E04.05: what a write replaces).
+    previous: Array<Record<string, unknown>> = [],
   ) {
     const dossier = { id: 'd-1', questionnaireVersionId: 'v-1', ...stored }
     const upsert = jest.fn((args: { where: { dossierId_fieldId: { fieldId: string } } }) =>
@@ -66,10 +68,20 @@ describe('AnswersService', () => {
     const compute = jest
       .fn()
       .mockResolvedValue({ result: { sector: 'SaaS' }, sources: { sector: ['secteur'] } })
+    const revisionCreate = jest.fn().mockResolvedValue({})
+    const answerUpdate = jest.fn((args: { data: object }) =>
+      Promise.resolve({ ...previous[0], ...args.data }),
+    )
     const tx = {
       $queryRaw: lock,
       dossier: { findUnique: jest.fn().mockResolvedValue(dossier), update: dossierUpdate },
-      dossierAnswer: { upsert },
+      dossierAnswer: {
+        upsert,
+        findMany: jest.fn().mockResolvedValue(previous),
+        findUnique: jest.fn().mockResolvedValue(previous[0] ?? null),
+        update: answerUpdate,
+      },
+      dossierAnswerRevision: { create: revisionCreate },
       questionnaireField: { findMany: fieldsFindMany },
     }
     const transaction = jest.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx))
@@ -87,6 +99,7 @@ describe('AnswersService', () => {
     return {
       svc: moduleRef.get(AnswersService),
       ...{ upsert, transaction, fieldsFindMany, lock, dossier, compute, dossierUpdate, tx, check },
+      ...{ revisionCreate, answerUpdate },
     }
   }
 
@@ -314,7 +327,7 @@ describe('AnswersService', () => {
       }).compile()
       const svc = moduleRef.get(AnswersService)
 
-      const owner = await svc.listViews('d-1', true)
+      const owner = await svc.listViews('d-1', 'provenance')
       expect(documents).toHaveBeenCalledWith({ where: { dossierId: 'd-1' } })
       expect(owner.map((a) => a.provenance)).toEqual([
         null,
@@ -335,10 +348,281 @@ describe('AnswersService', () => {
         },
         null,
       ])
-      const shared = await svc.listViews('d-1', false)
+      const shared = await svc.listViews('d-1', 'value')
       expect(shared.map((a) => Object.keys(a))).toEqual(
         rows.map(() => ['id', 'dossierId', 'fieldId', 'value', 'createdAt', 'updatedAt']),
       )
+    })
+  })
+
+  describe('history and confirmation of proposals (E04.05)', () => {
+    const MCP = { userId: 'u-1', channel: 'mcp', clientName: 'Claude' } as const
+    const SOURCE = { documentId: 'doc-1', location: 'Page 2', excerpt: 'BIOSENSIO SAS' }
+    const at = new Date('2026-11-11T10:00:00Z')
+    const stored = (fieldId: string, extra: Record<string, unknown>) => ({
+      id: `a-${fieldId}`,
+      dossierId: 'd-1',
+      fieldId,
+      value: 'Biosensio SAS',
+      createdAt: at,
+      updatedAt: at,
+      origin: 'ai',
+      confirmation: 'pending',
+      channel: 'mcp',
+      authorId: 'u-1',
+      clientName: 'Claude',
+      sourceDocumentId: 'doc-1',
+      sourceLocation: 'Page 2',
+      sourceExcerpt: 'BIOSENSIO SAS',
+      ...extra,
+    })
+    const PROPOSAL = stored('f-1', {})
+    // The revision keeping `row`: its value and provenance, dated when it was written.
+    const kept = (row: ReturnType<typeof stored>) => ({
+      data: {
+        answerId: row.id,
+        value: row.value,
+        origin: row.origin,
+        confirmation: row.confirmation,
+        channel: row.channel,
+        authorId: row.authorId,
+        clientName: row.clientName,
+        sourceDocumentId: row.sourceDocumentId,
+        sourceLocation: row.sourceLocation,
+        sourceExcerpt: row.sourceExcerpt,
+        recordedAt: row.updatedAt,
+      },
+    })
+
+    it('keeps a proposal the person corrects in the site, with its provenance and date', async () => {
+      const { svc, revisionCreate, upsert } = await build({ submittedAt: null }, null, [PROPOSAL])
+      await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Biosensio' }], SITE)
+      expect(revisionCreate).toHaveBeenCalledTimes(1)
+      expect(revisionCreate).toHaveBeenCalledWith(kept(PROPOSAL))
+      // Kept before the new value replaces it.
+      expect(revisionCreate.mock.invocationCallOrder[0]).toBeLessThan(
+        upsert.mock.invocationCallOrder[0],
+      )
+    })
+
+    it('keeps a value replaced by a proposal, even an equal one that becomes unconfirmed', async () => {
+      const human = stored('f-1', {
+        origin: 'human',
+        confirmation: 'confirmed',
+        channel: 'site',
+        clientName: null,
+        sourceDocumentId: null,
+        sourceLocation: null,
+        sourceExcerpt: null,
+      })
+      const { svc, revisionCreate } = await build(
+        { submittedAt: null },
+        { sources: [SOURCE], errors: [] },
+        [human],
+      )
+      await svc.saveForDossier(
+        { id: 'd-1' },
+        [
+          {
+            fieldId: 'f-1',
+            value: 'Biosensio SAS',
+            origin: 'ai',
+            source: { documentId: 'doc-1', excerpt: 'BIOSENSIO SAS' },
+          },
+        ],
+        MCP,
+      )
+      expect(revisionCreate).toHaveBeenCalledWith(kept(human))
+    })
+
+    it('keeps nothing for the person’s own edits, an empty value, or a proposal sent again unchanged', async () => {
+      const human = stored('f-1', {
+        origin: 'human',
+        confirmation: 'confirmed',
+        channel: 'site',
+        clientName: null,
+        sourceDocumentId: null,
+        sourceLocation: null,
+        sourceExcerpt: null,
+      })
+      const edits = await build({ submittedAt: null }, null, [human])
+      await edits.svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Bio' }], SITE)
+      expect(edits.revisionCreate).not.toHaveBeenCalled()
+
+      const empty = await build({ submittedAt: null }, { sources: [SOURCE], errors: [] }, [
+        { ...human, value: '' },
+      ])
+      await empty.svc.saveForDossier(
+        { id: 'd-1' },
+        [{ fieldId: 'f-1', value: 'Biosensio SAS', origin: 'ai', source: { documentId: 'doc-1' } }],
+        MCP,
+      )
+      expect(empty.revisionCreate).not.toHaveBeenCalled()
+
+      const again = await build({ submittedAt: null }, { sources: [SOURCE], errors: [] }, [
+        PROPOSAL,
+      ])
+      await again.svc.saveForDossier(
+        { id: 'd-1' },
+        [
+          {
+            fieldId: 'f-1',
+            value: 'Biosensio SAS',
+            origin: 'ai',
+            source: { documentId: 'doc-1', excerpt: 'BIOSENSIO SAS' },
+          },
+        ],
+        MCP,
+      )
+      expect(again.revisionCreate).not.toHaveBeenCalled()
+    })
+
+    it('confirms a proposal as shown: same value and source, confirmed in the site, pending state kept', async () => {
+      const { svc, revisionCreate, answerUpdate, lock } = await build({ submittedAt: null }, null, [
+        PROPOSAL,
+      ])
+      const confirmed = await svc.confirmProposal(
+        { id: 'd-1' },
+        'f-1',
+        { value: 'Biosensio SAS', updatedAt: new Date(at) },
+        SITE,
+      )
+      expect(lock).toHaveBeenCalledTimes(1)
+      expect(revisionCreate).toHaveBeenCalledWith(kept(PROPOSAL))
+      expect(answerUpdate).toHaveBeenCalledWith({
+        where: { id: 'a-f-1' },
+        data: { confirmation: 'confirmed', channel: 'site', authorId: 'u-1', clientName: null },
+      })
+      expect(confirmed).toMatchObject({
+        value: 'Biosensio SAS',
+        origin: 'ai',
+        confirmation: 'confirmed',
+        sourceDocumentId: 'doc-1',
+        sourceExcerpt: 'BIOSENSIO SAS',
+      })
+    })
+
+    it('confirms nothing that changed since it was shown, nor what is no pending proposal', async () => {
+      const changed = await build({ submittedAt: null }, null, [PROPOSAL])
+      for (const expected of [
+        { value: 'Biosensio', updatedAt: at },
+        { value: 'Biosensio SAS', updatedAt: new Date(at.getTime() + 1) },
+      ]) {
+        await expect(
+          changed.svc.confirmProposal({ id: 'd-1' }, 'f-1', expected, SITE),
+        ).rejects.toMatchObject({
+          status: 409,
+          response: expect.objectContaining({ code: 'ANSWER_CHANGED' }),
+        })
+      }
+      const done = await build({ submittedAt: null }, null, [
+        stored('f-1', { confirmation: 'confirmed' }),
+      ])
+      await expect(
+        done.svc.confirmProposal(
+          { id: 'd-1' },
+          'f-1',
+          { value: 'Biosensio SAS', updatedAt: at },
+          SITE,
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: 'NOT_A_PROPOSAL' }),
+      })
+      const none = await build()
+      await expect(
+        none.svc.confirmProposal({ id: 'd-1' }, 'f-1', { value: '', updatedAt: at }, SITE),
+      ).rejects.toMatchObject({ status: 404 })
+      for (const b of [changed, done, none]) {
+        expect(b.revisionCreate).not.toHaveBeenCalled()
+        expect(b.answerUpdate).not.toHaveBeenCalled()
+      }
+    })
+
+    it('shows the owner each answer’s history, newest first, in the site only', async () => {
+      const current = stored('f-1', {
+        value: 'Biosensio',
+        origin: 'human',
+        confirmation: 'confirmed',
+        channel: 'site',
+        clientName: null,
+        sourceDocumentId: null,
+        sourceLocation: null,
+        sourceExcerpt: null,
+      })
+      const replaced = new Date('2026-11-11T11:00:00Z')
+      const revisions = [
+        { ...kept(PROPOSAL).data, id: 'r-1', replacedAt: replaced },
+        // A value saved before E04.04, replaced by that proposal.
+        {
+          id: 'r-0',
+          answerId: 'a-f-1',
+          value: 'Biosensio',
+          origin: null,
+          confirmation: null,
+          channel: null,
+          authorId: null,
+          clientName: null,
+          sourceDocumentId: null,
+          sourceLocation: null,
+          sourceExcerpt: null,
+          recordedAt: new Date('2026-11-01T09:00:00Z'),
+          replacedAt: at,
+        },
+      ]
+      const findRevisions = jest.fn().mockResolvedValue(revisions)
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          AnswersService,
+          {
+            provide: PrismaService,
+            useValue: {
+              dossierAnswer: { findMany: jest.fn().mockResolvedValue([current]) },
+              dossierAnswerRevision: { findMany: findRevisions },
+              document: {
+                findMany: jest
+                  .fn()
+                  .mockResolvedValue([{ id: 'doc-1', filename: 'kbis.pdf', version: 1 }]),
+              },
+            },
+          },
+          { provide: ClassificationService, useValue: {} },
+          { provide: AnswerSourcesService, useValue: {} },
+        ],
+      }).compile()
+      const svc = moduleRef.get(AnswersService)
+
+      const [site] = await svc.listViews('d-1', 'history')
+      expect(findRevisions).toHaveBeenCalledWith({
+        where: { answerId: { in: ['a-f-1'] } },
+        orderBy: { replacedAt: 'desc' },
+      })
+      expect(site.history).toEqual([
+        {
+          value: 'Biosensio SAS',
+          provenance: {
+            origin: 'ai',
+            confirmation: 'pending',
+            channel: 'mcp',
+            authorId: 'u-1',
+            clientName: 'Claude',
+            recordedAt: at,
+            source: {
+              documentId: 'doc-1',
+              filename: 'kbis.pdf',
+              version: 1,
+              location: 'Page 2',
+              excerpt: 'BIOSENSIO SAS',
+            },
+          },
+          replacedAt: replaced,
+        },
+        { value: 'Biosensio', provenance: null, replacedAt: at },
+      ])
+      // The MCP shows the provenance only; a shared reader neither.
+      const [mcp] = await svc.listViews('d-1', 'provenance')
+      expect(mcp).not.toHaveProperty('history')
+      expect(findRevisions).toHaveBeenCalledTimes(1)
     })
   })
 })
