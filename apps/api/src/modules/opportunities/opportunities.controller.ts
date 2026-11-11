@@ -13,6 +13,7 @@ import { opportunitiesQuerySchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
+import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
 import {
   OpportunitiesService,
   type OpportunitiesView,
@@ -32,7 +33,8 @@ const OPPORTUNITY_SCOPE =
   'provenances. Elle montre exactement la vue d’un destinataire de lien nominatif à ce niveau ' +
   '(présentation une fois publiée, réponses du profil, classification et documents choisis que ce ' +
   'niveau permet de lire), rien d’autre : ni formulaire de la structure, plan, dispositifs, ' +
-  'parcours, statut de financement ou notes. Ses propres demandes n’en sont pas.'
+  'parcours, statut de financement ou notes. Ses propres demandes n’en sont pas. ' +
+  ACCESS_LEVELS_DOC
 
 // ROADMAP E07.03: the signed-in investor's opportunities (« inbox »), read from their account only.
 @ApiTags('Opportunités')

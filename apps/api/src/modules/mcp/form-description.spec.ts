@@ -64,7 +64,7 @@ describe('describeField', () => {
     expect(describeField(odd, { withReadLevel: false })).not.toHaveProperty('readLevel')
     expect(describeField(odd, { withReadLevel: true })).toMatchObject({
       readLevel: 'complet',
-      readableBy: 'les partages complets uniquement',
+      readableBy: 'les partages et viviers de niveau complet uniquement',
     })
   })
 })

@@ -23,10 +23,14 @@ const VALUE_FORMAT: Record<FieldType, string> = {
 
 const TEXT_TYPES = new Set<FieldType>(['text', 'textarea', 'email'])
 
+// Who reads an answer: identified readers only — the recipient of a nominative share, an investor
+// of a pool —, at their level. `public` is the widest reach of a question, never the public at large
+// nor an anonymous showcase card (E07.04, E09).
 const READ_LEVEL_LABEL: Record<string, string> = {
-  public: 'tout financeur destinataire d’un partage',
-  partiel: 'les partages partiel et complet',
-  complet: 'les partages complets uniquement',
+  public:
+    'tout destinataire identifié d’un partage ou d’un vivier, à tout niveau (rien n’est rendu public)',
+  partiel: 'les partages et viviers de niveau partiel ou complet',
+  complet: 'les partages et viviers de niveau complet uniquement',
 }
 
 // The definition of a field as asked (E04.01): type, expected format, constraints in words and as

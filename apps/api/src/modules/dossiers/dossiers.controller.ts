@@ -79,7 +79,10 @@ export class DossiersController {
     description:
       'Retourne le dossier + sa version de questionnaire snapshot (structure des champs utilisée au moment ' +
       'de la création). Renvoie `404` si le dossier n’existe pas ou appartient à un autre user — ' +
-      'pas de `403` pour éviter de confirmer l’existence.',
+      'pas de `403` pour éviter de confirmer l’existence. Destinataire d’un partage nominatif ' +
+      'actif (financeur) : au niveau le plus large de ses partages, les questions, les sections ' +
+      'qui en contiennent, la classification et la présentation de `GET /v1/shares/:token`, rien ' +
+      'd’autre que les identifiants et dates techniques de la demande (E07.04).',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiOkResponse({ description: 'Dossier + snapshot de la version questionnaire.' })

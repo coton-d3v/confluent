@@ -89,6 +89,12 @@ Un workspace non coché, inconnu, ou dont vous n'êtes plus membre reçoit la **
 
 **Ce qui se fait dans le site uniquement** : inviter, désactiver un membre ou changer ses droits ; préparer une entreprise, inviter son entrepreneur, accepter ou refuser une entreprise proposée (changement de propriété) ; partager une demande ; affecter un formulaire à un usage.
 
+## Lecture d'une demande partagée : même politique que le site (E07.04)
+
+Un financeur destinataire d'un **partage nominatif** lit par `list_dossiers`, `get_dossier`, `list_documents` et `read_document` exactement ce que montre la page du lien dans le site (`/v1/shares/:token`), au niveau le plus large de ses partages actifs : mêmes questions et sections, mêmes réponses (jamais celles d'une question absente de la version de la demande), même classification, même présentation (une fois la demande publiée), mêmes documents à la même version — rien de plus, sans provenance ni historique. Une révocation ou un changement de niveau s'applique dès l'appel suivant, sur la même connexion ; l'adresse du partage est comparée sans tenir compte de la casse. Les investisseurs d'un vivier lisent leurs opportunités dans le site (outils MCP : E07.10) ; aucun outil ne leur ouvre la demande, la candidature ni le suivi de la structure. Recette automatisée : `apps/api/test/access-policy.e2e-spec.ts`.
+
+**`public` n'est pas une publication.** Les trois niveaux (`public` < `partiel` < `complet`, `readLevel` d'une question compris) qualifient toujours une lecture par un compte identifié et connecté. `public`, le plus restreint, montre encore le titre réel de la demande et les réponses de niveau public : ce n'est ni une page ouverte à tous ni une fiche anonyme. La vitrine publique d'un workspace (E09) aura sa propre fiche, sous pseudonyme.
+
 ## Suivi des candidatures : financement et accompagnement (E06.09)
 
 Une candidature est une demande de financement présentée à une structure (workspace). Son suivi y est propre : statut de financement (E06.01), plan de financement (E06.03), dispositifs (E06.05), parcours d'accompagnement et phase (E06.06, E06.07), et pour la structure seule ses notes internes et le journal de ses interventions (E06.08). Les outils sont ceux du site, avec ses règles, vérifiées à chaque appel :

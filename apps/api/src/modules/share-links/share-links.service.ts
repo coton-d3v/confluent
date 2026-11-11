@@ -171,7 +171,9 @@ export class ShareLinksService {
   // level may read, the classification it may read, the documents the dossier selects that it may
   // read and, once published, its presentation. Shared by the recipient's page, the preview and an
   // investor's opportunity (E07.03), so that what the owner previews is what a recipient or an
-  // investor of a pool reads. The caller has checked the reader's right to `accessLevel`.
+  // investor of a pool reads. The caller has checked the reader's right to `accessLevel`. Every
+  // channel of an identified reader agrees with it (E07.04, `test/access-policy.e2e-spec.ts`); even
+  // at `public` it names the request and its company's answers: never an anonymous showcase card.
   async recipientView(dossier: Dossier, accessLevel: AccessLevel): Promise<RecipientView> {
     const [structure, answers] = await Promise.all([
       this.questionnaires.getVersion(dossier.questionnaireVersionId),

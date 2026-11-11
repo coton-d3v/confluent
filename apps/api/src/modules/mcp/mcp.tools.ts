@@ -273,7 +273,9 @@ export class McpToolsFactory {
         title: 'Lister mes dossiers',
         description:
           'Dossiers accessibles : ceux dont vous êtes propriétaire, et pour un financeur ceux qui ' +
-          'vous ont été partagés (contenu limité au niveau d’accès du partage).',
+          'vous ont été partagés par un lien nominatif (contenu limité au niveau d’accès du ' +
+          'partage, comme la page du lien dans le site). Les opportunités des viviers se lisent ' +
+          'dans le site.',
         annotations: { readOnlyHint: true },
       },
       () =>
@@ -317,7 +319,10 @@ export class McpToolsFactory {
           'Indique aussi le formulaire et sa ' +
           'version, vos permissions (niveau d’accès, modification possible ou non et pourquoi) et ' +
           'l’état de complétion (global et par section), avec les champs obligatoires manquants. ' +
-          'Utilisez les fieldId pour update_answers.',
+          'Utilisez les fieldId pour update_answers. Destinataire d’un partage nominatif : ' +
+          'lecture seule de ce que son niveau permet de lire — public (le plus restreint, mais ' +
+          'toujours nominatif : jamais une fiche publique ni anonyme), partiel ou complet —, ' +
+          'exactement comme la page du lien dans le site.',
         inputSchema: { dossier: dossierRef },
         annotations: { readOnlyHint: true },
       },
@@ -553,7 +558,9 @@ export class McpToolsFactory {
           'obligatoire et fournie ou non) et documents déposés, y compris ceux qui ne répondent ' +
           'à aucune question : documentId (pour read_document), nom, version, format, taille, ' +
           'date, disponibilité, et si Confluent sait en lire le texte. Propriétaire : lien de ' +
-          'dépôt dans le site pour chaque pièce (uploadUrl). Financeur : selon le niveau du partage.',
+          'dépôt dans le site pour chaque pièce (uploadUrl). Destinataire d’un partage ' +
+          'nominatif : les seuls documents que la demande présente et que le niveau du partage ' +
+          'permet de lire, comme dans le site.',
         inputSchema: { dossier: dossierRef },
         annotations: { readOnlyHint: true },
       },

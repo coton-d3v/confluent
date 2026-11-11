@@ -16,6 +16,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import type { CandidatureView } from '../candidatures/candidatures.service'
 import { PoolPublicationsService } from './pool-publications.service'
+import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
 
 class PublishToPoolDto extends createZodDto(publishToPoolSchema) {}
 
@@ -28,7 +29,8 @@ const POOL_SCOPE =
   'choisis que ce niveau permet de lire), rien d’autre : ni les réponses au formulaire de la ' +
   'structure, ni le plan de financement, les dispositifs, le parcours, le statut ou les notes. ' +
   'La publication est propre à cette candidature : elle ne touche ni les autres workspaces, ni ' +
-  'les partages, ni la candidature, ni la publication de la demande.'
+  'les partages, ni la candidature, ni la publication de la demande. ' +
+  ACCESS_LEVELS_DOC
 
 // ROADMAP E07.02: the owner of a financing request publishes it in the pool (« vivier ») of a
 // workspace it is presented to, and withdraws it. The candidature names the workspace; `404` alike
