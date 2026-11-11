@@ -56,16 +56,28 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
 const { write: WRITE } = OAUTH_SCOPES
 
 // Permissions offered on top of the level, each consented to on its own (the API lists the form
-// ones to whoever designs forms only, the presentation ones to whoever may own companies).
-// Submitting, presenting and publishing act on the user's behalf: they start unticked, so that
-// approving without reading never grants them (code review R52). Listed here before the API offers
-// them (E05.10): an unknown permission would otherwise join the access level.
+// ones to whoever designs forms only, the presentation ones to whoever may own companies, following
+// received candidatures to their workspaces' conseillers). Submitting, presenting, deciding and
+// publishing act on the user's behalf: they start unticked, so that approving without reading never
+// grants them (code review R52); so does following received candidatures, which reads the
+// structure's internal notes. Listed here before the API offers them (E05.10, E06.09): an unknown
+// permission would otherwise join the access level.
 const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
   { scope: OAUTH_SCOPES.formsWrite, title: 'Concevoir des formulaires', ticked: true },
   { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
   {
     scope: OAUTH_SCOPES.present,
     title: 'Présenter vos demandes de financement',
+    ticked: false,
+  },
+  {
+    scope: OAUTH_SCOPES.support,
+    title: 'Accompagner les candidatures reçues',
+    ticked: false,
+  },
+  {
+    scope: OAUTH_SCOPES.decide,
+    title: 'Décider du suivi des candidatures',
     ticked: false,
   },
   { scope: OAUTH_SCOPES.formsPublish, title: 'Publier un formulaire', ticked: false },
