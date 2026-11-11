@@ -19,6 +19,7 @@ import AdminWorkspaceNewRoute from '@/routes/admin/workspaces/nouveau'
 import AdminWorkspaceRoute from '@/routes/admin/workspaces/[workspaceId]'
 import AdminWorkspaceMembersRoute from '@/routes/admin/workspaces/[workspaceId]/membres'
 import MyWorkspacesRoute from '@/routes/workspaces'
+import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
 import AuthRoute from '@/routes/auth'
@@ -88,6 +89,11 @@ export const router = createBrowserRouter([
         handle: { hideBreadcrumb: true },
       },
       { path: 'workspaces', element: <MyWorkspacesRoute /> },
+      {
+        path: 'workspaces/:workspaceId',
+        element: <WorkspaceRoute />,
+        handle: { hideBreadcrumb: true },
+      },
       { path: '*', element: <NotFoundRoute /> },
     ],
   },
