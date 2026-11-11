@@ -99,7 +99,7 @@ export class AdminFormsController {
     @Body() body: CreateFormDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.create(body.name, user.id)
+    return this.forms.create(user, body.name)
   }
 
   @Get(':formId')
@@ -117,7 +117,7 @@ export class AdminFormsController {
     @Body() body: RenameFormDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.rename(formId, body.name, user.id)
+    return this.forms.rename(user, formId, body.name)
   }
 
   @Post(':formId/duplicate')
@@ -132,7 +132,7 @@ export class AdminFormsController {
     @Body() body: DuplicateFormDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.duplicate(formId, body.name, user.id)
+    return this.forms.duplicate(user, formId, body.name)
   }
 
   @Put(':formId/usage')
@@ -149,7 +149,7 @@ export class AdminFormsController {
     @Body() body: AssignUsageDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.assignUsage(formId, body.usage, user.id)
+    return this.forms.assignUsage(user, formId, body.usage)
   }
 
   @Post(':formId/archive')
@@ -165,7 +165,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.archive(formId, user.id)
+    return this.forms.archive(user, formId)
   }
 
   @Post(':formId/restore')
@@ -175,7 +175,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormDetailView> {
-    return this.forms.restore(formId, user.id)
+    return this.forms.restore(user, formId)
   }
 
   @Get(':formId/versions/:versionId')
@@ -212,7 +212,7 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FormVersionView> {
-    return this.drafts.createDraft(formId, user.id)
+    return this.drafts.createDraft(user, formId)
   }
 
   @Delete(':formId/draft')
@@ -224,7 +224,7 @@ export class AdminFormsController {
     @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<void> {
-    return this.drafts.discardDraft(formId, user.id, revisionOf(ifMatch))
+    return this.drafts.discardDraft(user, formId, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/publish')
@@ -243,7 +243,7 @@ export class AdminFormsController {
     @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.publishDraft(formId, user.id, revisionOf(ifMatch))
+    return this.drafts.publishDraft(user, formId, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/sections')
@@ -251,9 +251,10 @@ export class AdminFormsController {
   addSection(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateSectionDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.addSection(formId, body, revisionOf(ifMatch))
+    return this.drafts.addSection(user, formId, body, revisionOf(ifMatch))
   }
 
   @Put(':formId/draft/sections/order')
@@ -261,9 +262,10 @@ export class AdminFormsController {
   reorderSections(
     @Param('formId', uuid) formId: string,
     @Body() body: ReorderDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.reorderSections(formId, body.ids, revisionOf(ifMatch))
+    return this.drafts.reorderSections(user, formId, body.ids, revisionOf(ifMatch))
   }
 
   @Patch(':formId/draft/sections/:sectionId')
@@ -272,9 +274,10 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: UpdateSectionDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.updateSection(formId, sectionId, body, revisionOf(ifMatch))
+    return this.drafts.updateSection(user, formId, sectionId, body, revisionOf(ifMatch))
   }
 
   @Delete(':formId/draft/sections/:sectionId')
@@ -282,9 +285,10 @@ export class AdminFormsController {
   removeSection(
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.removeSection(formId, sectionId, revisionOf(ifMatch))
+    return this.drafts.removeSection(user, formId, sectionId, revisionOf(ifMatch))
   }
 
   @Put(':formId/draft/sections/:sectionId/fields/order')
@@ -293,9 +297,10 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('sectionId', uuid) sectionId: string,
     @Body() body: ReorderDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.reorderFields(formId, sectionId, body.ids, revisionOf(ifMatch))
+    return this.drafts.reorderFields(user, formId, sectionId, body.ids, revisionOf(ifMatch))
   }
 
   @Post(':formId/draft/fields')
@@ -308,9 +313,10 @@ export class AdminFormsController {
   addField(
     @Param('formId', uuid) formId: string,
     @Body() body: CreateFieldDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.addField(formId, body, revisionOf(ifMatch))
+    return this.drafts.addField(user, formId, body, revisionOf(ifMatch))
   }
 
   @Patch(':formId/draft/fields/:fieldId')
@@ -324,9 +330,10 @@ export class AdminFormsController {
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
     @Body() body: UpdateFieldDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.updateField(formId, fieldId, body, revisionOf(ifMatch))
+    return this.drafts.updateField(user, formId, fieldId, body, revisionOf(ifMatch))
   }
 
   @Delete(':formId/draft/fields/:fieldId')
@@ -334,8 +341,9 @@ export class AdminFormsController {
   removeField(
     @Param('formId', uuid) formId: string,
     @Param('fieldId', uuid) fieldId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Headers('if-match') ifMatch?: string,
   ): Promise<FormVersionView> {
-    return this.drafts.removeField(formId, fieldId, revisionOf(ifMatch))
+    return this.drafts.removeField(user, formId, fieldId, revisionOf(ifMatch))
   }
 }

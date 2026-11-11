@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common'
@@ -8,6 +9,11 @@ import type { DraftProblem } from '@confluent/shared'
 
 // Errors of the form builder, with messages shown as is to administrators.
 export const FormErrors = {
+  designForbidden: () =>
+    new ForbiddenException({
+      code: 'FORM_DESIGN_FORBIDDEN',
+      message: 'La conception des formulaires est réservée aux administrateurs de Confluent.',
+    }),
   formNotFound: () =>
     new NotFoundException({ code: 'FORM_NOT_FOUND', message: 'Formulaire introuvable.' }),
   versionNotFound: () =>

@@ -1,22 +1,35 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { OAUTH_SCOPES } from '@confluent/shared'
+import { canDesignForms } from '../questionnaires/form-design-access'
 
-// Scopes granted to MCP clients. `dossiers:write` implies `dossiers:read` (MCP spec: servers MUST honour
-// scope hierarchies).
-export const OAUTH_SCOPES = {
-  read: 'dossiers:read',
-  write: 'dossiers:write',
-} as const
-export const SUPPORTED_SCOPES: string[] = [OAUTH_SCOPES.read, OAUTH_SCOPES.write]
+// Scopes granted to MCP clients (names shared with the consent screen). `dossiers:write` implies
+// `dossiers:read` (MCP spec: servers MUST honour scope hierarchies). `forms:write` stands alone: the
+// form design tools (E04.06) also read with `dossiers:read`, like `get_form`.
+export { OAUTH_SCOPES }
+export const SUPPORTED_SCOPES: string[] = [
+  OAUTH_SCOPES.read,
+  OAUTH_SCOPES.write,
+  OAUTH_SCOPES.formsWrite,
+]
 export const SCOPE_LABELS: Record<string, string> = {
   [OAUTH_SCOPES.read]:
     'Lire votre profil, vos dossiers, leurs questionnaires, réponses et documents',
   [OAUTH_SCOPES.write]: 'Modifier les réponses de vos dossiers et y déposer des documents',
+  [OAUTH_SCOPES.formsWrite]:
+    'Créer et modifier des brouillons de formulaires (sections, champs, choix, limites, niveaux de lecture), sans les publier',
 }
 
 export function expandScopes(scopes: readonly string[]): Set<string> {
   const set = new Set(scopes)
   if (set.has(OAUTH_SCOPES.write)) set.add(OAUTH_SCOPES.read)
   return set
+}
+
+// What an account may grant to an application: `forms:write` only if it may design forms (same
+// rule as the builder; any other or unknown role never receives it, even if the client asks). The
+// form services check the role again at each call: a grant outlives a change of role.
+export function grantableScopes(scopes: Iterable<string>, user: { role: string }): string[] {
+  return [...scopes].filter((s) => s !== OAUTH_SCOPES.formsWrite || canDesignForms(user))
 }
 
 export const AUTHORIZATION_REQUEST_TTL_MS = 10 * 60 * 1000

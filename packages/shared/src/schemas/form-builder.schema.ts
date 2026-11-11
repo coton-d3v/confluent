@@ -75,7 +75,7 @@ export const updateDraftSectionSchema = z
     key: fieldKeySchema.optional(),
   })
   .refine((v) => v.title !== undefined || v.key !== undefined, {
-    message: 'At least one property must be provided.',
+    message: 'Indiquez au moins une modification.',
   })
 
 export const reorderSchema = z.object({
@@ -83,13 +83,14 @@ export const reorderSchema = z.object({
     .array(z.string().uuid())
     .min(1)
     .max(500)
-    .refine((ids) => new Set(ids).size === ids.length, { message: 'Duplicate ids.' }),
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Chaque élément ne doit figurer qu’une fois.',
+    }),
 })
 
-const choicesSchema = z
-  .array(choiceInputSchema)
-  .max(200)
-  .refine(hasUniqueKeys, { message: 'Each choice key must be unique within a field.' })
+const choicesSchema = z.array(choiceInputSchema).max(200).refine(hasUniqueKeys, {
+  message: 'Chaque clé de choix doit être unique dans le champ.',
+})
 
 export const createDraftFieldSchema = z.object({
   sectionId: z.string().uuid(),
@@ -120,7 +121,7 @@ export const updateDraftFieldSchema = z
   })
   .partial()
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'At least one property must be provided.',
+    message: 'Indiquez au moins une modification.',
   })
 
 export type FormUsage = z.infer<typeof formUsageSchema>

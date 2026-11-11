@@ -35,6 +35,7 @@ import { paginate } from '../documents/text/text-collector'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { fieldVisibleAt } from '../dossiers/financeur-access'
 import { OAUTH_SCOPES, expandScopes } from '../oauth/oauth.constants'
+import { canDesignForms } from '../questionnaires/form-design-access'
 import { FormDraftsService } from '../questionnaires/form-drafts.service'
 import { FormsService } from '../questionnaires/forms.service'
 import { DOSSIER_FORM, QuestionnairesService } from '../questionnaires/questionnaires.service'
@@ -46,6 +47,12 @@ import {
   isFieldAnswered,
   pendingQuestions,
 } from './form-description'
+import {
+  FORM_DESIGN_INSTRUCTIONS,
+  FORM_DESIGN_TOOL_SCOPES,
+  FormDesignTools,
+} from './form-design.tools'
+import { ToolError, UUID, sameName as sameDossierName, type ToolTrace } from './tool-kit'
 
 // Who is calling: always derived from the OAuth access token, never from tool arguments (E01.06).
 export interface McpCaller {
@@ -69,6 +76,7 @@ export const TOOL_SCOPES: Record<string, string> = {
   create_dossier: OAUTH_SCOPES.write,
   update_answers: OAUTH_SCOPES.write,
   upload_document: OAUTH_SCOPES.write,
+  ...FORM_DESIGN_TOOL_SCOPES,
 }
 
 // How many questions next_questions returns by default: enough to ask a few in a row, not the
@@ -80,16 +88,6 @@ const DEFAULT_QUESTION_BATCH = 5
 export const MCP_UPLOAD_MAX_BYTES = 512 * 1024
 // Text returned per read_document call.
 const READ_PART_CHARS = 20_000
-
-// The dossier (and document) a tool call is about, once the caller's access is established.
-interface ToolTrace {
-  dossierId: string | null
-  documentId?: string
-}
-
-class ToolError extends Error {}
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const dossierRef = z
   .string()
@@ -108,10 +106,13 @@ export class McpToolsFactory {
     private readonly documents: DocumentsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly formDesign: FormDesignTools,
   ) {}
 
   // One server per HTTP request (stateless transport), bound to the caller.
   createServer(caller: McpCaller): McpServer {
+    // Form design tools are listed to whoever may design forms (E04.06); each call checks it again.
+    const designer = canDesignForms(caller.user)
     const server = new McpServer(
       { name: 'confluent', title: 'Confluent', version: process.env.APP_VERSION ?? 'dev' },
       {
@@ -138,7 +139,8 @@ export class McpToolsFactory {
           'valeur, enregistrez des propositions sourcées non confirmées : elles restent à confirmer. ' +
           'Ce qu’aucun document ne dit ne s’enregistre pas : demandez-le. Une pièce jointe se ' +
           'dépose dans le site (uploadUrl de la question), ou avec upload_document pour un petit ' +
-          'fichier.',
+          'fichier.' +
+          (designer ? ` ${FORM_DESIGN_INSTRUCTIONS}` : ''),
       },
     )
     const run = this.runner(caller)
@@ -589,6 +591,7 @@ export class McpToolsFactory {
         }),
     )
 
+    if (designer) this.formDesign.register(server, caller, run)
     return server
   }
 
@@ -658,6 +661,7 @@ export class McpToolsFactory {
             tool,
             target,
             ...(trace.documentId ? { documentId: trace.documentId } : {}),
+            ...(trace.formId ? { formId: trace.formId } : {}),
             result,
             clientId: caller.clientId,
             clientName: caller.clientName,
@@ -775,7 +779,8 @@ export class McpToolsFactory {
     formRef: string | undefined,
     versionRef: number | 'brouillon' | undefined,
   ) {
-    const isAdmin = caller.user.role === 'admin'
+    // Reading every form and its draft goes with designing them (same rule as the builder, E04.07).
+    const isAdmin = canDesignForms(caller.user)
     if (!isAdmin && caller.user.role !== 'entrepreneur') {
       throw new ToolError(
         'Les définitions de formulaires sont réservées aux porteurs de projet et aux administrateurs.',
@@ -841,6 +846,8 @@ export class McpToolsFactory {
         ...(target.status === 'draft'
           ? {
               note: 'Brouillon : modifiable, aucun dossier ne l’utilise tant qu’il n’est pas publié.',
+              // For the form design tools (E04.06): refused if the draft changed meanwhile.
+              revision: target.updatedAt.toISOString(),
             }
           : {}),
       },
@@ -849,15 +856,22 @@ export class McpToolsFactory {
         fields: view.fields.length,
         required: view.fields.filter((f) => f.required).length,
       },
-      sections: groupBySection(view.sections, view.fields, (f) =>
-        describeField(f, { withReadLevel: true }),
+      // Administrators get the ids the form design tools address, and a draft's empty sections.
+      sections: groupBySection(
+        view.sections,
+        view.fields,
+        (f) => describeField(f, { withReadLevel: true }),
+        { withIds: isAdmin, keepEmpty: target.status === 'draft' },
       ),
       // What prevents publishing a draft (same checks as the builder).
       ...(target.status === 'draft'
         ? {
             problems: view.problems.map((p) => ({
               message: p.message,
-              ...(p.fieldId ? { field: labels.get(p.fieldId) ?? p.fieldId } : {}),
+              ...(p.sectionId ? { sectionId: p.sectionId } : {}),
+              ...(p.fieldId
+                ? { fieldId: p.fieldId, field: labels.get(p.fieldId) ?? p.fieldId }
+                : {}),
             })),
           }
         : {}),
@@ -1274,11 +1288,6 @@ function guidanceFor(
     : 'Toutes les questions ont une réponse.'
 }
 
-// Same name as an existing draft, whatever the case and accents (« biosensio » = « Biosensio »).
-function sameDossierName(a: string, b: string): boolean {
-  return a.trim().localeCompare(b.trim(), 'fr', { sensitivity: 'base' }) === 0
-}
-
 function requireWrite(caller: McpCaller): void {
   if (!expandScopes(caller.scopes).has(OAUTH_SCOPES.write)) {
     throw new ToolError('Permission « dossiers:write » non accordée à cette application.')
@@ -1290,7 +1299,7 @@ function requireOwner(dossier: Dossier, caller: McpCaller, message: string): voi
 }
 
 function requireAdmin(caller: McpCaller): void {
-  if (caller.user.role !== 'admin') {
+  if (!canDesignForms(caller.user)) {
     throw new ToolError('Réservé aux administrateurs de Confluent.')
   }
 }

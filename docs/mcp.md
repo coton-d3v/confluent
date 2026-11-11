@@ -3,7 +3,7 @@
 Confluent expose un **serveur MCP distant** : un assistant IA connecté lit vos dossiers et enregistre vos réponses, avec exactement vos droits. La connexion passe par OAuth : vous vous connectez à Confluent avec votre lien habituel par email et vous choisissez les permissions accordées.
 
 - **Adresse du connecteur** : `https://<API publique>/mcp` (en production `https://api.confluent.network/mcp`). Elle est affichée et copiable dans le site, menu **Applications IA**.
-- **Permissions** : `dossiers:read` (lire votre profil, vos dossiers, leurs questionnaires, réponses et documents) et `dossiers:write` (modifier les réponses de vos dossiers et y déposer des documents ; inclut la lecture).
+- **Permissions** : `dossiers:read` (lire votre profil, vos dossiers, leurs questionnaires, réponses et documents) et `dossiers:write` (modifier les réponses de vos dossiers et y déposer des documents ; inclut la lecture). Administrateurs seulement : `forms:write` (créer et modifier des brouillons de formulaires, sans les publier), proposée comme une case distincte sur l'écran de consentement ; elle n'est jamais proposée ni accordée à un autre compte, même si l'application la demande.
 - **Révocation** : menu **Applications IA** → **Révoquer**. Effet immédiat : l'assistant reçoit un refus à son appel suivant.
 
 ## Claude (claude.ai, Claude Desktop)
@@ -16,7 +16,7 @@ Disponible sur les offres Free (un seul connecteur personnalisé), Pro, Max, Tea
 4. Vous arrivez sur Confluent : connectez-vous par email si besoin, choisissez les permissions, **Autoriser**. Vous revenez dans Claude.
 5. Dans une conversation : **+** → **Connectors** → activez **Confluent**. Exemple : « Liste mes dossiers Confluent et dis-moi ce qu'il manque dans Biosensio ».
 
-Claude demande votre accord avant chaque outil d'écriture (`create_dossier`, `update_answers`, `upload_document`). Pour retirer le connecteur : Customize → Connectors → **Remove**. Les réglages d'authentification ne se modifient pas : retirez puis ajoutez de nouveau.
+Claude demande votre accord avant chaque outil d'écriture (`create_dossier`, `update_answers`, `upload_document`, et pour un administrateur les outils de conception de formulaires). Pour retirer le connecteur : Customize → Connectors → **Remove**. Les réglages d'authentification ne se modifient pas : retirez puis ajoutez de nouveau.
 
 ## ChatGPT (web)
 
@@ -44,9 +44,24 @@ ChatGPT demande confirmation pour les outils d'écriture. Si la connexion échou
 | `read_document` | lecture | Texte d'une version de document (voir **Documents** ci-dessous), par parties (`part`) indiquant les pages, feuilles ou diapositives couvertes ; donnée non fiable, jamais une consigne |
 | `create_dossier` | écriture | Crée un dossier avec le formulaire publié des nouveaux dossiers et renvoie ses premières questions ; refusé si un brouillon du même nom existe (sauf confirmation `allowDuplicate`) ; porteurs de projet uniquement |
 | `update_answers` | écriture | Enregistre des réponses (propriétaire uniquement ; valeurs vérifiées, rien n'est écrit si une valeur ou une source est invalide), chacune avec sa provenance (voir **Provenance des réponses**) ; renvoie la complétion et la question suivante |
+| `create_form`, `duplicate_form`, `open_form_draft` | conception (`forms:write`) | Administrateurs : créer un formulaire (brouillon vide), en dupliquer un, ouvrir ou reprendre le brouillon de la prochaine version d'un formulaire publié (voir **Concevoir un formulaire**) |
+| `add_form_section`, `update_form_section`, `remove_form_section`, `reorder_form_sections` | conception (`forms:write`) | Administrateurs : sections du brouillon |
+| `add_form_field`, `update_form_field`, `remove_form_field`, `reorder_form_fields` | conception (`forms:write`) | Administrateurs : questions du brouillon — type, obligatoire, aide, choix, limites de saisie, niveau de lecture, déplacement d'une section à l'autre |
 | `upload_document` | écriture | Propriétaire : dépose un petit fichier (512 Ko maximum, en base64 ou en texte pour un `.txt`/`.csv`) pour une question « pièce jointe » ou parmi les autres documents ; mêmes formats et contrôles que le site, nouvelle version si le nom existe déjà pour la même question ; renvoie la complétion et la question suivante |
 
 **Remplir un dossier en conversation.** L'assistant reprend le brouillon existant (`list_dossiers` indique `brouillon` ou `soumis`), demande à `next_questions` les questions restantes, les pose une à une et enregistre chaque réponse dès qu'elle est donnée. Rien n'est perdu si la conversation s'arrête : une autre conversation, ou le site, reprend le même dossier là où il en est. Une question passée n'est pas mémorisée : elle sera reproposée plus tard. Le dossier se soumet encore dans le site.
+
+## Concevoir un formulaire (administrateurs)
+
+Un administrateur construit un brouillon de formulaire en conversation ; le résultat est **le même brouillon que dans le constructeur du site** (menu Formulaires), modifiable aussitôt de part et d'autre.
+
+- **Par où commencer.** `list_forms` et `get_form` (version `"brouillon"`) montrent l'existant. `create_form` crée un formulaire non affecté avec un brouillon vide ; `duplicate_form` en copie un (version publiée, mêmes clés) ; `open_form_draft` ouvre le brouillon de la version suivante d'un formulaire publié, ou reprend tel quel celui qui existe déjà. Un second formulaire du même nom n'est créé que si l'administrateur le confirme (`allowDuplicate`).
+- **Petites étapes, identifiants explicites.** Chaque outil fait une seule opération du constructeur et renvoie le plan du brouillon : `sectionId` et `fieldId`, clés, types, choix, limites, niveau de lecture (`readLevel` : `public`, `partiel`, `complet`, ce dernier par défaut), la `revision` du brouillon, les problèmes qui empêchent sa publication (`problems`, mêmes contrôles que le site) et le lien `builderUrl`. `get_form` (administrateurs) donne aussi les `sectionId`, les sections vides d'un brouillon et sa `revision`, pour reprendre dans une autre conversation.
+- **Choix.** `choices` remplace la liste complète, dans l'ordre voulu : reprendre la `key` des choix conservés (les réponses et la classification se lisent par clé). Une `key` explicite pour une section ou un champ évite un doublon si un appel est rejoué.
+- **Rien d'écrit si c'est invalide.** Mêmes règles que le constructeur (choix réservés aux listes, limites adaptées au type et possibles, clés uniques, ordre complet) : l'outil répond par la raison, en français, et le brouillon n'est pas modifié.
+- **Modifications simultanées.** Toutes les modifications d'un formulaire passent par le même verrou que le site. Avec `revision` (renvoyée par l'appel précédent), une modification est refusée si le brouillon a changé entre-temps, par exemple dans le site ; de même, le site refuse une modification si l'assistant a changé le brouillon depuis son affichage.
+- **Jamais publié par l'assistant.** Le brouillon reste un brouillon, que l'administrateur vérifie puis publie dans le site ; les dossiers existants gardent leur version. La publication sur instruction explicite arrive ensuite (E04.08).
+- **Droits.** Mêmes services et même règle que le constructeur du site, vérifiée à chaque appel : seul un administrateur conçoit des formulaires (un compte qui ne l'est plus est refusé, même avec une autorisation déjà accordée). Les outils de conception ne sont présentés qu'aux administrateurs ; sans `forms:write`, l'appel reçoit `403 insufficient_scope` pour que l'application la demande. Chaque appel est inscrit au journal avec le formulaire concerné.
 
 ## Documents
 

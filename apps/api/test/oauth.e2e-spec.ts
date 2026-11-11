@@ -202,6 +202,68 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
     const grants = [...fake.table('oAuthGrant').values()]
     expect(grants.map((g) => g.scopes)).toEqual([['dossiers:read']])
   })
+  // E04.06: designing forms is for administrators only. Clients usually ask for every scope the
+  // server supports: an entrepreneur is never shown nor granted `forms:write`.
+  it('consent: forms:write is offered and granted to an administrator only', async () => {
+    await fake.prisma.user.create({
+      data: {
+        id: 'admin-1',
+        email: 'admin@confluent.dev',
+        role: 'admin',
+        emailVerifiedAt: new Date(),
+      },
+    })
+    const adminJwt = await new JwtService().signAsync(
+      { sub: 'admin-1', email: 'admin@confluent.dev', role: 'admin' },
+      { secret: process.env.JWT_SECRET },
+    )
+    const clientId = await registerClient()
+    const request = async () => {
+      const start = await http()
+        .get('/authorize')
+        .query({
+          response_type: 'code',
+          client_id: clientId,
+          redirect_uri: REDIRECT,
+          code_challenge: pkce().challenge,
+          code_challenge_method: 'S256',
+          resource: RESOURCE,
+        })
+        .expect(302)
+      return new URL(start.headers.location).searchParams.get('request')!
+    }
+    const shown = async (id: string, jwt: string) =>
+      (
+        await http()
+          .get(`/v1/oauth/requests/${id}`)
+          .set('Authorization', `Bearer ${jwt}`)
+          .expect(200)
+      ).body.scopes.map((s: { scope: string; label: string }) => s.scope)
+    const decide = (id: string, jwt: string, scopes?: string[]) =>
+      http()
+        .post(`/v1/oauth/requests/${id}/decision`)
+        .set('Authorization', `Bearer ${jwt}`)
+        .send({ approve: true, scopes })
+    const grantsOf = (userId: string) =>
+      [...fake.table('oAuthGrant').values()].filter((g) => g.userId === userId).map((g) => g.scopes)
+
+    const forEntrepreneur = await request()
+    expect(await shown(forEntrepreneur, userJwt)).toEqual(['dossiers:read', 'dossiers:write'])
+    await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:write']).expect(400)
+    expect(grantsOf('u-1')).toEqual([])
+    await decide(forEntrepreneur, userJwt).expect(200)
+    expect(grantsOf('u-1')).toEqual([['dossiers:read', 'dossiers:write']])
+
+    const forAdmin = await request()
+    expect(await shown(forAdmin, adminJwt)).toEqual([
+      'dossiers:read',
+      'dossiers:write',
+      'forms:write',
+    ])
+    await decide(forAdmin, adminJwt).expect(200)
+    expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'dossiers:write', 'forms:write']])
+  })
+
   it('keeps Nest global body parsers active (mounting OAuth must not shadow them)', async () => {
     // Nest skips its global parsers if a layer *named* urlencodedParser/jsonParser already exists:
     // a Nest route must still read a form body after the OAuth routes are mounted.
@@ -222,7 +284,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       code_challenge_methods_supported: ['S256'],
       client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true,
-      scopes_supported: ['dossiers:read', 'dossiers:write'],
+      scopes_supported: ['dossiers:read', 'dossiers:write', 'forms:write'],
     })
   })
 

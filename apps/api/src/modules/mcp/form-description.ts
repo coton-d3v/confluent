@@ -61,25 +61,29 @@ export function describeField(field: QuestionnaireField, opts: { withReadLevel: 
 }
 
 // An unexpected stored level counts as the most restrictive one, as everywhere else (closed by default).
-function readLevelOf(field: QuestionnaireField) {
+export function readLevelOf(field: Pick<QuestionnaireField, 'minAccessLevel'>) {
   const parsed = accessLevelSchema.safeParse(field.minAccessLevel)
   const readLevel = parsed.success ? parsed.data : 'complet'
   return { readLevel, readableBy: READ_LEVEL_LABEL[readLevel] }
 }
 
-// Sections in their order, each with its fields (already ordered); empty sections are left out.
+// Sections in their order, each with its fields (already ordered). Empty sections are left out,
+// except with `keepEmpty` (a draft being designed); `withIds` adds the sectionId the form design
+// tools address (E04.06).
 export function groupBySection<F extends { sectionId: string }, R>(
   sections: QuestionnaireSection[],
   fields: F[],
   describe: (field: F) => R,
+  opts: { withIds?: boolean; keepEmpty?: boolean } = {},
 ) {
   return sections
     .map((section) => ({
+      ...(opts.withIds ? { sectionId: section.id } : {}),
       title: section.title,
       key: section.key,
       fields: fields.filter((f) => f.sectionId === section.id).map(describe),
     }))
-    .filter((section) => section.fields.length > 0)
+    .filter((section) => opts.keepEmpty || section.fields.length > 0)
 }
 
 // Whether a field is answered: a written answer, or a document for an attachment (E03.11).
