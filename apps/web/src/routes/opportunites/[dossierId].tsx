@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
-import { ACCESS_LEVEL_LABELS } from '@confluent/shared'
+import { ACCESS_LEVEL_LABELS, isArchived } from '@confluent/shared'
+import { InterestPanel } from '@/features/interests/components/InterestPanel'
 import { getOpportunity } from '@/features/opportunities/api'
 import { sourceLabel } from '@/features/opportunities/presentation'
 import { RecipientDossierView } from '@/features/share-access/components/RecipientDossierView'
@@ -8,8 +9,9 @@ import { useAsync } from '@/lib/useAsync'
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
 // ROADMAP E07.03: one opportunity, as the recipient of a nominative share at its level reads it —
-// the same view of the same projection — with the ways it reaches the investor. Anything they no
-// longer reach (share revoked, publication withdrawn or paused, membership ended) is the API's 404.
+// the same view of the same projection — with the ways it reaches the investor and their mark of
+// interest (E07.05). Anything they no longer reach (share revoked, publication withdrawn or paused,
+// membership ended) is the API's 404.
 export default function OpportunityRoute() {
   const { dossierId = '' } = useParams<{ dossierId: string }>()
   const query = useAsync(() => getOpportunity(dossierId), [dossierId])
@@ -64,6 +66,12 @@ export default function OpportunityRoute() {
       ) : (
         <>
           <RecipientDossierView view={data} accessLevel={data.opportunity.accessLevel} />
+          <InterestPanel
+            dossierId={data.dossier.id}
+            archived={isArchived(data.dossier)}
+            interest={data.opportunity.interest}
+            shownAs={data.opportunity.shownAs}
+          />
           <section
             aria-labelledby="provenance-heading"
             className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3"
