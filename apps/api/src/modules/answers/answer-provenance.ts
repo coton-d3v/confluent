@@ -147,8 +147,11 @@ export function keepsRevision(previous: AnswerState, next: AnswerState): boolean
   return next.origin === 'ai' && previous.value !== ''
 }
 
-// The revision row keeping `previous`, a state that gives way.
-export function revisionOf(previous: DossierAnswer) {
+// The revision row keeping `previous`, a state that gives way — of a profile's answer or, E05.09, of
+// a candidature's (same columns).
+export function revisionOf(
+  previous: StoredProvenance & Pick<DossierAnswer, 'id' | 'value' | 'updatedAt'>,
+) {
   return {
     answerId: previous.id,
     value: previous.value,

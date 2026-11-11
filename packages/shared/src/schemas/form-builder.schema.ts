@@ -14,8 +14,10 @@ import {
 // Form builder (ROADMAP E03.02, E03.03, E03.07, E03.08, E03.13). A form has at most one published
 // version (used for new dossiers) and at most one draft; only the draft can be edited.
 
-// Business usage a form is assigned to (E03.09); `null` = not assigned yet.
-export const formUsageSchema = z.enum(['dossier'])
+// Business usage a form is assigned to (E03.09); `null` = not assigned yet. `dossier`: the common
+// company profile, one of Confluent's own forms. `candidature` (E05.09): a workspace's complementary
+// form, answered by each candidature to it. One form per usage — per workspace for `candidature`.
+export const formUsageSchema = z.enum(['dossier', 'candidature'])
 
 const versionRefSchema = z.object({
   id: z.string().uuid(),

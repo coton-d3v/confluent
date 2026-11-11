@@ -11,7 +11,8 @@ import { QUESTIONNAIRE_V1_FIELDS } from './questionnaire.seed'
 import { createVersionStructure } from './questionnaire-structure'
 
 // The form assigned to the `dossier` usage: new dossiers are created with its published version.
-// Other forms exist unassigned until E03.09 lets an administrator assign them.
+// Other forms exist unassigned until E03.09 lets an administrator assign them. One of Confluent's
+// own forms (`workspaceId` null), never a workspace's (E05.09).
 export const DOSSIER_FORM = {
   slug: 'profil-entreprise',
   name: "Profil de l'entreprise",
@@ -52,8 +53,9 @@ export class QuestionnairesService {
   }
 
   async ensureBootstrap(): Promise<QuestionnaireVersion> {
-    const form = await this.prisma.questionnaire.findUnique({
-      where: { usage: DOSSIER_FORM.usage },
+    // Confluent's own form (E05.09: a workspace's forms never serve the company profile).
+    const form = await this.prisma.questionnaire.findFirst({
+      where: { usage: DOSSIER_FORM.usage, workspaceId: null },
     })
     const published =
       form &&

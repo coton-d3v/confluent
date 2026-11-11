@@ -53,6 +53,8 @@ const UPDATED_AT = new Set([
   'company',
   'libraryDocument',
   'dossierDocument',
+  'candidature',
+  'candidatureAnswer',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -448,7 +450,11 @@ export function createFakePrisma() {
       updatedAt: new Date(),
     })),
     shareLink: model('shareLink'),
-    questionnaire: model('questionnaire', () => ({ archivedAt: null, updatedAt: new Date() })),
+    questionnaire: model('questionnaire', () => ({
+      archivedAt: null,
+      workspaceId: null,
+      updatedAt: new Date(),
+    })),
     questionnaireVersion: model('questionnaireVersion', () => ({
       status: 'draft',
       publishedAt: null,
@@ -464,6 +470,11 @@ export function createFakePrisma() {
     })),
     dossierAnswer: model('dossierAnswer'),
     dossierAnswerRevision: model('dossierAnswerRevision', () => ({ replacedAt: new Date() })),
+    candidature: model('candidature', () => ({ submittedAt: null })),
+    candidatureAnswer: model('candidatureAnswer'),
+    candidatureAnswerRevision: model('candidatureAnswerRevision', () => ({
+      replacedAt: new Date(),
+    })),
     classificationRule: model('classificationRule', () => ({
       choiceKey: '',
       value: '',

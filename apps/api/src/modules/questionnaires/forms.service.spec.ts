@@ -3,6 +3,8 @@ import { SITE_ORIGIN } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { FormDraftsService } from './form-drafts.service'
+import { WorkspaceAccessService } from '../workspaces/workspace-access'
+import { FormDesignAccess } from './form-design-access'
 import { FormsService } from './forms.service'
 import { QuestionnairesService } from './questionnaires.service'
 
@@ -11,8 +13,9 @@ function setup() {
   const prisma = fake.prisma as never
   const audit = new AuditService(prisma)
   const questionnaires = new QuestionnairesService(prisma)
-  const forms = new FormsService(prisma, audit)
-  const drafts = new FormDraftsService(prisma, forms, questionnaires, audit)
+  const design = new FormDesignAccess(new WorkspaceAccessService(prisma))
+  const forms = new FormsService(prisma, audit, design)
+  const drafts = new FormDraftsService(prisma, forms, questionnaires, audit, design)
   return { fake, forms, drafts, questionnaires }
 }
 

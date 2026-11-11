@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { NotFoundException } from '@nestjs/common'
 import { AuditService } from '../../src/modules/audit/audit.service'
 import { FormDraftsService } from '../../src/modules/questionnaires/form-drafts.service'
+import { FormDesignAccess } from '../../src/modules/questionnaires/form-design-access'
 import { FormsService } from '../../src/modules/questionnaires/forms.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
 
 const ADMIN = { id: 'admin-test', role: 'admin' }
@@ -14,8 +16,15 @@ const ADMIN = { id: 'admin-test', role: 'admin' }
 describe('form drafts under concurrency (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
-  const forms = new FormsService(prisma, audit)
-  const drafts = new FormDraftsService(prisma, forms, new QuestionnairesService(prisma), audit)
+  const design = new FormDesignAccess(new WorkspaceAccessService(prisma))
+  const forms = new FormsService(prisma, audit, design)
+  const drafts = new FormDraftsService(
+    prisma,
+    forms,
+    new QuestionnairesService(prisma),
+    audit,
+    design,
+  )
 
   afterAll(() => prisma.$disconnect())
 
@@ -95,7 +104,7 @@ describe('form drafts under concurrency (PostgreSQL)', () => {
     let signal!: () => void
     const locked = new Promise<void>((resolve) => (signal = resolve))
     const archiving = prisma.$transaction(async (tx) => {
-      await forms.lockForm(tx, formId)
+      await forms.lockForm(tx, formId, null)
       await tx.questionnaire.update({ where: { id: formId }, data: { archivedAt: new Date() } })
       signal()
       await new Promise((r) => setTimeout(r, 400))
