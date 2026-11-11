@@ -85,6 +85,17 @@ export class S3StorageAdapter implements StorageAdapter {
     return this.signer(command, ttl)
   }
 
+  async read(key: string): Promise<Buffer> {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
+      if (!res.Body) throw new StoredObjectMissingError(key)
+      return Buffer.from(await res.Body.transformToByteArray())
+    } catch (err) {
+      if (statusOf(err) === 404) throw new StoredObjectMissingError(key)
+      throw err
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     try {
       await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }))

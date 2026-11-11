@@ -52,6 +52,22 @@ describe('S3StorageAdapter', () => {
     expect(err).not.toBeInstanceOf(StoredObjectMissingError)
   })
 
+  it('reads an object’s content, and reports a missing one', async () => {
+    const send = jest.fn().mockResolvedValue({
+      Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([0x25, 0x50])) },
+    })
+    await expect(adapter(send).storage.read('k')).resolves.toEqual(Buffer.from('%P'))
+    const missing = jest.fn().mockRejectedValue(s3Error('NoSuchKey', 404))
+    await expect(adapter(missing).storage.read('k')).rejects.toBeInstanceOf(
+      StoredObjectMissingError,
+    )
+    const down = jest.fn().mockRejectedValue(s3Error('InternalError', 500))
+    const err = await adapter(down)
+      .storage.read('k')
+      .catch((e: unknown) => e)
+    expect(err).not.toBeInstanceOf(StoredObjectMissingError)
+  })
+
   it('signs a download as an attachment for at most 15 minutes', async () => {
     const send = jest.fn().mockResolvedValue({})
     const { storage, signer } = adapter(send)

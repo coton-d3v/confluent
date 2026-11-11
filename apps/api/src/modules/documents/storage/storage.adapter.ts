@@ -32,6 +32,9 @@ export interface StorageAdapter {
   // URL that downloads the object as an attachment. Throws StoredObjectMissingError when the object
   // does not exist; any other error means the storage could not be reached.
   getSignedUrl(key: string, options: DownloadOptions): Promise<string>
+  // The object's content, read by the API itself (e.g. to extract its text). Throws
+  // StoredObjectMissingError when the object does not exist.
+  read(key: string): Promise<Buffer>
   // Whether the object exists; throws when the storage cannot answer.
   exists(key: string): Promise<boolean>
   delete(key: string): Promise<void>

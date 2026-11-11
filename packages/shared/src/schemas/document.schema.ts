@@ -32,6 +32,8 @@ export const ACCEPTED_DOCUMENT_FORMATS_LABEL =
 export const documentAvailabilitySchema = z.enum(['available', 'missing', 'unavailable'])
 
 export const documentVersionSchema = z.object({
+  // Identifies this version (e.g. to read its content through MCP, E04.03).
+  id: z.string().uuid(),
   version: z.number().int().positive(),
   availability: documentAvailabilitySchema,
   // Signed URL (15 min) that downloads the file; null unless `availability` is `available`.

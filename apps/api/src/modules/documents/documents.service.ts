@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
+  GoneException,
   HttpException,
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
@@ -46,6 +48,7 @@ export function sanitizeFilename(raw: string): string {
 }
 
 export interface DocumentVersionView {
+  id: string
   version: number
   // `missing`: the file is lost and must be uploaded again; `unavailable`: the storage could not be
   // reached right now. In both cases the document is still listed, without a download URL.
@@ -146,9 +149,7 @@ export class DocumentsService {
         orderBy: [{ filename: 'asc' }, { version: 'desc' }],
         include: { field: { select: { minAccessLevel: true } } },
       })
-    ).filter((row) =>
-      row.field ? fieldVisibleAt(row.field, level) : grantsAccess(level, DOCUMENTS_MIN_LEVEL),
-    )
+    ).filter((row) => versionVisibleAt(row, level))
     const downloads = await mapWithConcurrency(rows, LISTING_CONCURRENCY, (row) =>
       this.download(row.storageKey, row.filename),
     )
@@ -156,6 +157,7 @@ export class DocumentsService {
     const byDocument = new Map<string, { filename: string; versions: DocumentVersionView[] }>()
     rows.forEach((row, i) => {
       const view: DocumentVersionView = {
+        id: row.id,
         version: row.version,
         ...downloads[i],
         createdAt: row.createdAt,
@@ -174,6 +176,41 @@ export class DocumentsService {
       current: versions[0],
       versions,
     }))
+  }
+
+  // The content of one version, if `level` may read it (same rule as the listing): a version that is
+  // hidden or belongs to another dossier is reported as not found.
+  async readFile(
+    dossierId: string,
+    level: AccessLevel,
+    documentId: string,
+  ): Promise<{ document: Document; content: Buffer }> {
+    const row = await this.prisma.document.findFirst({
+      where: { id: documentId, dossierId },
+      include: { field: { select: { minAccessLevel: true } } },
+    })
+    if (!row || !versionVisibleAt(row, level)) {
+      throw new NotFoundException({ code: 'DOCUMENT_NOT_FOUND', message: 'Document introuvable.' })
+    }
+    try {
+      return { document: row, content: await this.storage.read(row.storageKey) }
+    } catch (err) {
+      if (err instanceof StoredObjectMissingError) {
+        this.logger.warn(`document object missing: ${row.storageKey}`)
+        throw new GoneException({
+          code: 'DOCUMENT_MISSING',
+          message: 'Le fichier de ce document est perdu : il doit être déposé de nouveau.',
+        })
+      }
+      this.logger.warn(
+        `document storage unreachable for ${row.storageKey}: ${(err as Error).message}`,
+      )
+      throw new ServiceUnavailableException({
+        code: 'STORAGE_UNAVAILABLE',
+        message:
+          'Le stockage des documents est momentanément indisponible. Réessayez dans quelques instants.',
+      })
+    }
   }
 
   // A document may only answer an attachment field of the dossier's own form version.
@@ -241,6 +278,12 @@ export class DocumentsService {
       return { availability: 'unavailable', url: null }
     }
   }
+}
+
+// A version attached to a field follows that field's read level; any other file requires
+// DOCUMENTS_MIN_LEVEL (E03.11).
+function versionVisibleAt(row: { field: { minAccessLevel: string } | null }, level: AccessLevel) {
+  return row.field ? fieldVisibleAt(row.field, level) : grantsAccess(level, DOCUMENTS_MIN_LEVEL)
 }
 
 async function mapWithConcurrency<T, R>(

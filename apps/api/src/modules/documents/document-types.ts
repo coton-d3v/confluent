@@ -2,7 +2,7 @@
 // file content rather than from the type or
 // extension sent by the browser (ROADMAP E02.04). The detected type is what gets stored and served.
 
-const OOXML_AND_ODF: Record<string, string> = {
+export const OOXML_AND_ODF: Record<string, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -11,13 +11,13 @@ const OOXML_AND_ODF: Record<string, string> = {
   odp: 'application/vnd.oasis.opendocument.presentation',
 }
 
-const LEGACY_OFFICE: Record<string, string> = {
+export const LEGACY_OFFICE: Record<string, string> = {
   doc: 'application/msword',
   xls: 'application/vnd.ms-excel',
   ppt: 'application/vnd.ms-powerpoint',
 }
 
-const PLAIN_TEXT: Record<string, string> = {
+export const PLAIN_TEXT: Record<string, string> = {
   csv: 'text/csv',
   txt: 'text/plain',
 }
@@ -34,6 +34,18 @@ export const RECOGNISED_EXTENSIONS = [
   ...Object.keys(OOXML_AND_ODF),
   ...Object.keys(LEGACY_OFFICE),
   ...Object.keys(PLAIN_TEXT),
+]
+
+// Every type detectDocumentType can return.
+export const RECOGNISED_TYPES = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/heic',
+  ...Object.values(OOXML_AND_ODF),
+  ...Object.values(LEGACY_OFFICE),
+  ...Object.values(PLAIN_TEXT),
 ]
 
 const startsWith = (buf: Buffer, bytes: number[], offset = 0) =>
