@@ -374,6 +374,32 @@ export class DossiersService {
     return projectDossierForLevel(dossier, level, await this.derivedDataContext(dossier))
   }
 
+  // The same projection for several dossiers, each at its own level (E07.03's lists), reading the
+  // fields of their versions once.
+  async projectEachForLevel<T extends Dossier>(
+    items: ReadonlyArray<{ dossier: T; level: AccessLevel }>,
+  ): Promise<T[]> {
+    const versionIds = [...new Set(items.map((i) => i.dossier.questionnaireVersionId))]
+    const fields =
+      versionIds.length === 0
+        ? []
+        : await this.prisma.questionnaireField.findMany({
+            where: { versionId: { in: versionIds } },
+            select: { versionId: true, key: true, minAccessLevel: true },
+          })
+    const levels = new Map<string, Map<string, string>>()
+    for (const f of fields) {
+      const version = levels.get(f.versionId) ?? new Map<string, string>()
+      version.set(f.key, f.minAccessLevel)
+      levels.set(f.versionId, version)
+    }
+    return items.map(({ dossier, level }) =>
+      projectDossierForLevel(dossier, level, {
+        fieldLevels: levels.get(dossier.questionnaireVersionId) ?? new Map(),
+      }),
+    )
+  }
+
   private async derivedDataContext(dossier: Dossier): Promise<DerivedDataContext> {
     const fields = await this.prisma.questionnaireField.findMany({
       where: { versionId: dossier.questionnaireVersionId },

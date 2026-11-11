@@ -3,7 +3,12 @@ import type { PrismaService } from '../../prisma/prisma.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import type { AuditService } from '../audit/audit.service'
 import { MemoryStorageAdapter } from '../documents/storage/memory-storage.adapter'
-import { WorkspaceAccessService, canEnterWorkspace, isActiveMembership } from './workspace-access'
+import {
+  WorkspaceAccessService,
+  canEnterWorkspace,
+  isActiveMembership,
+  readsPool,
+} from './workspace-access'
 import { WorkspacesService } from './workspaces.service'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
@@ -71,6 +76,19 @@ describe('workspace access', () => {
     ]) {
       expect(isActiveMembership(membership)).toBe(false)
       expect(canEnterWorkspace({ role: 'financeur' }, membership)).toBe(false)
+    }
+  })
+
+  it('lets only an active investisseur read the pool (E07.03), whatever the global role', () => {
+    const active = { role: 'investisseur', deactivatedAt: null }
+    expect(readsPool(active)).toBe(true)
+    for (const membership of [
+      { ...active, deactivatedAt: new Date() },
+      { ...active, role: 'conseiller' },
+      { ...active, role: 'Investisseur' },
+      { ...active, role: '' },
+    ]) {
+      expect(readsPool(membership)).toBe(false)
     }
   })
 

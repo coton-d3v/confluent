@@ -154,3 +154,16 @@ export function poolPublicationsDown(): string[] {
 export function poolPublicationsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261124000000_pool_publications/migration.sql'))
 }
+
+// The revert of E07.03 (opportunity readings): it accepts that their journal is lost (SET LOCAL,
+// test transactions only).
+export function opportunityViewsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_opportunity_views_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261125000000_opportunity_views.down.sql')),
+  ]
+}
+
+export function opportunityViewsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261125000000_opportunity_views/migration.sql'))
+}

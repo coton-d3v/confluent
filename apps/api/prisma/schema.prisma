@@ -101,6 +101,8 @@ enum audit_action {
   share_link_level_changed
   pool_publication_published
   pool_publication_withdrawn
+  // E07.03: an investor read one of their opportunities (one entry per reading).
+  opportunity_viewed
 
   @@map("audit_action")
 }

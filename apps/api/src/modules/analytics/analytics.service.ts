@@ -21,16 +21,21 @@ export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async forDossier(dossierId: string): Promise<DossierAnalytics> {
-    const [shareLinks, viewEvents] = await Promise.all([
+    const [shareLinks, events] = await Promise.all([
       this.prisma.shareLink.findMany({
         where: { dossierId },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.auditLog.findMany({
-        where: { dossierId, actionType: 'share_link_viewed' },
+        where: { dossierId, actionType: { in: ['share_link_viewed', 'opportunity_viewed'] } },
         orderBy: { createdAt: 'asc' },
       }),
     ])
+    // The views of the shares: through their links, and the readings of an opportunity by its
+    // recipient (E07.03), each journaled once on the share — never a pool investor's reading.
+    const viewEvents = events.filter(
+      (e) => e.actionType === 'share_link_viewed' || e.shareLinkId !== null,
+    )
 
     const totalViews = viewEvents.length
     const activeRecipients = shareLinks.filter((l) => l.status === 'active').length

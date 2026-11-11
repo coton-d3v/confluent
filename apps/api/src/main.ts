@@ -89,6 +89,10 @@ function setupSwagger(
     .addTag('Questionnaire', 'Questionnaire actif (public) + réponses par dossier (entrepreneur).')
     .addTag('Documents', 'Upload + versioning de fichiers attachés à un dossier.')
     .addTag('Partages', 'Liens de partage vers les financeurs (CSPRNG, révocables).')
+    .addTag(
+      'Opportunités',
+      'Demandes partagées avec l’investisseur ou publiées aux viviers de ses workspaces.',
+    )
     .addTag('Analytics', 'Stats de consultation par dossier, par financeur.')
     .addTag('Audit', 'Journal append-only (entrepreneur-scoped + admin-scoped).')
     .addTag('Admin · Dossiers', 'Accès + édition admin sur tous les dossiers (audité).')

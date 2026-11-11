@@ -25,6 +25,7 @@ import { EligibilitiesModule } from './modules/eligibilities/eligibilities.modul
 import { SupportPathsModule } from './modules/support-paths/support-paths.module'
 import { InterventionsModule } from './modules/interventions/interventions.module'
 import { PoolPublicationsModule } from './modules/pool-publications/pool-publications.module'
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -57,6 +58,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     SupportPathsModule,
     InterventionsModule,
     PoolPublicationsModule,
+    OpportunitiesModule,
   ],
   controllers: [AppController],
   providers: [

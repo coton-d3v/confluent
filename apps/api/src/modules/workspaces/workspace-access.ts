@@ -66,6 +66,14 @@ export function canEnterWorkspace(
   )
 }
 
+// THE rule of who reads a workspace's pool (« vivier », E07.02) as an investor (E07.03): an active
+// investisseur of this very workspace. Closed by default: a conseiller (who follows the pool from the
+// candidatures), a deactivated membership, an unknown role and the global role — an administrator's
+// included — read nothing of it.
+export function readsPool(membership: Pick<ManagingMembership, 'role' | 'deactivatedAt'>): boolean {
+  return isActiveMembership(membership) && membership.role === 'investisseur'
+}
+
 // The workspace a request acts in, as resolved for its actor at this request: what every
 // workspace-scoped read or write starts from, and what it filters its rows by (`workspace.id`).
 export interface WorkspaceScope {
