@@ -22,6 +22,7 @@ import {
   type CandidatureAnswerRevision,
   type CandidatureStatusChange,
   type Dossier,
+  type PoolPublication,
   type QuestionnaireField,
   type QuestionnaireSection,
   type QuestionnaireVersion,
@@ -51,6 +52,11 @@ import { assertCanOwnCompanies } from '../companies/company-access'
 import { DossiersService, requestArchived } from '../dossiers/dossiers.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
+import {
+  poolPublicationView,
+  poolPublicationsOf,
+  type PoolPublicationView,
+} from '../pool-publications/pool-publication'
 import { CandidatureErrors } from './candidature-errors'
 
 // The usage of a workspace's complementary form (@confluent/shared `formUsageSchema`).
@@ -86,6 +92,7 @@ export interface CandidatureSummaryView {
   submittedAt: Date | null
   financingStatus: FinancingStatus
   financingStatusChangedAt: Date
+  poolPublication: PoolPublicationView | null
   createdAt: Date
   updatedAt: Date
 }
@@ -113,7 +120,13 @@ interface FormView {
 // @confluent/shared `candidatureSchema`.
 export interface CandidatureView extends CandidatureSummaryView {
   workspace: CandidatureWorkspaceView
-  dossier: { id: string; slug: string; name: string; profileSubmitted: boolean }
+  dossier: {
+    id: string
+    slug: string
+    name: string
+    profileSubmitted: boolean
+    publicationStatus: DossierPublicationStatus
+  }
   form: FormView
   answers: CandidatureAnswerView[]
   statusHistory: FinancingStatusChangeView[]
@@ -130,6 +143,7 @@ export interface ReceivedCandidatureSummaryView {
   submittedAt: Date
   financingStatus: FinancingStatus
   financingStatusChangedAt: Date
+  poolPublication: PoolPublicationView | null
   company: { name: string }
   dossier: { name: string; amountEur: number | null; financingTypes: FinancingType[] }
 }
@@ -229,11 +243,21 @@ export class CandidaturesService {
       where: { dossierId: dossier.id },
       orderBy: { createdAt: 'desc' },
     })
-    const workspaces = await this.prisma.workspace.findMany({
-      where: { id: { in: rows.map((r) => r.workspaceId) } },
-    })
+    const [workspaces, pool] = await Promise.all([
+      this.prisma.workspace.findMany({ where: { id: { in: rows.map((r) => r.workspaceId) } } }),
+      poolPublicationsOf(
+        this.prisma,
+        rows.map((r) => r.id),
+      ),
+    ])
     const byId = new Map(workspaces.map((w) => [w.id, w]))
-    return rows.map((row) => summaryView(row, byId.get(row.workspaceId)!))
+    return rows.map((row) =>
+      summaryView(
+        row,
+        byId.get(row.workspaceId)!,
+        poolPublicationView(pool.get(row.id), dossier, row),
+      ),
+    )
   }
 
   // A candidature answers the version of the workspace's complementary form published at its
@@ -502,13 +526,14 @@ export class CandidaturesService {
   ): Promise<ReceivedCandidatureListItemView[]> {
     if (rows.length === 0) return []
     const ids = rows.map((r) => r.id)
-    const [dossiers, eligibilities, schemes] = await Promise.all([
+    const [dossiers, eligibilities, schemes, pool] = await Promise.all([
       this.prisma.dossier.findMany({ where: { id: { in: rows.map((r) => r.dossierId) } } }),
       this.prisma.candidatureEligibility.findMany({ where: { candidatureId: { in: ids } } }),
       this.prisma.eligibilityScheme.findMany({
         where: { workspaceId },
         orderBy: [{ position: 'asc' }, { key: 'asc' }],
       }),
+      poolPublicationsOf(this.prisma, ids),
     ])
     const companies = await this.prisma.company.findMany({
       where: { id: { in: dossiers.map((d) => d.companyId) } },
@@ -521,7 +546,12 @@ export class CandidaturesService {
         eligibilities.filter((e) => e.candidatureId === row.id).map((e) => [e.schemeId, e]),
       )
       return {
-        ...receivedSummary(row, dossier, companyById.get(dossier.companyId)!.name),
+        ...receivedSummary(
+          row,
+          dossier,
+          companyById.get(dossier.companyId)!.name,
+          pool.get(row.id),
+        ),
         eligibilities: schemes
           .filter((scheme) => own.has(scheme.id))
           .map((scheme) => ({
@@ -545,15 +575,17 @@ export class CandidaturesService {
   ): Promise<ReceivedCandidatureView> {
     const row = await this.findReceived(actor, workspaceId, candidatureId)
     const dossier = (await this.prisma.dossier.findUnique({ where: { id: row.dossierId } }))!
-    const [company, owner, profile, form, profileAnswers, ownAnswers, changes] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: dossier.companyId } }),
-      this.prisma.user.findUnique({ where: { id: dossier.userId } }),
-      this.questionnaires.getVersion(dossier.questionnaireVersionId),
-      this.formOf(row.formVersionId),
-      this.prisma.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
-      this.prisma.candidatureAnswer.findMany({ where: { candidatureId: row.id } }),
-      this.statusHistoryOf(row.id),
-    ])
+    const [company, owner, profile, form, profileAnswers, ownAnswers, changes, pool] =
+      await Promise.all([
+        this.prisma.company.findUnique({ where: { id: dossier.companyId } }),
+        this.prisma.user.findUnique({ where: { id: dossier.userId } }),
+        this.questionnaires.getVersion(dossier.questionnaireVersionId),
+        this.formOf(row.formVersionId),
+        this.prisma.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
+        this.prisma.candidatureAnswer.findMany({ where: { candidatureId: row.id } }),
+        this.statusHistoryOf(row.id),
+        poolPublicationsOf(this.prisma, [row.id]),
+      ])
     const actors = await this.prisma.user.findMany({
       where: { id: { in: changes.flatMap((c) => (c.actorId ? [c.actorId] : [])) } },
     })
@@ -561,7 +593,7 @@ export class CandidaturesService {
     // The common profile, attachment questions aside.
     const profileFields = (profile?.fields ?? []).filter((f) => f.fieldType !== 'file')
     const profileFieldIds = new Set(profileFields.map((f) => f.id))
-    const summary = receivedSummary(row, dossier, company!.name)
+    const summary = receivedSummary(row, dossier, company!.name, pool.get(row.id))
     return {
       ...summary,
       applicant: {
@@ -703,7 +735,7 @@ export class CandidaturesService {
   }
 
   private async ownerView(candidature: Candidature, dossier: Dossier): Promise<CandidatureView> {
-    const [workspace, form, answers, request, changes] = await Promise.all([
+    const [workspace, form, answers, request, changes, pool] = await Promise.all([
       this.prisma.workspace.findUnique({ where: { id: candidature.workspaceId } }),
       this.formOf(candidature.formVersionId),
       this.prisma.candidatureAnswer.findMany({
@@ -712,15 +744,21 @@ export class CandidaturesService {
       }),
       this.prisma.dossier.findUnique({ where: { id: dossier.id } }),
       this.statusHistoryOf(candidature.id),
+      poolPublicationsOf(this.prisma, [candidature.id]),
     ])
     return {
-      ...summaryView(candidature, workspace!),
+      ...summaryView(
+        candidature,
+        workspace!,
+        poolPublicationView(pool.get(candidature.id), request ?? dossier, candidature),
+      ),
       workspace: identityOf(workspace!),
       dossier: {
         id: dossier.id,
         slug: request?.slug ?? dossier.slug,
         name: request?.name ?? dossier.name,
         profileSubmitted: (request ?? dossier).submittedAt !== null,
+        publicationStatus: publicationStatusOf((request ?? dossier).publicationStatus),
       },
       form,
       answers: await this.answerViews(dossier, answers),
@@ -764,6 +802,7 @@ export class CandidaturesService {
 function summaryView(
   row: Candidature,
   workspace: { id: string; name: string; programName: string | null },
+  poolPublication: PoolPublicationView | null,
 ): CandidatureSummaryView {
   return {
     id: row.id,
@@ -773,6 +812,7 @@ function summaryView(
     submittedAt: row.submittedAt,
     financingStatus: financingStatusOf(row.financingStatus),
     financingStatusChangedAt: row.financingStatusChangedAt,
+    poolPublication,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -782,12 +822,15 @@ function receivedSummary(
   row: Candidature,
   dossier: Dossier,
   companyName: string,
+  publication: PoolPublication | undefined,
 ): ReceivedCandidatureSummaryView {
   return {
     id: row.id,
     submittedAt: row.submittedAt!,
     financingStatus: financingStatusOf(row.financingStatus),
     financingStatusChangedAt: row.financingStatusChangedAt,
+    // E07.02: where the entrepreneur's publication in this workspace's pool stands.
+    poolPublication: poolPublicationView(publication, dossier, row),
     company: { name: companyName },
     dossier: {
       name: dossier.name,

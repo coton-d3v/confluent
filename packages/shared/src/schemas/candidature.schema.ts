@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { answerProvenanceSchema, answerRevisionSchema } from './answer.schema.js'
 import { eligibilityBadgeSchema } from './eligibility.schema.js'
 import { financingTypeSchema } from './financing.schema.js'
+import { poolPublicationSchema } from './pool-publication.schema.js'
 import {
   dossierPublicationStatusSchema,
   financingStatusChangeSchema,
@@ -83,6 +84,8 @@ export const candidatureSummarySchema = z.object({
   // E06.01: `preparing` while a draft; changes only once sent.
   financingStatus: financingStatusSchema,
   financingStatusChangedAt: z.string().datetime(),
+  // E07.02: its publication in the workspace's pool, null if never published there.
+  poolPublication: poolPublicationSchema.nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -100,6 +103,8 @@ export const candidatureSchema = candidatureSummarySchema.extend({
     name: z.string(),
     // The common profile is complete once submitted through this request (E03.10).
     profileSubmitted: z.boolean(),
+    // E07.02: what a publication in the workspace's pool requires (`poolPublicationBlocker`).
+    publicationStatus: dossierPublicationStatusSchema,
   }),
   form: candidatureFormSchema,
   answers: z.array(candidatureAnswerSchema),
@@ -122,6 +127,9 @@ export const receivedCandidatureSummarySchema = z.object({
   submittedAt: z.string().datetime(),
   financingStatus: financingStatusSchema,
   financingStatusChangedAt: z.string().datetime(),
+  // E07.02: whether the entrepreneur publishes the request in this workspace's pool, and at which
+  // level — what the workspace's investors will read (E07.03).
+  poolPublication: poolPublicationSchema.nullable(),
   company: z.object({ name: z.string() }),
   dossier: z.object({
     name: z.string(),

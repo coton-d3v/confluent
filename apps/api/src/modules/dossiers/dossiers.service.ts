@@ -30,6 +30,7 @@ import {
   storedClassification,
 } from '../classification/classification.service'
 import { lockProfile } from './dossier-profile'
+import { withdrawFromEveryPool, withdrawalEntry } from '../pool-publications/pool-publication'
 import { isPendingProposal } from '../answers/answer-provenance'
 import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
@@ -429,7 +430,9 @@ export class DossiersService {
     return this.changePublication(id, userId, 'unpublish')
   }
 
-  // E06.01 (D03 « archivé »): the owner closes the request, published or not. Journaled.
+  // E06.01 (D03 « archivé »): the owner closes the request, published or not. Journaled. E07.02: it
+  // withdraws its publication from every workspace's pool (journaled, reason `archived`), which
+  // unarchiving does not restore; its shares and candidatures stay as they are.
   archive(id: string, userId: string): Promise<Dossier> {
     return this.changePublication(id, userId, 'archive')
   }
@@ -453,10 +456,10 @@ export class DossiersService {
       action === 'publish'
         ? await this.getForDiffusion(id, userId)
         : await this.getByIdForUser(id, userId)
-    const { dossier, previous } = await this.prisma.$transaction(async (tx) => {
+    const { dossier, previous, withdrawn } = await this.prisma.$transaction(async (tx) => {
       const current = await lockDossier(tx, dossierId, userId)
       const transition = publicationTransition(current.publicationStatus, action)
-      if (transition === 'unchanged') return { dossier: current, previous: null }
+      if (transition === 'unchanged') return { dossier: current, previous: null, withdrawn: [] }
       if (transition === 'refused') throw publicationRefused(current, action)
       if (action === 'publish') {
         const missing = missingForPublication(current)
@@ -472,7 +475,9 @@ export class DossiersService {
           archivedAt: to === 'archived' ? now : null,
         },
       })
-      return { dossier: updated, previous: current }
+      const withdrawn =
+        action === 'archive' ? await withdrawFromEveryPool(tx, dossierId, userId, now) : []
+      return { dossier: updated, previous: current, withdrawn }
     })
     if (previous) {
       await this.audit.record({
@@ -490,6 +495,9 @@ export class DossiersService {
             : {}),
         },
       })
+    }
+    for (const publication of withdrawn) {
+      await this.audit.record(withdrawalEntry(publication, dossierId, userId, 'archived'))
     }
     return dossier
   }

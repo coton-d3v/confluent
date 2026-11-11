@@ -123,8 +123,10 @@ export class DossiersController {
       'l’entreprise soumis pour ce dossier (sinon `422` `DOSSIER_NOT_PUBLISHABLE`, `error.details` ' +
       'liste ce qui manque). Distincte de la soumission (contrôle du profil et classification). ' +
       'Les destinataires des partages voient alors la présentation de la demande ; la publication ' +
-      'n’ouvre ni ne ferme aucun partage. Publier une demande déjà publiée ne change rien ; une ' +
-      'demande archivée doit d’abord être désarchivée (`409` `DOSSIER_ARCHIVED`). Journalisé.',
+      'n’ouvre ni ne ferme aucun partage, et ne publie la demande dans aucun vivier (E07.02 : ' +
+      'consentement propre à chaque structure ; celles en pause reprennent). Publier une demande ' +
+      'déjà publiée ne change rien ; une demande archivée doit d’abord être désarchivée (`409` ' +
+      '`DOSSIER_ARCHIVED`). Journalisé.',
   })
   @ApiOkResponse({ description: 'Demande publiée.' })
   @ApiUnprocessableEntityResponse({ description: 'Informations manquantes pour publier.' })
@@ -142,8 +144,9 @@ export class DossiersController {
     summary: 'Dépublier une demande (E05.07)',
     description:
       'Retour au brouillon : les partages restent ouverts mais ne montrent plus la présentation de la ' +
-      'demande. Sans effet sur un brouillon ; `409` sur une demande archivée. Propriétaire seul ' +
-      '(`404` sinon). Journalisé.',
+      'demande. Ses publications dans les viviers des structures sont en pause jusqu’à sa nouvelle ' +
+      'publication (E07.02). Sans effet sur un brouillon ; `409` sur une demande archivée. ' +
+      'Propriétaire seul (`404` sinon). Journalisé.',
   })
   @ApiOkResponse({ description: 'Demande en brouillon.' })
   @ApiConflictResponse({ description: 'Demande archivée.' })
@@ -161,8 +164,10 @@ export class DossiersController {
       '`archivedAt`. Les partages restent ouverts mais ne montrent plus sa présentation ; sa ' +
       'présentation n’est plus modifiable, elle ne peut être ni publiée ni présentée à une nouvelle ' +
       'structure tant qu’elle n’est pas désarchivée. Ses candidatures gardent leur statut de ' +
-      'financement dans chaque structure. Sans effet sur une demande archivée. Propriétaire seul ' +
-      '(`404` sinon). Journalisé (`dossier_archived`).',
+      'financement dans chaque structure. Ses publications dans les viviers des structures sont ' +
+      'retirées (E07.02, `pool_publication_withdrawn`, raison `archived`) ; la désarchiver ne les ' +
+      'rétablit pas. Sans effet sur une demande archivée. Propriétaire seul (`404` sinon). ' +
+      'Journalisé (`dossier_archived`).',
   })
   @ApiOkResponse({ description: 'Demande archivée.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })

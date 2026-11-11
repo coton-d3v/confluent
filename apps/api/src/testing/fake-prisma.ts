@@ -63,6 +63,7 @@ const UPDATED_AT = new Set([
   'supportStep',
   'candidatureStepValidation',
   'candidatureNote',
+  'poolPublication',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -536,6 +537,12 @@ export function createFakePrisma() {
       version: 1,
       editedAt: null,
       deletedAt: null,
+    })),
+    poolPublication: model('poolPublication', () => ({
+      consentedById: null,
+      withdrawnAt: null,
+      withdrawnById: null,
+      withdrawalReason: null,
     })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,

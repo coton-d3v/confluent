@@ -22,15 +22,21 @@ import {
   eligibilitiesDown,
   fundingPlansDown,
   fundingPlansUp,
+  poolPublicationsDown,
   supportPathsDown,
 } from './sql-file'
 
 const UP = fundingPlansUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = fundingPlansDown().slice(1)
-// E06.08's notes, E06.06's validations and E06.05's eligibilities use E06.03's unique index on
-// candidatures: undone first.
-const LATER_DOWN = [...candidatureNotesDown(), ...supportPathsDown(), ...eligibilitiesDown()]
+// E07.02's pool publications, E06.08's notes, E06.06's validations and E06.05's eligibilities use
+// E06.03's unique index on candidatures: undone first.
+const LATER_DOWN = [
+  ...poolPublicationsDown(),
+  ...candidatureNotesDown(),
+  ...supportPathsDown(),
+  ...eligibilitiesDown(),
+]
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_funding_plans_loss = 'off'"
