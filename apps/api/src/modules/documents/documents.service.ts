@@ -23,6 +23,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { lockDossier } from '../dossiers/dossier-lock'
 import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt } from '../dossiers/financeur-access'
 import { detectDocumentType } from './document-types'
+import { DOCUMENT_TEXT_LIMITS, extractDocumentText, readingOf } from './text/document-text'
+import { locateExcerpt } from './text/excerpt-location'
 import {
   MAX_SIGNED_URL_SECONDS,
   STORAGE_TOKEN,
@@ -211,6 +213,30 @@ export class DocumentsService {
           'Le stockage des documents est momentanément indisponible. Réessayez dans quelques instants.',
       })
     }
+  }
+
+  // E04.09: the document version of this dossier whose text — as read_document returns it — contains
+  // `passage` (spacing, case and typography ignored, as for a cited excerpt), newest first. One
+  // reading per readable version, each bounded in size and time. A version that cannot be read
+  // now (format, lost file, storage unreachable) is skipped: this is a safety net, not a guarantee.
+  async findPassage(dossierId: string, passage: string): Promise<Document | null> {
+    const rows = await this.prisma.document.findMany({
+      where: { dossierId },
+      orderBy: { createdAt: 'desc' },
+    })
+    for (const row of rows) {
+      if (!readingOf(row.mimetype).readable) continue
+      let content: Buffer
+      try {
+        content = await this.storage.read(row.storageKey)
+      } catch (err) {
+        this.logger.warn(`document not checked (${row.storageKey}): ${(err as Error).message}`)
+        continue
+      }
+      const text = await extractDocumentText(content, row.mimetype, DOCUMENT_TEXT_LIMITS)
+      if (text.readable && locateExcerpt(text.units, passage).found) return row
+    }
+    return null
   }
 
   // A document may only answer an attachment field of the dossier's own form version.
