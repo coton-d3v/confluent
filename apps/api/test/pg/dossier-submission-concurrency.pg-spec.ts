@@ -61,7 +61,7 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
-        companyId: await companyOf(prisma, user.id),
+        companyId: await companyOf(prisma, user.id, version.id),
         name: 'R40',
         slug: `r40-${tag}`,
         questionnaireVersionId: version.id,
@@ -74,11 +74,10 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     return { user, field, dossier }
   }
 
+  // The answers are the dossier's company's (E05.05).
   const state = async (dossierId: string, fieldId: string) => {
-    const [d, a] = await Promise.all([
-      prisma.dossier.findUniqueOrThrow({ where: { id: dossierId } }),
-      prisma.dossierAnswer.findFirst({ where: { dossierId, fieldId } }),
-    ])
+    const d = await prisma.dossier.findUniqueOrThrow({ where: { id: dossierId } })
+    const a = await prisma.dossierAnswer.findFirst({ where: { companyId: d.companyId, fieldId } })
     return { submitted: d.submittedAt !== null, answer: a?.value }
   }
 
@@ -107,14 +106,15 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
 
   it('clearing first: a submission waiting for the save sees the cleared answer and is refused', async () => {
     const { user, field, dossier } = await draftDossier()
-    // A save in progress: it holds the dossier, clears the answer, and commits 400 ms later.
+    // A save in progress: it holds the profile (its company's row, as AnswersService does), clears
+    // the answer, and commits 400 ms later.
     let cleared!: () => void
     const clearing = new Promise<void>((resolve) => (cleared = resolve))
     const save = prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossier.id} FOR UPDATE`
+        await tx.$queryRaw`SELECT 1 FROM "companies" WHERE "id" = ${dossier.companyId} FOR UPDATE`
         await tx.dossierAnswer.updateMany({
-          where: { dossierId: dossier.id, fieldId: field.id },
+          where: { companyId: dossier.companyId, fieldId: field.id },
           data: { value: '' },
         })
         cleared()

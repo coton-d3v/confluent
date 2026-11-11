@@ -45,7 +45,7 @@ describe('answer provenance (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
-        companyId: await companyOf(prisma, user.id),
+        companyId: await companyOf(prisma, user.id, version.id),
         name: 'E04.04',
         slug: `e0404-${tag}`,
         questionnaireVersionId: version.id,
@@ -53,7 +53,7 @@ describe('answer provenance (PostgreSQL)', () => {
     })
     const document = await prisma.document.create({
       data: {
-        dossierId: dossier.id,
+        companyId: dossier.companyId,
         filename: 'kbis.pdf',
         mimetype: 'application/pdf',
         storageKey: `test/${tag}`,
@@ -78,7 +78,7 @@ describe('answer provenance (PostgreSQL)', () => {
       { userId: user.id, channel: 'mcp', clientName: 'Claude' },
     )
     const proposed = await prisma.dossierAnswer.findFirstOrThrow({
-      where: { dossierId: dossier.id },
+      where: { companyId: dossier.companyId },
     })
     expect(proposed).toMatchObject({
       value: '10 000 EUR',
@@ -95,7 +95,7 @@ describe('answer provenance (PostgreSQL)', () => {
       channel: 'site',
     })
     const corrected = await prisma.dossierAnswer.findFirstOrThrow({
-      where: { dossierId: dossier.id },
+      where: { companyId: dossier.companyId },
     })
     expect(corrected).toMatchObject({
       value: '12 000 EUR',
@@ -113,7 +113,7 @@ describe('answer provenance (PostgreSQL)', () => {
     const { user, field, dossier, document } = await dossierWithDocument()
     const row = await prisma.dossierAnswer.create({
       data: {
-        dossierId: dossier.id,
+        companyId: dossier.companyId,
         fieldId: field.id,
         value: '10 000 EUR',
         origin: 'ai',

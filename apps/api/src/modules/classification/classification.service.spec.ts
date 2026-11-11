@@ -4,7 +4,8 @@ import { ClassificationService } from './classification.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
 
-function buildPrisma(dossier: unknown) {
+// `profile`: the company profile the dossier presents (E05.05), null when the dossier is unknown.
+function buildPrisma(profile: unknown) {
   const update = jest
     .fn()
     .mockImplementation(async (args: { data: Record<string, unknown> }) =>
@@ -13,9 +14,10 @@ function buildPrisma(dossier: unknown) {
   return {
     prisma: {
       dossier: {
-        findUnique: jest.fn().mockResolvedValue(dossier),
+        findUnique: jest.fn().mockResolvedValue(profile && { id: 'd-1', companyId: 'c-1' }),
         update,
       },
+      company: { findUnique: jest.fn().mockResolvedValue(profile) },
       // The rules seeded by the migration: the expectations below are those of the former
       // hard-coded rules, so the migration changes no classification.
       classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
@@ -40,8 +42,8 @@ type Field = {
 
 function dossierWith(fields: Field[], answers: Record<string, string>) {
   return {
-    id: 'd-1',
-    questionnaireVersion: { fields },
+    id: 'c-1',
+    profileVersion: { fields },
     answers: Object.entries(answers).map(([fieldId, value]) => ({ fieldId, value })),
   }
 }

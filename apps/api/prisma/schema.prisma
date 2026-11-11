@@ -172,6 +172,7 @@ model QuestionnaireVersion {
   sections      QuestionnaireSection[]
   fields        QuestionnaireField[]
   dossiers      Dossier[]
+  companies     Company[]
 
   @@unique([questionnaireId, version])
   @@index([questionnaireId, status])
@@ -223,28 +224,38 @@ model QuestionnaireField {
   @@map("questionnaire_fields")
 }
 
-// The company an entrepreneur presents (ROADMAP E05.04): owner of the common profile and, from
-// E05.06, of the document library; its financing dossiers are `dossiers`. It belongs to no workspace
-// (it applies to several). Until E05.05 moves the profile answers and documents onto it, they stay on
-// its dossier and a company is created with each new dossier. Name format: CHECK constraint
-// (migration 20261112000000_companies).
+// The company an entrepreneur presents (ROADMAP E05.04): owner of the common profile (D01) and,
+// from E05.06, of the document library; its financing dossiers are `dossiers`. It belongs to no
+// workspace (it applies to several). Since E05.05 the profile is the company's: the form version it
+// answers (`profileVersionId`), its answers and their history, its documents. Name format: CHECK
+// constraint (migration 20261112000000_companies).
 model Company {
-  id        String   @id @default(uuid())
-  ownerId   String   @map("owner_id")
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  ownerId          String   @map("owner_id")
+  name             String
+  // The version of the company-profile form its answers belong to, kept until an explicit
+  // migration of the answers (E03.08). Its dossiers carry a copy the database keeps equal.
+  profileVersionId String   @map("profile_version_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
-  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  dossiers Dossier[]
+  owner           User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  profileVersion  QuestionnaireVersion @relation(fields: [profileVersionId], references: [id])
+  dossiers        Dossier[]            @relation("CompanyDossiers")
+  profileDossiers Dossier[]            @relation("CompanyProfileDossiers")
+  answers         DossierAnswer[]
+  documents       Document[]
 
-  // Target of the dossiers' (company, owner) foreign key.
+  // Targets of the dossiers' (company, owner) and (company, profile version) foreign keys.
   @@unique([id, ownerId])
+  @@unique([id, profileVersionId])
   @@index([ownerId])
+  @@index([profileVersionId])
   @@map("companies")
 }
 
-// A financing dossier of a company (ROADMAP E05.04).
+// A financing dossier of a company (ROADMAP E05.04). It presents its company's profile (answers and
+// documents, E05.05); it keeps its own name, slug, submission, classification, shares and journal.
 model Dossier {
   id                     String    @id @default(uuid())
   // The owner of the company, never set on its own: the (company_id, user_id) foreign key keeps it
@@ -253,6 +264,8 @@ model Dossier {
   companyId              String    @map("company_id")
   name                   String
   slug                   String    @unique
+  // The company's profile version, never set on its own: the (company_id, questionnaire_version_id)
+  // foreign key keeps it equal to `companies.profile_version_id` (E05.05).
   questionnaireVersionId String    @map("questionnaire_version_id")
   sector                 String?
   maturityStage          String?   @map("maturity_stage")
@@ -273,11 +286,10 @@ model Dossier {
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   // NoAction: a company keeps its dossiers (checked at the end of the statement, so deleting an
   // account still removes both).
-  company              Company              @relation(fields: [companyId, userId], references: [id, ownerId], onDelete: NoAction, onUpdate: Cascade)
+  company              Company              @relation("CompanyDossiers", fields: [companyId, userId], references: [id, ownerId], onDelete: NoAction, onUpdate: Cascade)
+  companyProfile       Company              @relation("CompanyProfileDossiers", fields: [companyId, questionnaireVersionId], references: [id, profileVersionId], onDelete: NoAction, onUpdate: Cascade)
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
-  answers              DossierAnswer[]
   shareLinks           ShareLink[]
-  documents            Document[]
   auditLogs            AuditLog[]
 
   @@index([userId])
@@ -286,33 +298,36 @@ model Dossier {
   @@map("dossiers")
 }
 
+// A document version of a company (E05.05), shown with the profile of each of its dossiers.
 model Document {
   id         String   @id @default(uuid())
-  dossierId  String   @map("dossier_id")
+  companyId  String   @map("company_id")
   filename   String
   mimetype   String
   storageKey String   @map("storage_key")
   size       Int
   version    Int      @default(1)
-  // Attachment field of the dossier's form this file answers (E03.11), null for a document added
-  // from the Documents tab. The field's read level then applies to the file.
+  // Attachment field of the company-profile form this file answers (E03.11), null for a document
+  // added from the Documents tab. The field's read level then applies to the file.
   fieldId    String?  @map("field_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  dossier          Dossier                 @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  company          Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   field            QuestionnaireField?     @relation(fields: [fieldId], references: [id], onDelete: SetNull)
   citedBy          DossierAnswer[]
   citedByRevisions DossierAnswerRevision[]
 
-  @@unique([dossierId, fieldId, filename, version])
-  @@index([dossierId])
+  @@unique([companyId, fieldId, filename, version])
+  @@index([companyId])
   @@index([fieldId])
   @@map("documents")
 }
 
+// An answer of a company's profile (E05.05: moved from the dossier to its company, same rows, same
+// ids), read through any of its dossiers.
 model DossierAnswer {
   id               String   @id @default(uuid())
-  dossierId        String   @map("dossier_id")
+  companyId        String   @map("company_id")
   fieldId          String   @map("field_id")
   value            String
   // Provenance of the current value (E04.04), rewritten with it; all null for an answer saved
@@ -329,13 +344,13 @@ model DossierAnswer {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  dossier        Dossier                 @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   field          QuestionnaireField      @relation(fields: [fieldId], references: [id])
   author         User?                   @relation(fields: [authorId], references: [id], onDelete: SetNull)
   sourceDocument Document?               @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
   revisions      DossierAnswerRevision[]
 
-  @@unique([dossierId, fieldId])
+  @@unique([companyId, fieldId])
   @@index([authorId])
   @@index([sourceDocumentId])
   @@map("dossier_answers")

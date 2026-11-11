@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { ActionOrigin } from '../audit/action-origin'
 import { canOwnCompanies } from '../companies/company-access'
 import type { DocumentsService } from '../documents/documents.service'
+import type { DossierRef } from '../dossiers/dossier-profile'
 import type { McpCaller } from './mcp.tools'
 
 // A refusal or a problem worded for the assistant, passed on as is (in French).
@@ -103,14 +104,14 @@ export const MIN_WORDS_TRACED_TO_DOCUMENT = 3
 
 export async function refuseInstructionFromDocument(
   documents: Pick<DocumentsService, 'findPassage'>,
-  dossierId: string,
+  dossier: DossierRef,
   instruction: string,
   trace: ToolTrace,
   refused: string,
 ): Promise<void> {
   const words = instruction.split(/[^\p{L}\p{N}]+/u).filter(Boolean).length
   if (words < MIN_WORDS_TRACED_TO_DOCUMENT) return
-  const document = await documents.findPassage(dossierId, instruction)
+  const document = await documents.findPassage(dossier, instruction)
   if (!document) return
   trace.documentId = document.id
   throw new ToolError(

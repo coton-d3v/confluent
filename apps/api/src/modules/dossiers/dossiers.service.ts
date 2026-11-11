@@ -8,7 +8,7 @@ import {
   ClassificationService,
   storedClassification,
 } from '../classification/classification.service'
-import { lockDossier } from './dossier-lock'
+import { lockProfile } from './dossier-profile'
 import { isPendingProposal } from '../answers/answer-provenance'
 import { type ActionOrigin, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
@@ -54,22 +54,23 @@ export class DossiersService {
   ) {}
 
   // A new dossier comes with its own company, named after it and owned by the same account (E05.04),
-  // both or neither: attaching a dossier to an existing company waits for the company's own profile
-  // (E05.05) and several financing requests (E05.07), otherwise the profile would be asked again.
+  // both or neither; the company's profile answers the form currently assigned to it (E03.09).
+  // Attaching a dossier to an existing company, whose profile it would then present without asking
+  // it again, comes with several financing requests (E05.07).
   async create(params: CreateDossierParams) {
     assertCanOwnCompanies(params.owner)
     const baseSlug = slugify(params.name)
     const slug = await this.uniqueSlug(baseSlug)
     const version = await this.questionnaires.ensureBootstrap()
     return this.prisma.$transaction(async (tx) => {
-      const company = await this.companies.createForOwner(tx, params.owner, params.name)
+      const company = await this.companies.createForOwner(tx, params.owner, params.name, version.id)
       const dossier = await tx.dossier.create({
         data: {
           userId: company.ownerId,
           companyId: company.id,
           name: params.name,
           slug,
-          questionnaireVersionId: version.id,
+          questionnaireVersionId: company.profileVersionId,
         },
       })
       return { ...dossier, company: { id: company.id, name: company.name } }
@@ -205,32 +206,36 @@ export class DossiersService {
     return this.prisma.dossier.update({ where: { id: dossier.id }, data })
   }
 
-  // The company goes with its last dossier: until E05.05 it holds nothing but its name, its profile
-  // and documents being the dossier's. Once it has a profile of its own, it will stay.
+  // The company goes with its last dossier, and its profile (answers, history, documents) with it,
+  // as deleting a dossier did before E05.05: until a company page and several financing requests
+  // (E05.07) let its owner reach and reuse it, a company without dossier would be kept out of sight.
+  // Under the profile's lock, taken before the rows, like every write on the profile.
   async delete(id: string, userId: string): Promise<void> {
     const dossier = await this.getByIdForUser(id, userId)
     await this.prisma.$transaction(async (tx) => {
+      await lockProfile(tx, dossier.id)
       await tx.dossier.delete({ where: { id: dossier.id } })
       const remaining = await tx.dossier.count({ where: { companyId: dossier.companyId } })
       if (remaining === 0) await tx.company.delete({ where: { id: dossier.companyId } })
     })
   }
 
-  // Verified on the server (E03.10): every required question of the dossier's version is answered.
-  // Submitting again refreshes the classification but keeps the first submission date. Check,
-  // classification and submission happen under the dossier's lock, so a save in progress is either
-  // seen complete or waits for the submission (code review R40). The same submission whatever the
-  // channel (E04.08): the site, or an AI application on the owner's explicit instruction, which
-  // `origin` records in the journal. AI proposals still to confirm do not block it (E04.05, D02).
+  // Verified on the server (E03.10): every required question of the company profile the dossier
+  // presents is answered (E05.05). Submitting again refreshes the classification but keeps the first
+  // submission date. Check, classification and submission happen under the profile's lock, so a save
+  // in progress is either seen complete or waits for the submission (code review R40). The same
+  // submission whatever the channel (E04.08): the site, or an AI application on the owner's explicit
+  // instruction, which `origin` records in the journal. AI proposals still to confirm do not block
+  // it (E04.05, D02).
   async submit(id: string, userId: string, origin: ActionOrigin): Promise<Dossier> {
     const { id: dossierId } = await this.getByIdForUser(id, userId)
     const { submitted, firstSubmission, pendingProposals } = await this.prisma.$transaction(
       async (tx) => {
-        const dossier = await lockDossier(tx, dossierId)
+        const dossier = await lockProfile(tx, dossierId)
         const [structure, answers, attached] = await Promise.all([
           this.questionnaires.getVersion(dossier.questionnaireVersionId),
-          tx.dossierAnswer.findMany({ where: { dossierId } }),
-          attachedFieldIds(tx, dossierId),
+          tx.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
+          attachedFieldIds(tx, dossier.companyId),
         ])
         const missing = missingRequiredAnswers(
           structure?.fields ?? [],
@@ -244,7 +249,7 @@ export class DossiersService {
             details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
           })
         }
-        const classification = await this.classification.evaluate(dossierId, tx)
+        const classification = await this.classification.evaluate(dossier.companyId, tx)
         const updated = await tx.dossier.update({
           where: { id: dossierId },
           data: {

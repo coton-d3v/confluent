@@ -39,7 +39,7 @@ export class AnswersController {
   @ApiOperation({
     summary: 'Lister les réponses d’un dossier',
     description:
-      'Retourne les `dossier_answers` du dossier, triées par date de création. Propriétaire : toutes, ' +
+      'Retourne les réponses du profil de l’entreprise du dossier (E05.05), triées par date de création. Propriétaire : toutes, ' +
       'chacune avec sa provenance (`provenance` : saisie humaine ou proposition IA, confirmation, ' +
       'canal, auteur, application IA, date, document source, emplacement et extrait ; `null` pour ' +
       'une réponse enregistrée avant E04.04) et son historique (`history`, du plus récent au plus ' +
@@ -53,7 +53,7 @@ export class AnswersController {
     const user = currentUser(req)
     const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(dossierId, user)
     const answers = await this.answers.listViews(
-      dossierId,
+      dossier,
       dossier.userId === user.id ? 'history' : 'value',
     )
     if (accessLevel === 'complet') return answers
@@ -65,8 +65,9 @@ export class AnswersController {
   @ApiOperation({
     summary: 'Upsert batch de réponses (auto-save)',
     description:
-      'Upsert transactionnel par `(dossierId, fieldId)` — clé unique. Idempotent : rejouable sans ' +
-      'duplication. Chaque champ doit appartenir à la version de questionnaire du dossier et chaque ' +
+      'Upsert transactionnel par champ dans le profil de l’entreprise du dossier (E05.05) — clé unique ' +
+      '`(entreprise, fieldId)`. Idempotent : rejouable sans duplication. Chaque champ doit appartenir à ' +
+      'la version de questionnaire du profil et chaque ' +
       'valeur respecter son type ; sinon `400` et rien n’est écrit (`error.details` : une entrée par ' +
       'champ fautif). Chaque valeur enregistrée est une saisie humaine confirmée, faite dans le site ' +
       'par l’utilisateur connecté : sa provenance remplace celle de la valeur précédente. Une ' +
@@ -84,7 +85,7 @@ export class AnswersController {
       userId,
       channel: 'site',
     })
-    return this.answers.views(dossier.id, saved, 'history')
+    return this.answers.views(dossier, saved, 'history')
   }
 
   @Post(':fieldId/confirm')
@@ -119,7 +120,7 @@ export class AnswersController {
       { value: body.value, updatedAt: new Date(body.updatedAt) },
       { userId, channel: 'site' },
     )
-    const [view] = await this.answers.views(dossier.id, [confirmed], 'history')
+    const [view] = await this.answers.views(dossier, [confirmed], 'history')
     return view
   }
 }

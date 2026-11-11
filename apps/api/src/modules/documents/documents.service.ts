@@ -20,7 +20,7 @@ import {
   type DocumentAvailability,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
-import { lockDossier } from '../dossiers/dossier-lock'
+import { lockProfile, type DossierRef } from '../dossiers/dossier-profile'
 import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt } from '../dossiers/financeur-access'
 import { detectDocumentType } from './document-types'
 import { DOCUMENT_TEXT_LIMITS, extractDocumentText, readingOf } from './text/document-text'
@@ -81,10 +81,10 @@ export class DocumentsService {
 
   // The type announced by the browser is ignored: the stored and served type is the one recognised
   // in the content, and only accepted formats are stored.
-  // `fieldId` attaches the file to an attachment field of the dossier's form (E03.11); it is checked
-  // before anything is stored.
+  // The file joins the documents of the dossier's company (E05.05). `fieldId` attaches it to an
+  // attachment field of the company-profile form (E03.11); it is checked before anything is stored.
   async upload(params: {
-    dossierId: string
+    dossier: DossierRef
     filename: string
     buffer: Buffer
     fieldId?: string | null
@@ -104,28 +104,27 @@ export class DocumentsService {
         message: `Format non accepté. Formats acceptés : ${ACCEPTED_DOCUMENT_FORMATS_LABEL}.`,
       })
     }
-    const fieldId = params.fieldId
-      ? await this.attachmentField(params.dossierId, params.fieldId)
-      : null
-    // Opaque key: the client-supplied name can neither escape the dossier prefix nor overwrite
-    // another version's object.
-    const storageKey = `dossiers/${params.dossierId}/${randomUUID()}`
+    const { companyId } = params.dossier
+    const fieldId = params.fieldId ? await this.attachmentField(companyId, params.fieldId) : null
+    // Opaque key: the client-supplied name can neither escape the company prefix nor overwrite
+    // another version's object. Files stored before E05.05 keep their `dossiers/<id>/` key.
+    const storageKey = `companies/${companyId}/${randomUUID()}`
     await this.store(storageKey, params.buffer, mimetype)
     try {
       // A document is versioned per question it answers (R48). Numbers are assigned under the
-      // dossier's row lock, like every write that depends on the dossier's state (R40): two uploads
+      // profile's lock, like every write that depends on the profile's state (R40): two uploads
       // of the same name never get the same version, attached or not (the unique index cannot
       // protect files without a question, whose field id is NULL).
       return await this.prisma.$transaction(async (tx) => {
-        await lockDossier(tx, params.dossierId)
+        await lockProfile(tx, params.dossier.id)
         const previous = await tx.document.findFirst({
-          where: { dossierId: params.dossierId, fieldId, filename },
+          where: { companyId, fieldId, filename },
           orderBy: { version: 'desc' },
           select: { version: true },
         })
         return tx.document.create({
           data: {
-            dossierId: params.dossierId,
+            companyId,
             filename,
             mimetype,
             storageKey,
@@ -143,11 +142,12 @@ export class DocumentsService {
 
   // The versions `level` may read (E03.11): a file attached to a field follows that field's read
   // level, any other file requires DOCUMENTS_MIN_LEVEL. Hidden versions are neither listed nor
-  // signed; a group whose versions are all hidden is left out.
-  async listForDossier(dossierId: string, level: AccessLevel): Promise<DocumentGroup[]> {
+  // signed; a group whose versions are all hidden is left out. A dossier presents every document of
+  // its company (E05.05) until a dossier selects its own (E05.07).
+  async listForDossier(dossier: DossierRef, level: AccessLevel): Promise<DocumentGroup[]> {
     const rows = (
       await this.prisma.document.findMany({
-        where: { dossierId },
+        where: { companyId: dossier.companyId },
         orderBy: [{ filename: 'asc' }, { version: 'desc' }],
         include: { field: { select: { minAccessLevel: true } } },
       })
@@ -181,14 +181,14 @@ export class DocumentsService {
   }
 
   // The content of one version, if `level` may read it (same rule as the listing): a version that is
-  // hidden or belongs to another dossier is reported as not found.
+  // hidden or belongs to another company is reported as not found.
   async readFile(
-    dossierId: string,
+    dossier: DossierRef,
     level: AccessLevel,
     documentId: string,
   ): Promise<{ document: Document; content: Buffer }> {
     const row = await this.prisma.document.findFirst({
-      where: { id: documentId, dossierId },
+      where: { id: documentId, companyId: dossier.companyId },
       include: { field: { select: { minAccessLevel: true } } },
     })
     if (!row || !versionVisibleAt(row, level)) {
@@ -219,9 +219,9 @@ export class DocumentsService {
   // `passage` (spacing, case and typography ignored, as for a cited excerpt), newest first. One
   // reading per readable version, each bounded in size and time. A version that cannot be read
   // now (format, lost file, storage unreachable) is skipped: this is a safety net, not a guarantee.
-  async findPassage(dossierId: string, passage: string): Promise<Document | null> {
+  async findPassage(dossier: DossierRef, passage: string): Promise<Document | null> {
     const rows = await this.prisma.document.findMany({
-      where: { dossierId },
+      where: { companyId: dossier.companyId },
       orderBy: { createdAt: 'desc' },
     })
     for (const row of rows) {
@@ -239,15 +239,15 @@ export class DocumentsService {
     return null
   }
 
-  // A document may only answer an attachment field of the dossier's own form version.
-  private async attachmentField(dossierId: string, fieldId: string): Promise<string> {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id: dossierId },
-      select: { questionnaireVersionId: true },
+  // A document may only answer an attachment field of the company's own profile version.
+  private async attachmentField(companyId: string, fieldId: string): Promise<string> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { profileVersionId: true },
     })
-    const field = dossier
+    const field = company
       ? await this.prisma.questionnaireField.findFirst({
-          where: { id: fieldId, versionId: dossier.questionnaireVersionId, fieldType: 'file' },
+          where: { id: fieldId, versionId: company.profileVersionId, fieldType: 'file' },
           select: { id: true },
         })
       : null

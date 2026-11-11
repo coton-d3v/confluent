@@ -46,7 +46,7 @@ describe('answer history and confirmation (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
-        companyId: await companyOf(prisma, user.id),
+        companyId: await companyOf(prisma, user.id, version.id),
         name: 'E04.05',
         slug: `e0405-${tag}`,
         questionnaireVersionId: version.id,
@@ -54,7 +54,7 @@ describe('answer history and confirmation (PostgreSQL)', () => {
     })
     const document = await prisma.document.create({
       data: {
-        dossierId: dossier.id,
+        companyId: dossier.companyId,
         filename: 'kbis.pdf',
         mimetype: 'application/pdf',
         storageKey: `test/${tag}`,
@@ -83,12 +83,13 @@ describe('answer history and confirmation (PostgreSQL)', () => {
   it('a confirmation waiting for a proposal being replaced sees the new value and confirms nothing', async () => {
     const { user, field, dossier, proposal, mcp } = await dossierWithProposal()
     const shown = { value: proposal.value, updatedAt: proposal.updatedAt }
-    // The assistant replaces its proposal: it holds the dossier and commits 400 ms later.
+    // The assistant replaces its proposal: it holds the profile (its company's row, as every write
+    // of answers does) and commits 400 ms later.
     let replacing!: () => void
     const locked = new Promise<void>((resolve) => (replacing = resolve))
     const replacement = prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossier.id} FOR UPDATE`
+        await tx.$queryRaw`SELECT 1 FROM "companies" WHERE "id" = ${dossier.companyId} FOR UPDATE`
         replacing()
         await new Promise((r) => setTimeout(r, 400))
         await tx.dossierAnswer.update({
@@ -111,7 +112,7 @@ describe('answer history and confirmation (PostgreSQL)', () => {
     expect(await revisionsOf(proposal.id)).toEqual([])
   })
 
-  it('keeps the confirmed and corrected states in order, by the database’s clock, until the dossier goes', async () => {
+  it('keeps the confirmed and corrected states in order, by the database’s clock, until the company goes', async () => {
     const { user, field, dossier, document, proposal } = await dossierWithProposal()
     const site = { userId: user.id, channel: 'site' } as const
     const confirmed = await answers.confirmProposal(
@@ -150,7 +151,7 @@ describe('answer history and confirmation (PostgreSQL)', () => {
         recordedAt: confirmed.updatedAt,
       }),
     ])
-    const [view] = await answers.listViews(dossier.id, 'history')
+    const [view] = await answers.listViews(dossier, 'history')
     expect(view.value).toBe('12 500 EUR')
     expect(view.history!.map((h) => h.provenance?.confirmation)).toEqual(['confirmed', 'pending'])
 
@@ -164,8 +165,12 @@ describe('answer history and confirmation (PostgreSQL)', () => {
     // The document goes: the history keeps what was cited, without the link.
     await prisma.document.delete({ where: { id: document.id } })
     expect((await revisionsOf(proposal.id))[0]).toMatchObject({ sourceDocumentId: null })
-    // The dossier goes: its answers' history with it.
-    await prisma.dossier.delete({ where: { id: dossier.id } })
+    // The company goes with its last dossier (as DossiersService.delete does): its profile's
+    // answers and their history with it (E05.05).
+    await prisma.$transaction([
+      prisma.dossier.delete({ where: { id: dossier.id } }),
+      prisma.company.delete({ where: { id: dossier.companyId } }),
+    ])
     expect(await revisionsOf(proposal.id)).toEqual([])
   })
 })

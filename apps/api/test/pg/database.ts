@@ -13,9 +13,15 @@ export function testDatabase(): PrismaService {
   return new PrismaClient({ datasources: { db: { url } } }) as unknown as PrismaService
 }
 
-// Every dossier belongs to a company of the same owner (E05.04): the company a test dossier is
-// created in.
-export async function companyOf(prisma: PrismaService, ownerId: string): Promise<string> {
-  const company = await prisma.company.create({ data: { ownerId, name: 'Entreprise de test' } })
+// Every dossier belongs to a company of the same owner (E05.04), whose profile answers the dossier's
+// form version (E05.05): the company a test dossier is created in.
+export async function companyOf(
+  prisma: PrismaService,
+  ownerId: string,
+  profileVersionId: string,
+): Promise<string> {
+  const company = await prisma.company.create({
+    data: { ownerId, name: 'Entreprise de test', profileVersionId },
+  })
   return company.id
 }

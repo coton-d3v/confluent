@@ -603,7 +603,7 @@ export class McpToolsFactory {
           const buffer = uploadedContent(filename, contentBase64, text)
           const created = await userFacing(() =>
             this.documents.upload({
-              dossierId: row.id,
+              dossier: row,
               filename,
               buffer,
               fieldId: fieldId ?? null,
@@ -661,7 +661,7 @@ export class McpToolsFactory {
           }
           await refuseInstructionFromDocument(
             this.documents,
-            row.id,
+            row,
             instruction,
             trace,
             'Dossier non soumis',
@@ -729,7 +729,9 @@ export class McpToolsFactory {
   }
 
   private async describeSubmission(dossier: Dossier) {
-    const answers = await this.prisma.dossierAnswer.findMany({ where: { dossierId: dossier.id } })
+    const answers = await this.prisma.dossierAnswer.findMany({
+      where: { companyId: dossier.companyId },
+    })
     const pendingProposals = answers.filter(isPendingProposal).length
     const site = this.config.get('FRONTEND_URL', { infer: true })
     return {
@@ -829,9 +831,9 @@ export class McpToolsFactory {
     const isOwner = dossier.userId === caller.user.id
     const [answerRows, documents, attached, form] = await Promise.all([
       // Provenance (E04.04) for the owner only, like in the site.
-      this.answers.listViews(dossier.id, isOwner ? 'provenance' : 'value'),
-      this.documents.listForDossier(dossier.id, accessLevel),
-      attachedFieldIds(this.prisma, dossier.id),
+      this.answers.listViews(dossier, isOwner ? 'provenance' : 'value'),
+      this.documents.listForDossier(dossier, accessLevel),
+      attachedFieldIds(this.prisma, dossier.companyId),
       structure ? this.describeFormOf(structure.version) : null,
     ])
     const shown = answerRows.filter((a) => visible.has(a.fieldId))
@@ -1014,8 +1016,8 @@ export class McpToolsFactory {
     const fields = structure?.fields ?? []
     const known = new Set(fields.map((f) => f.id))
     const [rows, attached] = await Promise.all([
-      this.answers.listForDossier(dossier.id),
-      attachedFieldIds(this.prisma, dossier.id),
+      this.answers.listForDossier(dossier),
+      attachedFieldIds(this.prisma, dossier.companyId),
     ])
     return {
       version: structure?.version ?? null,
@@ -1114,7 +1116,7 @@ export class McpToolsFactory {
         )
         .map((field) => ({ section, field })),
     )
-    const groups = await this.documents.listForDossier(dossier.id, accessLevel)
+    const groups = await this.documents.listForDossier(dossier, accessLevel)
     const expectedIds = new Set(fileFields.map((q) => q.field.id))
     const isOwner = dossier.userId === caller.user.id
     const canUpload = isOwner && expandScopes(caller.scopes).has(OAUTH_SCOPES.write)
@@ -1162,7 +1164,7 @@ export class McpToolsFactory {
     trace: ToolTrace,
   ) {
     const { document, content } = await userFacing(() =>
-      this.documents.readFile(dossier.id, accessLevel, documentId),
+      this.documents.readFile(dossier, accessLevel, documentId),
     )
     trace.documentId = document.id
     const field = document.fieldId

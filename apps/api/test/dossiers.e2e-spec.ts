@@ -32,6 +32,8 @@ const ADMIN = {
   role: 'admin',
 }
 const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000'
+const VERSION = '7d3c1b0e-0000-4000-8000-0000000000f1'
+const FIELD = '7d3c1b0e-0000-4000-8000-0000000000f2'
 
 // Dossiers and the company each one finances (ROADMAP E05.04), on the stateful fake Prisma.
 describe('Dossiers and companies (e2e)', () => {
@@ -50,7 +52,7 @@ describe('Dossiers and companies (e2e)', () => {
     })
     await p.questionnaireVersion.create({
       data: {
-        id: '7d3c1b0e-0000-4000-8000-0000000000f1',
+        id: VERSION,
         questionnaireId: 'form-1',
         version: 1,
         status: 'published',
@@ -90,6 +92,11 @@ describe('Dossiers and companies (e2e)', () => {
     patch: (url: string, body: object) =>
       request(app.getHttpServer())
         .patch(url)
+        .set('Authorization', `Bearer ${tokens[user.id]}`)
+        .send(body),
+    put: (url: string, body: object) =>
+      request(app.getHttpServer())
+        .put(url)
         .set('Authorization', `Bearer ${tokens[user.id]}`)
         .send(body),
     delete: (url: string) =>
@@ -185,6 +192,72 @@ describe('Dossiers and companies (e2e)', () => {
     const detail = (await as(ADMIN).get(`/v1/admin/dossiers/${own.id}`).expect(200)).body
     expect(detail.company).toMatchObject({ id: own.companyId, name: 'Biosensio' })
     await as(SOPHIE).get('/v1/admin/dossiers').expect(403)
+  })
+
+  // ROADMAP E05.05: the profile (answers, documents, form version) is the company's; a dossier
+  // presents it through the same routes and shapes as before.
+  it('presents its company’s profile through each dossier, with the same routes and shapes', async () => {
+    const p = fake.prisma
+    await p.questionnaireSection.create({
+      data: { id: 's-1', versionId: VERSION, key: 'identite', title: 'Identité', orderIndex: 0 },
+    })
+    await p.questionnaireField.create({
+      data: {
+        id: FIELD,
+        versionId: VERSION,
+        sectionId: 's-1',
+        key: 'nom',
+        label: 'Nom',
+        fieldType: 'text',
+        orderIndex: 0,
+      },
+    })
+    const own = await create(SOPHIE, 'Biosensio')
+    expect(fake.table('company').get(own.companyId)).toMatchObject({ profileVersionId: VERSION })
+    expect(own.questionnaireVersionId).toBe(VERSION)
+
+    await as(SOPHIE)
+      .put(`/v1/dossiers/${own.id}/answers`, { answers: [{ fieldId: FIELD, value: 'Bio' }] })
+      .expect(200)
+    const [stored] = [...fake.table('dossierAnswer').values()]
+    expect(stored).toMatchObject({ companyId: own.companyId, value: 'Bio' })
+    expect(stored).not.toHaveProperty('dossierId')
+    // A second financing dossier of the same company (E05.07) presents the same profile.
+    const second = await p.dossier.create({
+      data: {
+        userId: SOPHIE.id,
+        companyId: own.companyId,
+        name: 'Croissance',
+        slug: 'croissance',
+        questionnaireVersionId: VERSION,
+      },
+    })
+    for (const id of [own.id, second.id]) {
+      const answers = (await as(SOPHIE).get(`/v1/dossiers/${id}/answers`).expect(200)).body
+      expect(answers).toEqual([
+        expect.objectContaining({ id: stored.id, dossierId: id, fieldId: FIELD, value: 'Bio' }),
+      ])
+    }
+    await p.document.create({
+      data: {
+        companyId: own.companyId,
+        filename: 'kbis.pdf',
+        mimetype: 'application/pdf',
+        storageKey: `dossiers/${own.id}/k`,
+        size: 10,
+        version: 1,
+      },
+    })
+    const detail = (await as(ADMIN).get(`/v1/admin/dossiers/${second.id}`).expect(200)).body
+    expect(detail.answers).toEqual([
+      expect.objectContaining({ id: stored.id, dossierId: second.id, value: 'Bio' }),
+    ])
+    expect(detail.documents).toEqual([
+      expect.objectContaining({ filename: 'kbis.pdf', dossierId: second.id }),
+    ])
+    // Another account reaches neither, whatever the dossier.
+    await as(MARC).get(`/v1/dossiers/${second.id}/answers`).expect(404)
+    await as(MARC).get(`/v1/dossiers/${second.id}/documents`).expect(404)
   })
 
   it('renames a dossier, leaving its company as it is', async () => {

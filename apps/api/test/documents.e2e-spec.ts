@@ -28,7 +28,9 @@ describe('Document upload (e2e)', () => {
       },
     })
     // Every dossier belongs to a company of its owner (E05.04).
-    await fake.prisma.company.create({ data: { id: 'c-d-1', ownerId: 'u-1', name: 'Biosensio' } })
+    await fake.prisma.company.create({
+      data: { id: 'c-d-1', ownerId: 'u-1', name: 'Biosensio', profileVersionId: 'v-1' },
+    })
     await fake.prisma.dossier.create({
       data: {
         id: 'd-1',

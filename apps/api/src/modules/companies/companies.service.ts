@@ -36,15 +36,17 @@ const WITH_DOSSIERS = {
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Within the transaction that creates its first dossier: a company never exists without one
-  // until E05.05 gives it a profile of its own.
+  // Within the transaction that creates its first dossier: a company never exists without one until
+  // a company page and several financing requests (E05.07) let its owner reach it on its own. Its
+  // profile answers `profileVersionId`, the form version assigned to company profiles (E03.09).
   createForOwner(
     tx: Prisma.TransactionClient,
     owner: { id: string; role: string },
     name: string,
+    profileVersionId: string,
   ): Promise<Company> {
     assertCanOwnCompanies(owner)
-    return tx.company.create({ data: { ownerId: owner.id, name } })
+    return tx.company.create({ data: { ownerId: owner.id, name, profileVersionId } })
   }
 
   async listForOwner(user: { id: string }): Promise<CompanyView[]> {

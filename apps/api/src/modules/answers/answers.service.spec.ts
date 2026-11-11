@@ -6,6 +6,8 @@ import { ClassificationService } from '../classification/classification.service'
 import { AnswerSourcesService } from './answer-sources.service'
 
 const SITE = { userId: 'u-1', channel: 'site' } as const
+// A dossier and its company, whose profile it presents (E05.05).
+const D1 = { id: 'd-1', companyId: 'c-1' }
 const HUMAN_SITE = {
   origin: 'human',
   confirmation: 'confirmed',
@@ -32,7 +34,7 @@ const FIELDS = [
 ]
 
 describe('AnswersService', () => {
-  it('lists answers scoped to the dossier', async () => {
+  it('lists the answers of the dossier’s company profile', async () => {
     const findMany = jest.fn().mockResolvedValue([])
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -44,27 +46,30 @@ describe('AnswersService', () => {
     }).compile()
     const svc = moduleRef.get(AnswersService)
 
-    await svc.listForDossier('d-1')
+    await svc.listForDossier(D1)
     expect(findMany).toHaveBeenCalledWith({
-      where: { dossierId: 'd-1' },
+      where: { companyId: 'c-1' },
       orderBy: { createdAt: 'asc' },
     })
   })
 
-  // The dossier's state is the one stored, read under its lock — never the caller's copy (R40).
+  // The dossier's state is the one stored, read under its profile's lock — never the caller's copy
+  // (R40). `submittedDossiers`: how many dossiers of its company are submitted (E05.05).
   async function build(
-    stored: { submittedAt: Date | null } = { submittedAt: null },
+    stored: { submittedAt: Date | null; submittedDossiers?: number } = { submittedAt: null },
     checked: Awaited<ReturnType<AnswerSourcesService['check']>> | null = null,
     // The answers already stored (E04.05: what a write replaces).
     previous: Array<Record<string, unknown>> = [],
   ) {
-    const dossier = { id: 'd-1', questionnaireVersionId: 'v-1', ...stored }
-    const upsert = jest.fn((args: { where: { dossierId_fieldId: { fieldId: string } } }) =>
-      Promise.resolve({ id: `a-${args.where.dossierId_fieldId.fieldId}` }),
+    const { submittedDossiers = stored.submittedAt ? 1 : 0, ...state } = stored
+    const dossier = { ...D1, questionnaireVersionId: 'v-1', ...state }
+    const upsert = jest.fn((args: { where: { companyId_fieldId: { fieldId: string } } }) =>
+      Promise.resolve({ id: `a-${args.where.companyId_fieldId.fieldId}` }),
     )
     const lock = jest.fn().mockResolvedValue([])
     const fieldsFindMany = jest.fn().mockResolvedValue(FIELDS)
-    const dossierUpdate = jest.fn().mockResolvedValue(dossier)
+    const dossierUpdate = jest.fn().mockResolvedValue({ count: submittedDossiers })
+    const dossierCount = jest.fn().mockResolvedValue(submittedDossiers)
     const compute = jest
       .fn()
       .mockResolvedValue({ result: { sector: 'SaaS' }, sources: { sector: ['secteur'] } })
@@ -74,7 +79,11 @@ describe('AnswersService', () => {
     )
     const tx = {
       $queryRaw: lock,
-      dossier: { findUnique: jest.fn().mockResolvedValue(dossier), update: dossierUpdate },
+      dossier: {
+        findUnique: jest.fn().mockResolvedValue(dossier),
+        count: dossierCount,
+        updateMany: dossierUpdate,
+      },
       dossierAnswer: {
         upsert,
         findMany: jest.fn().mockResolvedValue(previous),
@@ -85,7 +94,7 @@ describe('AnswersService', () => {
       questionnaireField: { findMany: fieldsFindMany },
     }
     const transaction = jest.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx))
-    const check = jest.fn((_dossierId: string, answers: unknown[]) =>
+    const check = jest.fn((_dossier: unknown, answers: unknown[]) =>
       Promise.resolve(checked ?? { sources: answers.map(() => null), errors: [] }),
     )
     const moduleRef = await Test.createTestingModule({
@@ -99,6 +108,7 @@ describe('AnswersService', () => {
     return {
       svc: moduleRef.get(AnswersService),
       ...{ upsert, transaction, fieldsFindMany, lock, dossier, compute, dossierUpdate, tx, check },
+      dossierCount,
       ...{ revisionCreate, answerUpdate },
     }
   }
@@ -106,7 +116,7 @@ describe('AnswersService', () => {
   it('saves valid answers idempotently inside a transaction, checked against the dossier version', async () => {
     const { svc, upsert, transaction, fieldsFindMany, lock } = await build()
     const result = await svc.saveForDossier(
-      { id: 'd-1' },
+      D1,
       [
         { fieldId: 'f-1', value: 'hello' },
         { fieldId: 'f-2', value: 'MVP' },
@@ -117,8 +127,8 @@ describe('AnswersService', () => {
     expect(fieldsFindMany).toHaveBeenCalledWith({ where: { versionId: 'v-1' } })
     expect(upsert).toHaveBeenCalledTimes(2)
     expect(upsert).toHaveBeenNthCalledWith(1, {
-      where: { dossierId_fieldId: { dossierId: 'd-1', fieldId: 'f-1' } },
-      create: { dossierId: 'd-1', fieldId: 'f-1', value: 'hello', ...HUMAN_SITE },
+      where: { companyId_fieldId: { companyId: 'c-1', fieldId: 'f-1' } },
+      create: { companyId: 'c-1', fieldId: 'f-1', value: 'hello', ...HUMAN_SITE },
       update: { value: 'hello', ...HUMAN_SITE },
     })
     // A list answer given by its exact label is stored as the choice key.
@@ -133,7 +143,7 @@ describe('AnswersService', () => {
   it('writes nothing when one answer is invalid or targets another version', async () => {
     const { svc, upsert } = await build()
     const attempt = svc.saveForDossier(
-      { id: 'd-1' },
+      D1,
       [
         { fieldId: 'f-1', value: 'ok' },
         { fieldId: 'f-2', value: 'Série Z' },
@@ -150,10 +160,10 @@ describe('AnswersService', () => {
 
   it('lets a submitted dossier correct a required answer but not clear it', async () => {
     const { svc, upsert } = await build({ submittedAt: new Date() })
-    await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Biosensio SAS' }], SITE)
+    await svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'Biosensio SAS' }], SITE)
     expect(upsert).toHaveBeenCalledTimes(1)
 
-    const attempt = svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: '  ' }], SITE)
+    const attempt = svc.saveForDossier(D1, [{ fieldId: 'f-1', value: '  ' }], SITE)
     await expect(attempt).rejects.toBeInstanceOf(InvalidAnswersException)
     await attempt.catch((err: InvalidAnswersException) => {
       expect(err.errors).toEqual([
@@ -165,23 +175,38 @@ describe('AnswersService', () => {
     })
     // Not submitted yet: clearing is a normal draft edit, and a draft is not classified.
     const draft = await build()
-    await draft.svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: '' }], SITE)
+    await draft.svc.saveForDossier(D1, [{ fieldId: 'f-1', value: '' }], SITE)
     expect(draft.compute).not.toHaveBeenCalled()
   })
 
-  it('reclassifies a submitted dossier in the same transaction as the change (R18)', async () => {
-    const { svc, compute, dossierUpdate, tx } = await build({ submittedAt: new Date() })
-    await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Biosensio SAS' }], SITE)
-    expect(compute).toHaveBeenCalledWith('d-1', tx)
+  it('reclassifies the submitted dossiers of the company in the same transaction as the change (R18)', async () => {
+    const { svc, compute, dossierUpdate, dossierCount, tx } = await build({
+      submittedAt: new Date(),
+    })
+    await svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'Biosensio SAS' }], SITE)
+    const submitted = { companyId: 'c-1', submittedAt: { not: null } }
+    expect(dossierCount).toHaveBeenCalledWith({ where: submitted })
+    expect(compute).toHaveBeenCalledWith('c-1', tx)
     expect(dossierUpdate).toHaveBeenCalledWith({
-      where: { id: 'd-1' },
+      where: submitted,
       data: { sector: 'SaaS', classificationSources: { sector: ['secteur'] } },
     })
   })
 
+  it('keeps the required answers of a profile once any dossier of the company is submitted (E05.05)', async () => {
+    // This dossier is a draft, another dossier of the same company was submitted.
+    const { svc, upsert, compute } = await build({ submittedAt: null, submittedDossiers: 1 })
+    await expect(
+      svc.saveForDossier(D1, [{ fieldId: 'f-1', value: '' }], SITE),
+    ).rejects.toBeInstanceOf(InvalidAnswersException)
+    expect(upsert).not.toHaveBeenCalled()
+    await svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'Biosensio SAS' }], SITE)
+    expect(compute).toHaveBeenCalledWith('c-1', expect.anything())
+  })
+
   it('judges by the stored state, not by a copy read before the submission (R40)', async () => {
     const { svc, upsert } = await build({ submittedAt: new Date() })
-    const readBefore = { id: 'd-1', questionnaireVersionId: 'v-1', submittedAt: null }
+    const readBefore = { ...D1, questionnaireVersionId: 'v-1', submittedAt: null }
     await expect(
       svc.saveForDossier(readBefore, [{ fieldId: 'f-1', value: '' }], SITE),
     ).rejects.toBeInstanceOf(InvalidAnswersException)
@@ -207,8 +232,8 @@ describe('AnswersService', () => {
         { fieldId: 'f-2', value: 'mvp', origin: 'ai' as const, confirmedByUser: true },
         { fieldId: 'f-1', value: 'Biosensio', origin: 'human' as const, confirmedByUser: false },
       ]
-      await svc.saveForDossier({ id: 'd-1' }, answers, MCP)
-      expect(check).toHaveBeenCalledWith('d-1', answers)
+      await svc.saveForDossier(D1, answers, MCP)
+      expect(check).toHaveBeenCalledWith(D1, answers)
       const written = upsert.mock.calls.map(
         ([args]) => (args as unknown as { update: unknown }).update,
       )
@@ -237,7 +262,7 @@ describe('AnswersService', () => {
 
     it('never names an application for the site or the administration', async () => {
       const { svc, upsert } = await build()
-      await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'x' }], {
+      await svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'x' }], {
         userId: 'admin-1',
         channel: 'admin',
         clientName: 'Claude',
@@ -253,7 +278,7 @@ describe('AnswersService', () => {
         { sources: [null, null], errors: [{ fieldId: 'f-2', message: 'Source introuvable.' }] },
       )
       const attempt = svc.saveForDossier(
-        { id: 'd-1' },
+        D1,
         [
           { fieldId: 'f-1', value: 'Deviné', origin: 'ai' },
           { fieldId: 'f-2', value: 'mvp', origin: 'ai', source: { documentId: 'doc-x' } },
@@ -278,7 +303,7 @@ describe('AnswersService', () => {
       const at = new Date('2026-11-11T10:00:00Z')
       const row = (fieldId: string, extra: Record<string, unknown>) => ({
         id: `a-${fieldId}`,
-        dossierId: 'd-1',
+        companyId: 'c-1',
         fieldId,
         value: 'v',
         createdAt: at,
@@ -327,8 +352,8 @@ describe('AnswersService', () => {
       }).compile()
       const svc = moduleRef.get(AnswersService)
 
-      const owner = await svc.listViews('d-1', 'provenance')
-      expect(documents).toHaveBeenCalledWith({ where: { dossierId: 'd-1' } })
+      const owner = await svc.listViews(D1, 'provenance')
+      expect(documents).toHaveBeenCalledWith({ where: { companyId: 'c-1' } })
       expect(owner.map((a) => a.provenance)).toEqual([
         null,
         {
@@ -348,10 +373,12 @@ describe('AnswersService', () => {
         },
         null,
       ])
-      const shared = await svc.listViews('d-1', 'value')
+      const shared = await svc.listViews(D1, 'value')
       expect(shared.map((a) => Object.keys(a))).toEqual(
         rows.map(() => ['id', 'dossierId', 'fieldId', 'value', 'createdAt', 'updatedAt']),
       )
+      // Read through the dossier: the company's identifier stays out of the answer.
+      expect(shared.map((a) => a.dossierId)).toEqual(rows.map(() => 'd-1'))
     })
   })
 
@@ -361,7 +388,7 @@ describe('AnswersService', () => {
     const at = new Date('2026-11-11T10:00:00Z')
     const stored = (fieldId: string, extra: Record<string, unknown>) => ({
       id: `a-${fieldId}`,
-      dossierId: 'd-1',
+      companyId: 'c-1',
       fieldId,
       value: 'Biosensio SAS',
       createdAt: at,
@@ -396,7 +423,7 @@ describe('AnswersService', () => {
 
     it('keeps a proposal the person corrects in the site, with its provenance and date', async () => {
       const { svc, revisionCreate, upsert } = await build({ submittedAt: null }, null, [PROPOSAL])
-      await svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Biosensio' }], SITE)
+      await svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'Biosensio' }], SITE)
       expect(revisionCreate).toHaveBeenCalledTimes(1)
       expect(revisionCreate).toHaveBeenCalledWith(kept(PROPOSAL))
       // Kept before the new value replaces it.
@@ -421,7 +448,7 @@ describe('AnswersService', () => {
         [human],
       )
       await svc.saveForDossier(
-        { id: 'd-1' },
+        D1,
         [
           {
             fieldId: 'f-1',
@@ -446,14 +473,14 @@ describe('AnswersService', () => {
         sourceExcerpt: null,
       })
       const edits = await build({ submittedAt: null }, null, [human])
-      await edits.svc.saveForDossier({ id: 'd-1' }, [{ fieldId: 'f-1', value: 'Bio' }], SITE)
+      await edits.svc.saveForDossier(D1, [{ fieldId: 'f-1', value: 'Bio' }], SITE)
       expect(edits.revisionCreate).not.toHaveBeenCalled()
 
       const empty = await build({ submittedAt: null }, { sources: [SOURCE], errors: [] }, [
         { ...human, value: '' },
       ])
       await empty.svc.saveForDossier(
-        { id: 'd-1' },
+        D1,
         [{ fieldId: 'f-1', value: 'Biosensio SAS', origin: 'ai', source: { documentId: 'doc-1' } }],
         MCP,
       )
@@ -463,7 +490,7 @@ describe('AnswersService', () => {
         PROPOSAL,
       ])
       await again.svc.saveForDossier(
-        { id: 'd-1' },
+        D1,
         [
           {
             fieldId: 'f-1',
@@ -482,7 +509,7 @@ describe('AnswersService', () => {
         PROPOSAL,
       ])
       const confirmed = await svc.confirmProposal(
-        { id: 'd-1' },
+        D1,
         'f-1',
         { value: 'Biosensio SAS', updatedAt: new Date(at) },
         SITE,
@@ -508,9 +535,7 @@ describe('AnswersService', () => {
         { value: 'Biosensio', updatedAt: at },
         { value: 'Biosensio SAS', updatedAt: new Date(at.getTime() + 1) },
       ]) {
-        await expect(
-          changed.svc.confirmProposal({ id: 'd-1' }, 'f-1', expected, SITE),
-        ).rejects.toMatchObject({
+        await expect(changed.svc.confirmProposal(D1, 'f-1', expected, SITE)).rejects.toMatchObject({
           status: 409,
           response: expect.objectContaining({ code: 'ANSWER_CHANGED' }),
         })
@@ -519,19 +544,14 @@ describe('AnswersService', () => {
         stored('f-1', { confirmation: 'confirmed' }),
       ])
       await expect(
-        done.svc.confirmProposal(
-          { id: 'd-1' },
-          'f-1',
-          { value: 'Biosensio SAS', updatedAt: at },
-          SITE,
-        ),
+        done.svc.confirmProposal(D1, 'f-1', { value: 'Biosensio SAS', updatedAt: at }, SITE),
       ).rejects.toMatchObject({
         status: 409,
         response: expect.objectContaining({ code: 'NOT_A_PROPOSAL' }),
       })
       const none = await build()
       await expect(
-        none.svc.confirmProposal({ id: 'd-1' }, 'f-1', { value: '', updatedAt: at }, SITE),
+        none.svc.confirmProposal(D1, 'f-1', { value: '', updatedAt: at }, SITE),
       ).rejects.toMatchObject({ status: 404 })
       for (const b of [changed, done, none]) {
         expect(b.revisionCreate).not.toHaveBeenCalled()
@@ -592,7 +612,7 @@ describe('AnswersService', () => {
       }).compile()
       const svc = moduleRef.get(AnswersService)
 
-      const [site] = await svc.listViews('d-1', 'history')
+      const [site] = await svc.listViews(D1, 'history')
       expect(findRevisions).toHaveBeenCalledWith({
         where: { answerId: { in: ['a-f-1'] } },
         orderBy: { replacedAt: 'desc' },
@@ -620,7 +640,7 @@ describe('AnswersService', () => {
         { value: 'Biosensio', provenance: null, replacedAt: at },
       ])
       // The MCP shows the provenance only; a shared reader neither.
-      const [mcp] = await svc.listViews('d-1', 'provenance')
+      const [mcp] = await svc.listViews(D1, 'provenance')
       expect(mcp).not.toHaveProperty('history')
       expect(findRevisions).toHaveBeenCalledTimes(1)
     })

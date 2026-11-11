@@ -34,7 +34,9 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       data: { id: 'v-1', questionnaireId: 'form-1', version: 1, status: 'published' },
     })
     // Every dossier belongs to a company of its owner (E05.04).
-    await p.company.create({ data: { id: 'c-d-1', ownerId: 'u-1', name: 'Biosensio' } })
+    await p.company.create({
+      data: { id: 'c-d-1', ownerId: 'u-1', name: 'Biosensio', profileVersionId: 'v-1' },
+    })
     await p.dossier.create({
       data: {
         id: 'd-1',
@@ -201,7 +203,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
 
     it('says an answer saved before provenance was recorded has none, and records an administrator’s edit as such', async () => {
       await fake.prisma.dossierAnswer.create({
-        data: { dossierId: 'd-1', fieldId: F_STAGE, value: 'mvp' },
+        data: { companyId: 'c-d-1', fieldId: F_STAGE, value: 'mvp' },
       })
       await fake.prisma.user.create({
         data: {
@@ -290,7 +292,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       await fake.prisma.document.create({
         data: {
           id: 'doc-1',
-          dossierId: 'd-1',
+          companyId: 'c-d-1',
           filename: 'bp.pdf',
           version: 1,
           mimetype: 'application/pdf',
@@ -298,7 +300,7 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
       })
       await fake.prisma.dossierAnswer.create({
         data: {
-          dossierId: 'd-1',
+          companyId: 'c-d-1',
           fieldId: F_NAME,
           value: 'Biosensio SAS',
           origin: 'ai',

@@ -117,10 +117,15 @@ describe('ClassificationRulesService', () => {
   it('never rewrites submitted dossiers by itself: preview, then explicit reclassification with audit', async () => {
     const { fake, p, rules, reclassification, classification, version } = await setup()
     const field = [...fake.table('questionnaireField').values()][0]
+    // A submitted dossier presenting its company's profile (E05.05).
+    await p.company.create({
+      data: { id: 'c-1', ownerId: 'u-1', name: 'Biosensio', profileVersionId: version.id },
+    })
     await p.dossier.create({
       data: {
         id: 'd-1',
         userId: 'u-1',
+        companyId: 'c-1',
         name: 'Biosensio',
         slug: 'biosensio',
         questionnaireVersionId: version.id,
@@ -128,7 +133,7 @@ describe('ClassificationRulesService', () => {
       },
     })
     await p.dossierAnswer.create({
-      data: { dossierId: 'd-1', fieldId: field.id, value: 'seed_investisseurs_professionnels' },
+      data: { companyId: 'c-1', fieldId: field.id, value: 'seed_investisseurs_professionnels' },
     })
     await classification.classify('d-1')
     expect(fake.table('dossier').get('d-1')?.axe2Financier).toBe(4)
@@ -165,10 +170,15 @@ describe('ClassificationRulesService', () => {
   it('refuses to apply a preview whose rules have changed since, writing nothing', async () => {
     const { fake, p, rules, reclassification, classification, version } = await setup()
     const field = [...fake.table('questionnaireField').values()][0]
+    // A submitted dossier presenting its company's profile (E05.05).
+    await p.company.create({
+      data: { id: 'c-1', ownerId: 'u-1', name: 'Biosensio', profileVersionId: version.id },
+    })
     await p.dossier.create({
       data: {
         id: 'd-1',
         userId: 'u-1',
+        companyId: 'c-1',
         name: 'Biosensio',
         slug: 'biosensio',
         questionnaireVersionId: version.id,
@@ -176,7 +186,7 @@ describe('ClassificationRulesService', () => {
       },
     })
     await p.dossierAnswer.create({
-      data: { dossierId: 'd-1', fieldId: field.id, value: 'seed_investisseurs_professionnels' },
+      data: { companyId: 'c-1', fieldId: field.id, value: 'seed_investisseurs_professionnels' },
     })
     await classification.classify('d-1')
     const rule = rulesOf(fake).find((r) => r.choiceKey === 'seed_investisseurs_professionnels')!

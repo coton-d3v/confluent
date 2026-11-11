@@ -1,6 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common'
 import type { Document } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import type { DossierRef } from '../dossiers/dossier-profile'
 import { DocumentsService } from '../documents/documents.service'
 import { locateExcerpt } from '../documents/text/excerpt-location'
 import { DOCUMENT_TEXT_LIMITS, extractDocumentText } from '../documents/text/document-text'
@@ -9,9 +10,9 @@ import type { AnswerDeclaration, CheckedSource } from './answer-provenance'
 import type { AnswerValidationError } from './answer-validation'
 
 // Checks the sources an AI assistant cites for its answers (E04.04), before anything is written: a
-// source is a document version of this very dossier, and a cited excerpt must be found in its text
-// (the same text read_document returns). Confluent records where it found it; an invented source
-// or quotation is refused.
+// source is a document version this very dossier presents (its company's, E05.05), and a cited
+// excerpt must be found in its text (the same text read_document returns). Confluent records where
+// it found it; an invented source or quotation is refused.
 @Injectable()
 export class AnswerSourcesService {
   constructor(
@@ -21,20 +22,20 @@ export class AnswerSourcesService {
 
   // One entry per answer (null without a source), and the problems found.
   async check(
-    dossierId: string,
+    dossier: DossierRef,
     answers: ReadonlyArray<{ fieldId: string } & AnswerDeclaration>,
   ): Promise<{ sources: Array<CheckedSource | null>; errors: AnswerValidationError[] }> {
     const errors: AnswerValidationError[] = []
     const ids = [...new Set(answers.flatMap((a) => (a.source ? [a.source.documentId] : [])))]
     if (ids.length === 0) return { sources: answers.map(() => null), errors }
     const documents = await this.prisma.document.findMany({
-      where: { dossierId, id: { in: ids } },
+      where: { companyId: dossier.companyId, id: { in: ids } },
     })
     // Each cited document is read once, and only when an excerpt is to be found in it.
     const texts = new Map<string, TextUnit[] | string>()
     for (const document of documents) {
       if (answers.some((a) => a.source?.documentId === document.id && a.source.excerpt)) {
-        texts.set(document.id, await this.textOf(dossierId, document))
+        texts.set(document.id, await this.textOf(dossier, document))
       }
     }
     const sources = answers.map((answer): CheckedSource | null => {
@@ -68,11 +69,11 @@ export class AnswerSourcesService {
   }
 
   // The text of a document version, or why an excerpt cannot be checked in it.
-  private async textOf(dossierId: string, document: Document): Promise<TextUnit[] | string> {
+  private async textOf(dossier: DossierRef, document: Document): Promise<TextUnit[] | string> {
     const unverifiable = (why: string) =>
       `Extrait invérifiable dans « ${document.filename} » : ${why} Citez le document sans extrait.`
     try {
-      const { content } = await this.documents.readFile(dossierId, 'complet', document.id)
+      const { content } = await this.documents.readFile(dossier, 'complet', document.id)
       const extracted = await extractDocumentText(content, document.mimetype, DOCUMENT_TEXT_LIMITS)
       return extracted.readable ? extracted.units : unverifiable(extracted.reason)
     } catch (err) {

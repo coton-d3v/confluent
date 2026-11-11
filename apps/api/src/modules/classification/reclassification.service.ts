@@ -3,7 +3,7 @@ import type { ClassificationRule, Prisma } from '@prisma/client'
 import type { ClassificationResult, ReclassificationPreview } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
-import { lockDossier } from '../dossiers/dossier-lock'
+import { lockProfile } from '../dossiers/dossier-profile'
 import { rulesRevision } from './classification-sources'
 import { classificationChanges } from './classification.rules'
 import { ClassificationService, storedClassification } from './classification.service'
@@ -39,7 +39,7 @@ export class ReclassificationService {
     const dossiers = await this.submittedDossiers(this.prisma)
     const changed: Changed = []
     for (const dossier of dossiers) {
-      const next = await this.classification.evaluate(dossier.id, this.prisma, rules)
+      const next = await this.classification.evaluate(dossier.companyId, this.prisma, rules)
       if (!next) continue
       const changes = classificationChanges(currentOf(dossier), next.result)
       if (changes.length > 0) changed.push({ dossierId: dossier.id, name: dossier.name, changes })
@@ -48,8 +48,8 @@ export class ReclassificationService {
   }
 
   // In one transaction: the rules are held against changes (SHARE lock: rule edits wait for the
-  // end), each dossier is held while it is recomputed and written, so a concurrent answer change
-  // is either included or applied after.
+  // end), each dossier's profile is held while it is recomputed and written, so a concurrent answer
+  // change is either included or applied after.
   async apply(actorId: string, expectedRevision: string): Promise<ReclassificationPreview> {
     const applied = await this.prisma.$transaction(
       async (tx) => {
@@ -92,8 +92,8 @@ export class ReclassificationService {
     dossierId: string,
     rules: ReadonlyArray<ClassificationRule>,
   ): Promise<Changed[number] | null> {
-    const current = await lockDossier(tx, dossierId)
-    const next = await this.classification.evaluate(dossierId, tx, rules)
+    const current = await lockProfile(tx, dossierId)
+    const next = await this.classification.evaluate(current.companyId, tx, rules)
     if (!next) return null
     const changes = classificationChanges(currentOf(current), next.result)
     if (changes.length === 0) return null
@@ -104,7 +104,7 @@ export class ReclassificationService {
   private submittedDossiers(db: Prisma.TransactionClient) {
     return db.dossier.findMany({
       where: { submittedAt: { not: null } },
-      select: { id: true, name: true, ...COLUMNS },
+      select: { id: true, companyId: true, name: true, ...COLUMNS },
       orderBy: { submittedAt: 'asc' },
     })
   }

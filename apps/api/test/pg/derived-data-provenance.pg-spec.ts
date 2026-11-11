@@ -55,7 +55,7 @@ describe('derived data and rule changes (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
-        companyId: await companyOf(prisma, user.id),
+        companyId: await companyOf(prisma, user.id, version.id),
         name: 'R31',
         slug: `r31-${tag}`,
         questionnaireVersionId: version.id,
@@ -63,8 +63,8 @@ describe('derived data and rule changes (PostgreSQL)', () => {
     })
     await prisma.dossierAnswer.createMany({
       data: [
-        { dossierId: dossier.id, fieldId: confidential.id, value: 'Secret' },
-        { dossierId: dossier.id, fieldId: open.id, value: 'Public' },
+        { companyId: dossier.companyId, fieldId: confidential.id, value: 'Secret' },
+        { companyId: dossier.companyId, fieldId: open.id, value: 'Public' },
       ],
     })
     // Only this test's rules for the sector: the others are set aside for the duration.

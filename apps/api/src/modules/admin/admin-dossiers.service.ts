@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import type { Dossier } from '@prisma/client'
+import type { Document, Dossier, DossierAnswer } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService, type AnswerInput } from '../answers/answers.service'
 import {
@@ -67,13 +67,17 @@ export class AdminDossiersService {
     return { page, pageSize, total, items }
   }
 
-  // The dossier with its own questionnaire version (never the currently published one): answers
-  // and edits must target the fields the dossier was created with.
+  // The dossier with its company profile's own questionnaire version (never the currently published
+  // one): answers and edits must target the fields the profile was created with. Answers and
+  // documents are the company's (E05.05), listed as the dossier presents them, with its id as
+  // before.
   async detail(id: string): Promise<
     Dossier & {
       ownerEmail: string
       company: { id: string; name: string }
       questionnaireVersion: VersionStructure | null
+      answers: Array<DossierAnswer & { dossierId: string }>
+      documents: Array<Document & { dossierId: string }>
     }
   > {
     const dossier = await this.prisma.dossier.findUnique({
@@ -81,29 +85,35 @@ export class AdminDossiersService {
       include: {
         user: { select: { email: true } },
         company: { select: { id: true, name: true } },
-        answers: true,
         shareLinks: true,
-        documents: true,
       },
     })
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    const questionnaireVersion = await this.questionnaires.getVersion(
-      dossier.questionnaireVersionId,
-    )
-    return { ...dossier, ownerEmail: dossier.user.email, questionnaireVersion }
+    const [questionnaireVersion, answers, documents] = await Promise.all([
+      this.questionnaires.getVersion(dossier.questionnaireVersionId),
+      this.answers.listForDossier(dossier),
+      this.prisma.document.findMany({ where: { companyId: dossier.companyId } }),
+    ])
+    return {
+      ...dossier,
+      ownerEmail: dossier.user.email,
+      questionnaireVersion,
+      answers: answers.map((a) => ({ ...a, dossierId: dossier.id })),
+      documents: documents.map((d) => ({ ...d, dossierId: dossier.id })),
+    }
   }
 
   async editAnswers(dossierId: string, adminId: string, updates: AnswerInput[]): Promise<void> {
-    const existing = await this.prisma.dossierAnswer.findMany({
-      where: { dossierId, fieldId: { in: updates.map((u) => u.fieldId) } },
-    })
-    const existingByField = new Map(existing.map((e) => [e.fieldId, e.value]))
     const dossier = await this.prisma.dossier.findUnique({ where: { id: dossierId } })
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
+    const existing = await this.prisma.dossierAnswer.findMany({
+      where: { companyId: dossier.companyId, fieldId: { in: updates.map((u) => u.fieldId) } },
+    })
+    const existingByField = new Map(existing.map((e) => [e.fieldId, e.value]))
     await this.answers.saveForDossier(dossier, updates, { userId: adminId, channel: 'admin' })
     for (const u of updates) {
       await this.audit.record({
