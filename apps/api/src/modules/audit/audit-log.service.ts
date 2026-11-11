@@ -9,7 +9,15 @@ const WORKSPACE_INTERNAL_ACTIONS = ['candidature_note_updated']
 // Who among a pool's investors read the request (ROADMAP E07.03): never named to its owner (D05);
 // a reading through a direct share counts as that share's view (`AnalyticsService`).
 const INVESTOR_READINGS = ['opportunity_viewed']
-const HIDDEN_FROM_OWNER = [...OPS_ONLY_ACTIONS, ...WORKSPACE_INTERNAL_ACTIONS, ...INVESTOR_READINGS]
+// Who marked their interest, and whether they show their name (ROADMAP E07.05): the owner reads the
+// count and the names shown (`InterestsService.forOwner`), never the entries, which name everyone.
+const INVESTOR_INTERESTS = ['investor_interest_marked', 'investor_interest_withdrawn']
+const HIDDEN_FROM_OWNER = [
+  ...OPS_ONLY_ACTIONS,
+  ...WORKSPACE_INTERNAL_ACTIONS,
+  ...INVESTOR_READINGS,
+  ...INVESTOR_INTERESTS,
+]
 
 @Injectable()
 export class AuditLogService {

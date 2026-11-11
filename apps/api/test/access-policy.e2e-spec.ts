@@ -605,11 +605,20 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     expect((await bobCalls('get_dossier', { dossier: dossier.slug })).error).toBeNull()
     const kbis = [...fake.table('document').values()].find((d) => d.filename === 'brevet.pdf')!
 
+    // E07.05: Bob marks his interest, by name; his mark counts while he reads the request.
+    await as(BOB).put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: true }).expect(200)
+    const interests = async () =>
+      (await sophie.get(`/v1/dossiers/${dossier.id}/interests`).expect(200)).body.count
+    expect(await interests()).toBe(1)
+
     // Revoked by the owner: nothing more for Bob, from the same MCP connection too.
     await sophie.delete(`/v1/dossiers/${dossier.id}/shares/${link.id}`).expect(200)
+    expect(await interests()).toBe(0)
     const bob = as(BOB)
     await bob.get(`/v1/shares/${link.token}`).expect(403)
     await bob.get(`/v1/opportunities/${dossier.id}`).expect(404)
+    // E07.05: no mark of interest on what is no longer read.
+    await bob.put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false }).expect(404)
     expect((await bob.get('/v1/opportunities').expect(200)).body.total).toBe(0)
     await bob.get(`/v1/dossiers/${dossier.id}`).expect(404)
     await bob.get(`/v1/dossiers/${dossier.id}/answers`).expect(404)
@@ -634,6 +643,7 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     // Withdrawn from the pool, then published again.
     await sophie.delete(`/v1/candidatures/${dossier.candidatureId}/pool-publication`).expect(200)
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
+    await ivy.put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false }).expect(404)
     expect((await ivy.get('/v1/opportunities').expect(200)).body.total).toBe(0)
     await publishToPool(dossier.candidatureId, 'complet')
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(200)
@@ -662,6 +672,8 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       `/v1/dossiers/${dossier.id}/candidatures`,
       `/v1/dossiers/${dossier.id}/shares`,
       `/v1/dossiers/${dossier.id}/share-preview?level=public`,
+      // E07.05: the marks of interest are their owner's to read.
+      `/v1/dossiers/${dossier.id}/interests`,
       `/v1/companies/${dossier.companyId}`,
       candidature,
       `${candidature}/funding-plan`,

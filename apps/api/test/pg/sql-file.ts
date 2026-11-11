@@ -167,3 +167,16 @@ export function opportunityViewsDown(): string[] {
 export function opportunityViewsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261125000000_opportunity_views/migration.sql'))
 }
+
+// The revert of E07.05 (marks of interest): it accepts that the marks and their journal are lost
+// (SET LOCAL, test transactions only).
+export function investorInterestsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_investor_interests_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261126000000_investor_interests.down.sql')),
+  ]
+}
+
+export function investorInterestsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261126000000_investor_interests/migration.sql'))
+}

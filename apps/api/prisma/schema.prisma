@@ -103,6 +103,10 @@ enum audit_action {
   pool_publication_withdrawn
   // E07.03: an investor read one of their opportunities (one entry per reading).
   opportunity_viewed
+  // E07.05: an investor marked their interest in a request, or changed whether their name shows.
+  investor_interest_marked
+  // E07.05: an investor withdrew their mark of interest.
+  investor_interest_withdrawn
 
   @@map("audit_action")
 }
@@ -143,6 +147,7 @@ model User {
   candidatureNotesWritten     CandidatureNote[]
   poolPublicationsConsented   PoolPublication[]                 @relation("PoolPublicationConsenter")
   poolPublicationsWithdrawn   PoolPublication[]                 @relation("PoolPublicationWithdrawer")
+  interestsMarked             InvestorInterest[]
 
   @@map("users")
 }
@@ -405,6 +410,7 @@ model Dossier {
   auditLogs            AuditLog[]
   documentSelection    DossierDocument[]
   candidatures         Candidature[]
+  investorInterests    InvestorInterest[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -1096,6 +1102,29 @@ model PoolPublication {
   @@index([consentedById])
   @@index([withdrawnById])
   @@map("pool_publications")
+}
+
+// An investor's mark of interest in a request (ROADMAP E07.05, rules in @confluent/shared
+// `interest.schema.ts`): at most one per investor and request (unique), marked while the investor
+// reads the request as an opportunity (E07.03), withdrawn by deleting it (the journal keeps both).
+// `name_visible` is the investor's consent to be named to the owner (D05), off by default. Who still
+// counts is read at each request, never stored: a mark outlives a lost access, uncounted. Removed
+// with the request or the account.
+model InvestorInterest {
+  id          String   @id @default(uuid())
+  dossierId   String   @map("dossier_id")
+  investorId  String   @map("investor_id")
+  nameVisible Boolean  @default(false) @map("name_visible")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  dossier  Dossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  investor User    @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  @@unique([dossierId, investorId])
+  // E07.07 lists an investor's marks.
+  @@index([investorId])
+  @@map("investor_interests")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role
