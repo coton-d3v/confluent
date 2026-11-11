@@ -1,23 +1,28 @@
 import { useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { Workspace } from '@confluent/shared'
 import { Separator } from '@/components/ui/separator'
 import { useCurrentUser } from '@/features/current-user/context'
 import { getWorkspace, updateWorkspace } from '@/features/admin/workspaces.api'
 import { WorkspaceLogoPanel } from '@/features/workspaces/components/WorkspaceLogoPanel'
+import {
+  WorkspaceNotManaged,
+  WorkspacePageHeader,
+} from '@/features/workspaces/components/WorkspacePageHeader'
 import { WorkspaceSettingsForm } from '@/features/workspaces/components/WorkspaceSettingsForm'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 
+// Settings of a workspace, for Confluent administrators and the workspace's managers (E05.02): the
+// API decides who may, at each request. The email domain stays with administrators.
 export default function AdminWorkspaceRoute() {
-  const me = useCurrentUser()
   const { workspaceId = '' } = useParams()
-  if (me.role !== 'admin') return <Navigate to="/dashboard" replace />
   return <AdminWorkspace key={workspaceId} workspaceId={workspaceId} />
 }
 
 function AdminWorkspace({ workspaceId }: { workspaceId: string }) {
+  const me = useCurrentUser()
   const loaded = useAsync(() => getWorkspace(workspaceId), [workspaceId])
   // The workspace as last returned by a change, otherwise as loaded.
   const [changed, setWorkspace] = useState<Workspace | null>(null)
@@ -28,6 +33,7 @@ function AdminWorkspace({ workspaceId }: { workspaceId: string }) {
   if (!workspace) {
     if (loaded.error) {
       const status = (loaded.error as ApiError).status
+      if (status === 403) return <WorkspaceNotManaged />
       return (
         <p className="pt-8 text-sm text-destructive">
           {status === 404 || status === 400
@@ -42,21 +48,7 @@ function AdminWorkspace({ workspaceId }: { workspaceId: string }) {
   return (
     <>
       <title>{`${workspace.name} · Workspaces · Confluent`}</title>
-      <nav aria-label="Fil d’Ariane" className="text-xs text-muted-foreground">
-        <Link to="/admin" className="hover:underline">
-          Admin
-        </Link>
-        {' / '}
-        <Link to="/admin/workspaces" className="hover:underline">
-          Workspaces
-        </Link>
-        {' / '}
-        <span className="text-foreground">{workspace.name}</span>
-      </nav>
-      <h1 className="mt-4 break-words font-heading text-2xl font-semibold text-foreground md:text-[28px]">
-        {workspace.name}
-      </h1>
-      <p className="mt-1 break-all font-mono text-sm text-muted-foreground">/w/{workspace.slug}</p>
+      <WorkspacePageHeader workspace={workspace} />
 
       <div className="mt-6 flex max-w-2xl flex-col gap-6">
         <WorkspaceLogoPanel workspace={workspace} onChange={setWorkspace} />
@@ -68,6 +60,7 @@ function AdminWorkspace({ workspaceId }: { workspaceId: string }) {
           <WorkspaceSettingsForm
             key={revision}
             workspace={workspace}
+            canEditEmailDomain={me.role === 'admin'}
             submitLabel="Enregistrer les réglages"
             onSubmit={async (input) => {
               // Edition never sends the slug: it is fixed at creation.
