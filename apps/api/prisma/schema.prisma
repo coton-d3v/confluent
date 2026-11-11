@@ -92,6 +92,7 @@ enum audit_action {
   dossier_unarchived
   candidature_status_changed
   funding_source_categories_updated
+  funding_plan_updated
 
   @@map("audit_action")
 }
@@ -124,6 +125,7 @@ model User {
   candidatureAnswersWritten   CandidatureAnswer[]
   candidatureRevisionsWritten CandidatureAnswerRevision[]
   candidatureStatusChanges    CandidatureStatusChange[]
+  fundingPlanLinesWritten     FundingPlanLine[]
 
   @@map("users")
 }
@@ -572,8 +574,11 @@ model Candidature {
   formVersion   QuestionnaireVersion      @relation(fields: [formVersionId], references: [id])
   answers       CandidatureAnswer[]
   statusChanges CandidatureStatusChange[]
+  planLines     FundingPlanLine[]
 
   @@unique([dossierId, workspaceId])
+  // Target of the plan lines' (candidature, workspace) foreign key (E06.03).
+  @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([formVersionId])
   @@map("candidatures")
@@ -844,11 +849,43 @@ model FundingSourceCategory {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  planLines FundingPlanLine[]
 
   @@unique([workspaceId, key])
   @@unique([workspaceId, label])
+  // Target of the plan lines' (category, workspace) foreign key (E06.03).
+  @@unique([id, workspaceId])
   @@map("funding_source_categories")
+}
+
+// One line of a candidature's financing plan (ROADMAP E06.03): an amount, in whole euros, and a
+// state (FUNDING_PLAN_LINE_STATES of @confluent/shared) for one source category of the
+// candidature's workspace — both foreign keys carry `workspace_id`, so a line never uses another
+// workspace's category. `version` grows at each change (a change made meanwhile is refused);
+// `updatedBySide` says which side wrote it last, `updatedById` who.
+model FundingPlanLine {
+  id            String   @id @default(uuid())
+  candidatureId String   @map("candidature_id")
+  workspaceId   String   @map("workspace_id")
+  categoryId    String   @map("category_id")
+  label         String?
+  amountEur     Int      @map("amount_eur")
+  state         String
+  version       Int      @default(1)
+  updatedBySide String   @map("updated_by_side")
+  updatedById   String?  @map("updated_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  candidature Candidature           @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  category    FundingSourceCategory @relation(fields: [categoryId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction)
+  updatedBy   User?                 @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([candidatureId])
+  @@index([categoryId, workspaceId])
+  @@index([updatedById])
+  @@map("funding_plan_lines")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

@@ -70,3 +70,17 @@ export function statusesDown(): string[] {
 export function statusesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261117000000_statuses/migration.sql'))
 }
+
+// The revert of E06.03 (financing plans), as the tests of earlier migrations that drop the tables
+// its lines reference (candidatures, funding source categories) run it before their own: it
+// accepts that plans are lost (SET LOCAL, test transactions only).
+export function fundingPlansDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_funding_plans_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261119000000_funding_plans.down.sql')),
+  ]
+}
+
+export function fundingPlansUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261119000000_funding_plans/migration.sql'))
+}

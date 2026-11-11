@@ -467,11 +467,7 @@ export class CandidaturesService {
     workspaceId: string,
     candidatureId: string,
   ): Promise<ReceivedCandidatureView> {
-    await this.assertCanReview(actor, workspaceId)
-    const row = await this.prisma.candidature.findFirst({
-      where: { id: candidatureId, workspaceId, submittedAt: { not: null } },
-    })
-    if (!row) throw CandidatureErrors.notFound()
+    const row = await this.findReceived(actor, workspaceId, candidatureId)
     const dossier = (await this.prisma.dossier.findUnique({ where: { id: row.dossierId } }))!
     const [company, owner, profile, form, profileAnswers, ownAnswers, changes] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: dossier.companyId } }),
@@ -535,10 +531,32 @@ export class CandidaturesService {
 
   // ── Shared ───────────────────────────────────────────────────────────────────────────────────
 
+  // THE workspace side's access to one candidature — what it reads of it, its financing status and
+  // (E06.03) its financing plan: the rule below, then a candidature of this workspace once sent
+  // (`404` alike for a draft, another workspace's and an unknown one). `tx`: read inside a
+  // transaction, after its locks.
+  async findReceived(
+    actor: WorkspaceActor,
+    workspaceId: string,
+    candidatureId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<Candidature> {
+    await this.assertCanReview(actor, workspaceId, tx)
+    const row = await tx.candidature.findFirst({
+      where: { id: candidatureId, workspaceId, submittedAt: { not: null } },
+    })
+    if (!row) throw CandidatureErrors.notFound()
+    return row
+  }
+
   // Reading the candidatures a workspace receives: `404` for whoever is not in it (as for a
   // workspace that does not exist), then `403` for a member who is not one of its conseillers.
-  private async assertCanReview(actor: WorkspaceActor, workspaceId: string): Promise<void> {
-    const scope = await this.workspaces.resolve(actor, workspaceId)
+  private async assertCanReview(
+    actor: WorkspaceActor,
+    workspaceId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const scope = await this.workspaces.resolve(actor, workspaceId, tx)
     if (!canReviewCandidatures(actor, scope.membership)) throw CandidatureErrors.reviewForbidden()
   }
 
@@ -556,9 +574,10 @@ export class CandidaturesService {
     })
   }
 
-  // The owner access to a candidature: the owner access to its request (`getByIdForUser`), else
-  // the same 404 as an unknown candidature.
-  private async findOwned(
+  // THE owner access to a candidature — its answers, sending, financing status and (E06.03)
+  // financing plan: the owner access to its request (`getByIdForUser`), else the same 404 as an
+  // unknown candidature.
+  async findOwned(
     candidatureId: string,
     userId: string,
   ): Promise<{ candidature: Candidature; dossier: Dossier }> {

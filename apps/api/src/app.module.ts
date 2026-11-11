@@ -20,6 +20,7 @@ import { McpModule } from './modules/mcp/mcp.module'
 import { CompanyTransfersModule } from './modules/company-transfers/company-transfers.module'
 import { CandidaturesModule } from './modules/candidatures/candidatures.module'
 import { FundingSourcesModule } from './modules/funding-sources/funding-sources.module'
+import { FundingPlansModule } from './modules/funding-plans/funding-plans.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -47,6 +48,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     CompanyTransfersModule,
     CandidaturesModule,
     FundingSourcesModule,
+    FundingPlansModule,
   ],
   controllers: [AppController],
   providers: [
