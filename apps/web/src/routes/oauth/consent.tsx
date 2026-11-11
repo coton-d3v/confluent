@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { LoaderCircleIcon, ShieldCheckIcon } from 'lucide-react'
+import { OAUTH_SCOPES } from '@confluent/shared'
 import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { Button } from '@/components/ui/button'
@@ -49,7 +50,7 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
   return <ConsentDecision request={data} email={email} />
 }
 
-const WRITE = 'dossiers:write'
+const { write: WRITE, formsWrite: FORMS_WRITE } = OAUTH_SCOPES
 
 interface AccessChoice {
   title: string
@@ -58,19 +59,27 @@ interface AccessChoice {
 
 // Writing implies reading on the server (R17): the screen offers whole levels — read and write, or
 // read only — instead of permissions that look independent but are not.
-function accessChoices(request: OAuthConsentRequest): AccessChoice[] {
-  const requested = request.scopes.map((s) => s.scope)
-  if (!requested.includes(WRITE)) return [{ title: 'Lecture seule', scopes: requested }]
+function accessChoices(dossierScopes: string[]): AccessChoice[] {
+  if (dossierScopes.length === 0) return []
+  if (!dossierScopes.includes(WRITE)) return [{ title: 'Lecture seule', scopes: dossierScopes }]
   return [
-    { title: 'Lire et modifier', scopes: requested },
-    { title: 'Lecture seule', scopes: requested.filter((s) => s !== WRITE) },
+    { title: 'Lire et modifier', scopes: dossierScopes },
+    { title: 'Lecture seule', scopes: dossierScopes.filter((s) => s !== WRITE) },
   ]
 }
 
 function ConsentDecision({ request, email }: { request: OAuthConsentRequest; email: string }) {
-  const choices = accessChoices(request)
+  const requested = request.scopes.map((s) => s.scope)
+  const choices = accessChoices(requested.filter((s) => s !== FORMS_WRITE))
+  // Designing forms (E04.06) is a separate choice on top of the level. The API only lists it for an
+  // administrator; it is never implied by « Lire et modifier ».
+  const offersFormDesign = requested.includes(FORMS_WRITE)
   const [choiceIndex, setChoiceIndex] = useState(0)
-  const selected = choices[choiceIndex].scopes
+  const [designForms, setDesignForms] = useState(offersFormDesign)
+  const selected = [
+    ...(choices[choiceIndex]?.scopes ?? []),
+    ...(offersFormDesign && designForms ? [FORMS_WRITE] : []),
+  ]
   const labelOf = (scope: string) => request.scopes.find((s) => s.scope === scope)?.label ?? scope
   const [pending, setPending] = useState<'approve' | 'deny' | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -124,6 +133,30 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
               </span>
             </label>
           ))}
+          {offersFormDesign && (
+            <label
+              className={`flex items-start gap-3 text-sm text-foreground ${
+                choices.length > 0 ? 'border-t border-border pt-3' : ''
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-primary"
+                checked={designForms}
+                onChange={(event) => setDesignForms(event.target.checked)}
+                disabled={pending !== null}
+              />
+              <span className="flex flex-col gap-1">
+                <span className="font-medium">Concevoir les formulaires (administrateur)</span>
+                <span className="text-muted-foreground">{labelOf(FORMS_WRITE)}</span>
+              </span>
+            </label>
+          )}
+          {choices.length === 0 && !offersFormDesign && (
+            <p className="text-sm text-muted-foreground">
+              Cette application ne demande aucune permission que votre compte peut accorder.
+            </p>
+          )}
         </fieldset>
 
         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
