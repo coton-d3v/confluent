@@ -9,6 +9,7 @@ import {
   publicationStatusOf,
   type CandidatureStatus,
   type ChangeFinancingStatusInput,
+  type EligibilityBadge,
   type DossierPublicationStatus,
   type FinancingStatus,
   type FinancingStatusActor,
@@ -146,6 +147,26 @@ export interface ReceivedCandidatureView extends ReceivedCandidatureSummaryView 
   form: FormView & { answers: ReceivedAnswerView[] }
   statusHistory: ReceivedFinancingStatusChangeView[]
 }
+
+// E06.05: a received candidature as the workspace lists it, with its eligibilities to the
+// workspace's schemes (@confluent/shared `receivedCandidatureListItemSchema`).
+export interface ReceivedCandidatureListItemView extends ReceivedCandidatureSummaryView {
+  eligibilities: EligibilityBadge[]
+}
+
+// @confluent/shared `receivedCandidaturesQuerySchema`, parsed.
+export interface ReceivedCandidaturesFilter {
+  scheme?: string
+  verified?: boolean
+  financingStatus?: FinancingStatus
+}
+
+// Who acts on what a candidature carries for its two parties — its financing plan (E06.03), its
+// eligibilities (E06.05): the owner of the request, or the workspace — its active conseillers and
+// Confluent administrators, the people who read its candidatures (`canReviewCandidatures`).
+export type CandidatureParty =
+  | { side: 'owner'; userId: string }
+  | { side: 'workspace'; actor: WorkspaceActor; workspaceId: string }
 
 // A workspace's public identity, field by field: its settings (email domain, logo key…) and any
 // column added later stay out.
@@ -432,20 +453,41 @@ export class CandidaturesService {
 
   // ── The workspace's conseillers ──────────────────────────────────────────────────────────────
 
-  // The submitted candidatures the workspace receives, the latest first. Drafts stay their
-  // owner's alone.
+  // The submitted candidatures the workspace receives, the latest first, with their eligibilities to
+  // its schemes (E06.05); filtered by scheme, verification and financing status when asked. Drafts
+  // stay their owner's alone.
   async listReceived(
     actor: WorkspaceActor,
     workspaceId: string,
-  ): Promise<ReceivedCandidatureSummaryView[]> {
+    filter: ReceivedCandidaturesFilter = {},
+  ): Promise<ReceivedCandidatureListItemView[]> {
     await this.assertCanReview(actor, workspaceId)
+    const where: Prisma.CandidatureWhereInput = { workspaceId, submittedAt: { not: null } }
+    if (filter.financingStatus) where.financingStatus = filter.financingStatus
+    if (filter.scheme !== undefined || filter.verified) {
+      // Only this workspace's eligibilities: another workspace's scheme matches nothing.
+      const eligible = await this.prisma.candidatureEligibility.findMany({
+        where: {
+          workspaceId,
+          ...(filter.scheme !== undefined ? { schemeId: filter.scheme } : {}),
+          ...(filter.verified ? { verifiedAt: { not: null } } : {}),
+        },
+      })
+      where.id = { in: [...new Set(eligible.map((e) => e.candidatureId))] }
+    }
     const rows = await this.prisma.candidature.findMany({
-      where: { workspaceId, submittedAt: { not: null } },
+      where,
       orderBy: { submittedAt: 'desc' },
     })
-    const dossiers = await this.prisma.dossier.findMany({
-      where: { id: { in: rows.map((r) => r.dossierId) } },
-    })
+    const ids = rows.map((r) => r.id)
+    const [dossiers, eligibilities, schemes] = await Promise.all([
+      this.prisma.dossier.findMany({ where: { id: { in: rows.map((r) => r.dossierId) } } }),
+      this.prisma.candidatureEligibility.findMany({ where: { candidatureId: { in: ids } } }),
+      this.prisma.eligibilityScheme.findMany({
+        where: { workspaceId },
+        orderBy: [{ position: 'asc' }, { key: 'asc' }],
+      }),
+    ])
     const companies = await this.prisma.company.findMany({
       where: { id: { in: dossiers.map((d) => d.companyId) } },
     })
@@ -453,7 +495,19 @@ export class CandidaturesService {
     const companyById = new Map(companies.map((c) => [c.id, c]))
     return rows.map((row) => {
       const dossier = dossierById.get(row.dossierId)!
-      return receivedSummary(row, dossier, companyById.get(dossier.companyId)!.name)
+      const own = new Map(
+        eligibilities.filter((e) => e.candidatureId === row.id).map((e) => [e.schemeId, e]),
+      )
+      return {
+        ...receivedSummary(row, dossier, companyById.get(dossier.companyId)!.name),
+        eligibilities: schemes
+          .filter((scheme) => own.has(scheme.id))
+          .map((scheme) => ({
+            schemeId: scheme.id,
+            label: scheme.label,
+            verified: own.get(scheme.id)!.verifiedAt !== null,
+          })),
+      }
     })
   }
 
@@ -547,6 +601,32 @@ export class CandidaturesService {
     })
     if (!row) throw CandidatureErrors.notFound()
     return row
+  }
+
+  // A candidature as one of its parties reaches it (E06.03, E06.05): `findOwned` for its owner (a
+  // draft included), `findReceived` for the workspace (once sent). `tx`: the workspace's access read
+  // inside a transaction.
+  async reachAs(
+    party: CandidatureParty,
+    candidatureId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<Candidature> {
+    return party.side === 'owner'
+      ? (await this.findOwned(candidatureId, party.userId)).candidature
+      : this.findReceived(party.actor, party.workspaceId, candidatureId, tx)
+  }
+
+  // Inside a write: locks the candidature's row, then reads the party's access again after the lock
+  // — an owner who lost the request, a conseiller deactivated or a candidature removed meanwhile
+  // writes nothing.
+  async lockAs(
+    tx: Prisma.TransactionClient,
+    party: CandidatureParty,
+    candidatureId: string,
+  ): Promise<Candidature> {
+    if (party.side === 'owner') return lockCandidature(tx, candidatureId, party.userId)
+    await tx.$queryRaw`SELECT 1 FROM "candidatures" WHERE "id" = ${candidatureId} FOR UPDATE`
+    return this.findReceived(party.actor, party.workspaceId, candidatureId, tx)
   }
 
   // Reading the candidatures a workspace receives: `404` for whoever is not in it (as for a

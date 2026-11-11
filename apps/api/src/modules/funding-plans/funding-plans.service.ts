@@ -13,16 +13,12 @@ import {
 import type { Candidature, FundingPlanLine, FundingSourceCategory, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
-import { CandidatureErrors } from '../candidatures/candidature-errors'
-import { CandidaturesService } from '../candidatures/candidatures.service'
-import type { WorkspaceActor } from '../workspaces/workspace-access'
+import { CandidaturesService, type CandidatureParty } from '../candidatures/candidatures.service'
 import { FundingPlanErrors } from './funding-plan-errors'
 
 // Who acts on a plan: the owner of the request, or the workspace — its active conseillers and
 // Confluent administrators, the people who read its candidatures (`canReviewCandidatures`).
-export type FundingPlanParty =
-  | { side: 'owner'; userId: string }
-  | { side: 'workspace'; actor: WorkspaceActor; workspaceId: string }
+export type FundingPlanParty = CandidatureParty
 
 interface PlanCategoryView {
   id: string
@@ -189,19 +185,12 @@ export class FundingPlansService {
   }
 
   // The candidature as the party may reach it (`404`/`403` of the candidatures' rules).
-  private reach(
-    party: FundingPlanParty,
-    candidatureId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<Candidature> {
-    return party.side === 'owner'
-      ? this.candidatures.findOwned(candidatureId, party.userId).then((r) => r.candidature)
-      : this.candidatures.findReceived(party.actor, party.workspaceId, candidatureId, tx)
+  private reach(party: FundingPlanParty, candidatureId: string): Promise<Candidature> {
+    return this.candidatures.reachAs(party, candidatureId)
   }
 
   // Nothing is told to whoever may not reach the candidature; then its row is locked and the access
-  // read again after the lock — an owner who lost the request, a conseiller deactivated or a
-  // candidature removed meanwhile writes nothing.
+  // read again after the lock (`CandidaturesService.lockAs`).
   private async write<T>(
     party: FundingPlanParty,
     candidatureId: string,
@@ -209,11 +198,7 @@ export class FundingPlansService {
   ): Promise<{ candidature: Candidature; result: T }> {
     await this.reach(party, candidatureId)
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM "candidatures" WHERE "id" = ${candidatureId} FOR UPDATE`
-      const candidature =
-        party.side === 'owner'
-          ? await ownedAfterLock(tx, candidatureId, party.userId)
-          : await this.reach(party, candidatureId, tx)
+      const candidature = await this.candidatures.lockAs(tx, party, candidatureId)
       return { candidature, result: await fn(tx, candidature) }
     })
   }
@@ -268,19 +253,6 @@ function authorOf(party: FundingPlanParty) {
     updatedBySide: party.side,
     updatedById: party.side === 'owner' ? party.userId : party.actor.id,
   }
-}
-
-// After the lock, still the owner's request (the same check as the candidature's own writes).
-async function ownedAfterLock(
-  tx: Prisma.TransactionClient,
-  candidatureId: string,
-  ownerId: string,
-): Promise<Candidature> {
-  const candidature = await tx.candidature.findUnique({ where: { id: candidatureId } })
-  if (!candidature) throw CandidatureErrors.notFound()
-  const dossier = await tx.dossier.findUnique({ where: { id: candidature.dossierId } })
-  if (!dossier || dossier.userId !== ownerId) throw CandidatureErrors.notFound()
-  return candidature
 }
 
 // A category a line may take: one of the workspace's (`400` alike for an unknown one and another

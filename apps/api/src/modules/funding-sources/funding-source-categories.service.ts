@@ -6,7 +6,7 @@ import {
   fundingSourceFamilyOf,
   type FundingSourceFamily,
 } from '@confluent/shared'
-import { slugify } from '../../common/slug'
+import { labelClash, listKey, namesWholeList, nextPosition } from '../../common/workspace-list'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
@@ -72,7 +72,7 @@ export class FundingSourceCategoriesService {
           key: uniqueKey(input.label, current),
           label: input.label,
           family: input.family,
-          position: current.reduce((max, c) => Math.max(max, c.position + 1), 0),
+          position: nextPosition(current),
           active: true,
         },
       })
@@ -144,14 +144,7 @@ export class FundingSourceCategoriesService {
     await this.access.assertCanManage(actor, workspaceId)
     const { rows, moved } = await this.write(async (tx) => {
       const current = await this.lockForManager(tx, actor, workspaceId)
-      const known = new Set(current.map((c) => c.id))
-      if (
-        categoryIds.length !== current.length ||
-        new Set(categoryIds).size !== categoryIds.length ||
-        !categoryIds.every((id) => known.has(id))
-      ) {
-        throw FundingSourceErrors.orderStale()
-      }
+      if (!namesWholeList(current, categoryIds)) throw FundingSourceErrors.orderStale()
       let moved = false
       for (const [position, id] of categoryIds.entries()) {
         if (current.find((c) => c.id === id)!.position === position) continue
@@ -216,23 +209,16 @@ function assertLabelFree(
   label: string,
   exceptId: string | null,
 ): void {
-  const wanted = label.toLocaleLowerCase('fr')
-  const clash = categories.find(
-    (c) => c.id !== exceptId && c.label.toLocaleLowerCase('fr') === wanted,
-  )
+  const clash = labelClash(categories, label, exceptId)
   if (clash) throw FundingSourceErrors.labelTaken(clash.label)
 }
 
 // `snake_case` ASCII from the label (`source` when nothing is left), unique in the workspace.
 export function uniqueKey(label: string, categories: Array<{ key: string }>): string {
-  const room = FUNDING_SOURCE_CATEGORY_LIMITS.key - 4
-  const base =
-    slugify(label, 'source').replace(/-/g, '_').slice(0, room).replace(/_+$/, '') || 'source'
-  const taken = new Set(categories.map((c) => c.key))
-  if (!taken.has(base)) return base
-  let n = 2
-  while (taken.has(`${base}_${n}`)) n++
-  return `${base}_${n}`
+  return listKey(label, categories, {
+    maxLength: FUNDING_SOURCE_CATEGORY_LIMITS.key,
+    fallback: 'source',
+  })
 }
 
 function toView(row: FundingSourceCategory): FundingSourceCategoryView {

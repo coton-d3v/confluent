@@ -84,3 +84,18 @@ export function fundingPlansDown(): string[] {
 export function fundingPlansUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261119000000_funding_plans/migration.sql'))
 }
+
+// The revert of E06.05 (schemes and eligibilities), as the tests of earlier migrations that drop
+// what its tables reference (E06.03's unique index on candidatures, candidatures, workspaces) run it
+// before their own: it accepts that schemes and eligibilities are lost (SET LOCAL, test transactions
+// only).
+export function eligibilitiesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_eligibilities_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261120000000_eligibilities.down.sql')),
+  ]
+}
+
+export function eligibilitiesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261120000000_eligibilities/migration.sql'))
+}

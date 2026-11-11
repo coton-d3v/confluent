@@ -12,6 +12,7 @@ import {
 import { slugify } from '../../common/slug'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
+import { createDefaultEligibilitySchemes } from '../eligibilities/eligibility-scheme-defaults'
 import { createDefaultFundingSourceCategories } from '../funding-sources/funding-source-defaults'
 import {
   MAX_SIGNED_URL_SECONDS,
@@ -145,7 +146,8 @@ export class WorkspacesService {
     }
     let created: Workspace
     try {
-      // With D04's default funding source categories (E06.02), in the same transaction.
+      // With D04's default funding source categories (E06.02) and the default eligibility schemes
+      // (E06.05), in the same transaction.
       created = await this.prisma.$transaction(async (tx) => {
         const workspace = await tx.workspace.create({
           data: {
@@ -159,6 +161,7 @@ export class WorkspacesService {
           },
         })
         await createDefaultFundingSourceCategories(tx, workspace.id)
+        await createDefaultEligibilitySchemes(tx, workspace.id)
         return workspace
       })
     } catch (err) {

@@ -21,6 +21,7 @@ import { CompanyTransfersModule } from './modules/company-transfers/company-tran
 import { CandidaturesModule } from './modules/candidatures/candidatures.module'
 import { FundingSourcesModule } from './modules/funding-sources/funding-sources.module'
 import { FundingPlansModule } from './modules/funding-plans/funding-plans.module'
+import { EligibilitiesModule } from './modules/eligibilities/eligibilities.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -49,6 +50,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     CandidaturesModule,
     FundingSourcesModule,
     FundingPlansModule,
+    EligibilitiesModule,
   ],
   controllers: [AppController],
   providers: [
