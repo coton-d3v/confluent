@@ -14,11 +14,13 @@ export interface DossierFieldProps {
 export function DossierField({ label, value, className, children, details }: DossierFieldProps) {
   const hasValue = value.length > 0
   return (
-    <div className={cn('flex flex-col', className)}>
+    // `min-w-0` and `wrap-anywhere`: a long unbroken answer wraps inside its grid column instead of
+    // widening the page (375 px).
+    <div className={cn('flex min-w-0 flex-col', className)}>
       <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium leading-relaxed text-foreground">
+      <dd className="mt-1 whitespace-pre-line wrap-anywhere text-[13px] font-medium leading-relaxed text-foreground">
         {children ?? (hasValue ? value : <span className="text-muted-foreground">—</span>)}
       </dd>
       {details && <dd className="mt-2">{details}</dd>}
