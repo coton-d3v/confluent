@@ -61,6 +61,8 @@ export const auditActionSchema = z.enum([
   'candidature_support_step_updated',
   'candidature_note_updated',
   'share_link_level_changed',
+  'pool_publication_published',
+  'pool_publication_withdrawn',
 ]);
 
 export const auditLogSchema = z.object({

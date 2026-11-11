@@ -328,7 +328,13 @@ export class CandidatureTools {
           name: view.workspace.name,
           programName: view.workspace.programName,
         },
-        request: view.dossier,
+        // As before E07.02: the pool and what it requires reach MCP with E07.10.
+        request: {
+          id: view.dossier.id,
+          slug: view.dossier.slug,
+          name: view.dossier.name,
+          profileSubmitted: view.dossier.profileSubmitted,
+        },
         siteUrl: `${site}/dashboard/candidatures/${view.id}`,
       },
       // E06.09: its financing status in this structure, and what the owner may change in it.

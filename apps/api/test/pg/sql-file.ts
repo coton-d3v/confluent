@@ -140,3 +140,17 @@ export function shareLinksDown(): string[] {
 export function shareLinksUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261123000000_share_links/migration.sql'))
 }
+
+// The revert of E07.02 (pool publications), as the tests of earlier migrations that drop what its
+// table references (E06.03's unique index on candidatures, candidatures) run it before their own: it
+// accepts that publications and their journal are lost (SET LOCAL, test transactions only).
+export function poolPublicationsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_pool_publications_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261124000000_pool_publications.down.sql')),
+  ]
+}
+
+export function poolPublicationsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261124000000_pool_publications/migration.sql'))
+}

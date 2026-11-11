@@ -99,6 +99,8 @@ enum audit_action {
   candidature_support_step_updated
   candidature_note_updated
   share_link_level_changed
+  pool_publication_published
+  pool_publication_withdrawn
 
   @@map("audit_action")
 }
@@ -137,6 +139,8 @@ model User {
   supportStepsValidated       CandidatureStepValidation[]
   supportStepChanges          CandidatureStepValidationChange[]
   candidatureNotesWritten     CandidatureNote[]
+  poolPublicationsConsented   PoolPublication[]                 @relation("PoolPublicationConsenter")
+  poolPublicationsWithdrawn   PoolPublication[]                 @relation("PoolPublicationWithdrawer")
 
   @@map("users")
 }
@@ -580,15 +584,17 @@ model Candidature {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  dossier         Dossier                     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  workspace       Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  formVersion     QuestionnaireVersion        @relation(fields: [formVersionId], references: [id])
-  answers         CandidatureAnswer[]
-  statusChanges   CandidatureStatusChange[]
-  planLines       FundingPlanLine[]
-  eligibilities   CandidatureEligibility[]
-  stepValidations CandidatureStepValidation[]
-  notes           CandidatureNote[]
+  dossier          Dossier                     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  workspace        Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  formVersion      QuestionnaireVersion        @relation(fields: [formVersionId], references: [id])
+  answers          CandidatureAnswer[]
+  statusChanges    CandidatureStatusChange[]
+  planLines        FundingPlanLine[]
+  eligibilities    CandidatureEligibility[]
+  stepValidations  CandidatureStepValidation[]
+  notes            CandidatureNote[]
+  // At most one: `pool_publications.candidature_id` is unique.
+  poolPublications PoolPublication[]
 
   @@unique([dossierId, workspaceId])
   // Target of the (candidature, workspace) foreign keys of plan lines, eligibilities, step
@@ -1055,6 +1061,39 @@ model CandidatureNote {
   @@index([candidatureId, workspaceId])
   @@index([authorId])
   @@map("candidature_notes")
+}
+
+// ROADMAP E07.02: the publication of a financing request in the pool (« vivier ») of the workspace
+// its candidature is sent to — what that workspace's investors will read (E07.03), at `accessLevel`,
+// through the projection of nominative shares. One per candidature, so per (request × workspace);
+// its foreign key carries `workspace_id`, so it never lands in another workspace's pool. Published by
+// the request's owner alone, by an explicit consent (`consentedAt`, `consentedById`: the latest one
+// — first publication, republication or change of level); withdrawn (`withdrawnAt`) by them or with
+// the request's archiving (`withdrawalReason`), the row kept; republished by a new consent. Whether
+// it is listed: @confluent/shared `poolPublicationState`. Closed values: CHECK constraints (migration
+// 20261124000000_pool_publications).
+model PoolPublication {
+  id               String    @id @default(uuid())
+  candidatureId    String    @unique @map("candidature_id")
+  workspaceId      String    @map("workspace_id")
+  accessLevel      String    @map("access_level")
+  consentedAt      DateTime  @map("consented_at")
+  consentedById    String?   @map("consented_by_id")
+  withdrawnAt      DateTime? @map("withdrawn_at")
+  withdrawnById    String?   @map("withdrawn_by_id")
+  withdrawalReason String?   @map("withdrawal_reason")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  candidature Candidature @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  consentedBy User?       @relation("PoolPublicationConsenter", fields: [consentedById], references: [id], onDelete: SetNull)
+  withdrawnBy User?       @relation("PoolPublicationWithdrawer", fields: [withdrawnById], references: [id], onDelete: SetNull)
+
+  // E07.03 lists a workspace's pool.
+  @@index([workspaceId, withdrawnAt])
+  @@index([consentedById])
+  @@index([withdrawnById])
+  @@map("pool_publications")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role
