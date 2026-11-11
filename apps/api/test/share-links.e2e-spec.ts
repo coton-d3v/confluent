@@ -81,7 +81,8 @@ describe('ShareLinksController (e2e)', () => {
         questionnaireSection: { findMany: jest.fn().mockResolvedValue(sections) },
         questionnaireField: { findMany: fieldFindMany },
         classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
-        document: { findMany: documentFindMany },
+        // The company's library (E05.06): documents with their field and versions.
+        libraryDocument: { findMany: documentFindMany },
         auditLog: { create: jest.fn() },
       })
       .overrideProvider(EMAIL_TRANSPORT)
@@ -196,24 +197,48 @@ describe('ShareLinksController (e2e)', () => {
     dossierFindUnique.mockResolvedValue(dossierRow)
   }
 
+  // A library document (E05.06) holding one version, as listed with its field and versions.
+  const asDocument = (
+    version: {
+      id: string
+      filename: string
+      fieldId?: string | null
+      field?: { minAccessLevel: string } | null
+    } & Record<string, unknown>,
+  ) => {
+    const { fieldId = null, field = null, ...row } = version
+    return {
+      id: `lib-${version.id}`,
+      companyId: 'c-1',
+      filename: version.filename,
+      fieldId,
+      type: 'other',
+      createdAt: new Date('2026-11-01'),
+      field,
+      versions: [{ restoredFromId: null, ...row }],
+    }
+  }
+
   // E03.11: a file attached to a field follows that field's level; any other file needs `complet`.
   const documentRows = [
     { field: 'f-name', level: 'public', filename: 'kbis.pdf' },
     { field: 'f-origine', level: 'partiel', filename: 'brevet.pdf' },
     { field: 'f-fin', level: 'complet', filename: 'previsionnel.xlsx' },
     { field: null, level: null, filename: 'annexe.pdf' },
-  ].map((d, i) => ({
-    id: `doc-${i}`,
-    companyId: 'c-1',
-    filename: d.filename,
-    version: 1,
-    storageKey: `dossiers/d-1/k-${i}`,
-    mimetype: 'application/pdf',
-    size: 10,
-    createdAt: new Date('2026-11-01'),
-    fieldId: d.field,
-    field: d.level ? { minAccessLevel: d.level } : null,
-  }))
+  ]
+    .map((d, i) => ({
+      id: `doc-${i}`,
+      companyId: 'c-1',
+      filename: d.filename,
+      version: 1,
+      storageKey: `dossiers/d-1/k-${i}`,
+      mimetype: 'application/pdf',
+      size: 10,
+      createdAt: new Date('2026-11-01'),
+      fieldId: d.field,
+      field: d.level ? { minAccessLevel: d.level } : null,
+    }))
+    .map(asDocument)
   const listedFiles = (body: { documents: Array<{ filename: string }> }) =>
     body.documents.map((d) => d.filename).sort()
 
@@ -313,7 +338,7 @@ describe('ShareLinksController (e2e)', () => {
     activeLink('complet')
     // Metadata survives in DB, the in-memory object is gone (API restarted).
     documentFindMany.mockResolvedValue([
-      {
+      asDocument({
         id: 'doc-1',
         filename: 'bp.pdf',
         version: 1,
@@ -321,7 +346,7 @@ describe('ShareLinksController (e2e)', () => {
         mimetype: 'application/pdf',
         size: 42,
         createdAt: new Date('2026-11-01'),
-      },
+      }),
     ])
     const res = await request(app.getHttpServer())
       .get('/v1/shares/abc')

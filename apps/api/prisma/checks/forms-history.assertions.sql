@@ -73,5 +73,16 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'profile version differs from the dossier''s';
   END IF;
+
+  -- E05.06: each version filed under one library document per (company, field, name), of type
+  -- `other`, numbers kept.
+  SELECT string_agg(d.id || '@' || d.version || '=' || l.filename || ':' || l.type, ',' ORDER BY d.id) INTO got
+  FROM documents d JOIN library_documents l ON l.id = d.library_document_id;
+  IF got IS DISTINCT FROM 'doc-blank@1=kbis.pdf:other,doc-check-1@1=kbis.pdf:other,doc-check-2@2=kbis.pdf:other' THEN
+    RAISE EXCEPTION 'library documents: %', got;
+  END IF;
+  IF (SELECT count(DISTINCT library_document_id) FROM documents) <> 2 THEN
+    RAISE EXCEPTION 'one library document per company and name expected';
+  END IF;
 END
 $$;

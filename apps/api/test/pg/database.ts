@@ -25,3 +25,24 @@ export async function companyOf(
   })
   return company.id
 }
+
+// A stored version of a new library document of the company (E05.06), as a deposit leaves it.
+export async function documentOf(
+  prisma: PrismaService,
+  companyId: string,
+  data: { filename: string; storageKey: string; mimetype?: string; size?: number },
+) {
+  const document = await prisma.libraryDocument.create({
+    data: { companyId, filename: data.filename },
+  })
+  return prisma.document.create({
+    data: {
+      libraryDocumentId: document.id,
+      companyId,
+      filename: data.filename,
+      mimetype: data.mimetype ?? 'application/pdf',
+      storageKey: data.storageKey,
+      size: data.size ?? 10,
+    },
+  })
+}

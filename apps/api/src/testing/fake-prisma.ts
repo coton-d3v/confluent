@@ -46,7 +46,13 @@ function flattenWhere(where: Where = {}): Where {
 
 // Tables whose `updatedAt` matters to a test (an answer's date is its provenance's, E04.04), set on
 // every write like Prisma's `@updatedAt`.
-const UPDATED_AT = new Set(['dossierAnswer', 'workspace', 'workspaceMembership', 'company'])
+const UPDATED_AT = new Set([
+  'dossierAnswer',
+  'workspace',
+  'workspaceMembership',
+  'company',
+  'libraryDocument',
+])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
 // Like Prisma, an `undefined` value in `data` leaves the column unchanged.
@@ -283,13 +289,36 @@ export function createFakePrisma() {
       : {}),
   })
 
-  // Document with the read level of the field it answers (E03.11).
-  includes.document = (row, include) => ({
+  // Library document with the read level of the field it answers (E03.11) and its versions
+  // (E05.06), in the order asked for.
+  includes.libraryDocument = (row, include) => ({
     ...row,
     ...(include.field
       ? { field: row.fieldId ? get('questionnaireField', row.fieldId) : null }
       : {}),
+    ...(include.versions
+      ? {
+          versions: sorted(
+            'document',
+            filtered('document', { libraryDocumentId: row.id }),
+            (include.versions as { orderBy?: unknown }).orderBy,
+          ).map((v) => ({ ...v })),
+        }
+      : {}),
   })
+
+  // Document version with its library document and that document's field.
+  includes.document = (row, include) => {
+    if (!include.libraryDocument) return row
+    const document = get('libraryDocument', row.libraryDocumentId)
+    return {
+      ...row,
+      libraryDocument: document && {
+        ...document,
+        field: document.fieldId ? (get('questionnaireField', document.fieldId) ?? null) : null,
+      },
+    }
+  }
 
   // Membership with its people and workspace (E05.02).
   includes.workspaceMembership = (row, include) => ({
@@ -367,7 +396,8 @@ export function createFakePrisma() {
       position: 0,
       updatedAt: new Date(),
     })),
-    document: model('document', () => ({ fieldId: null })),
+    libraryDocument: model('libraryDocument', () => ({ fieldId: null, type: 'other' })),
+    document: model('document', () => ({ restoredFromId: null })),
     workspace: model('workspace', () => ({ logoKey: null })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
@@ -379,4 +409,42 @@ export function createFakePrisma() {
   }
   self.prisma = prisma
   return { prisma, tables, table }
+}
+
+type FakePrisma = ReturnType<typeof createFakePrisma>['prisma']
+
+// A stored version of a library document (E05.06), its document created on first use, as a deposit
+// leaves them.
+export async function seedDocument(
+  prisma: FakePrisma,
+  data: {
+    companyId: string
+    filename: string
+    fieldId?: string | null
+    type?: string
+    id?: string
+    version?: number
+    storageKey?: string
+    mimetype?: string
+    size?: number
+  },
+): Promise<Row> {
+  const { companyId, filename, fieldId = null, type, ...version } = data
+  const document =
+    (await prisma.libraryDocument.findFirst({ where: { companyId, fieldId, filename } })) ??
+    (await prisma.libraryDocument.create({
+      data: { companyId, fieldId, filename, ...(type ? { type } : {}) },
+    }))
+  return prisma.document.create({
+    data: {
+      version: 1,
+      storageKey: `companies/${companyId}/${randomUUID()}`,
+      mimetype: 'application/pdf',
+      size: 10,
+      ...version,
+      libraryDocumentId: document.id,
+      companyId,
+      filename,
+    },
+  })
 }

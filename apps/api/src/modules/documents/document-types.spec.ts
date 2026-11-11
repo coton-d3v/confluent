@@ -1,4 +1,11 @@
-import { ACCEPTED_DOCUMENT_EXTENSIONS } from '@confluent/shared'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  ACCEPTED_DOCUMENT_EXTENSIONS,
+  DOCUMENT_TYPE_LABELS,
+  DOCUMENT_TYPES,
+  documentTypeOf,
+} from '@confluent/shared'
 import { detectDocumentType, RECOGNISED_EXTENSIONS } from './document-types'
 
 const bytes = (...b: number[]) => Buffer.from(b)
@@ -51,5 +58,27 @@ describe('detectDocumentType', () => {
 
   it('recognises exactly the extensions the site offers', () => {
     expect([...RECOGNISED_EXTENSIONS].sort()).toEqual([...ACCEPTED_DOCUMENT_EXTENSIONS].sort())
+  })
+})
+
+// E05.06: the closed list of library document types is the same in the contract and in the
+// database's CHECK constraint.
+describe('library document types', () => {
+  it('match the library_documents_type_check constraint of the migration', () => {
+    const sql = readFileSync(
+      join(__dirname, '../../../prisma/migrations/20261112200000_document_library/migration.sql'),
+      'utf8',
+    )
+    const check = /library_documents_type_check" CHECK \("type" IN \(([^)]*)\)\)/.exec(sql)
+    expect(check).not.toBeNull()
+    const inDatabase = [...check![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
+    expect(inDatabase).toEqual([...DOCUMENT_TYPES])
+    expect(Object.keys(DOCUMENT_TYPE_LABELS)).toEqual([...DOCUMENT_TYPES])
+  })
+
+  it('reads an unknown or missing value as `other`', () => {
+    expect(documentTypeOf('cap_table')).toBe('cap_table')
+    expect(documentTypeOf('passport')).toBe('other')
+    expect(documentTypeOf(null)).toBe('other')
   })
 })

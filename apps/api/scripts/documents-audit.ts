@@ -58,7 +58,7 @@ async function main(): Promise<number> {
         checked++
         if (await storage.exists(doc.storageKey)) continue
         const newer = await prisma.document.count({
-          where: { companyId: doc.companyId, filename: doc.filename, version: { gt: doc.version } },
+          where: { libraryDocumentId: doc.libraryDocumentId, version: { gt: doc.version } },
         })
         lost++
         if (newer === 0) lostCurrent++

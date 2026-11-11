@@ -9,7 +9,7 @@ import { AppModule } from './../src/app.module'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
-import { createFakePrisma } from '../src/testing/fake-prisma'
+import { createFakePrisma, seedDocument } from '../src/testing/fake-prisma'
 
 const SOPHIE = {
   id: '7d3c1b0e-0000-4000-8000-000000000001',
@@ -238,23 +238,28 @@ describe('Dossiers and companies (e2e)', () => {
         expect.objectContaining({ id: stored.id, dossierId: id, fieldId: FIELD, value: 'Bio' }),
       ])
     }
-    await p.document.create({
-      data: {
-        companyId: own.companyId,
-        filename: 'kbis.pdf',
-        mimetype: 'application/pdf',
-        storageKey: `dossiers/${own.id}/k`,
-        size: 10,
-        version: 1,
-      },
+    await seedDocument(p, {
+      companyId: own.companyId,
+      filename: 'kbis.pdf',
+      mimetype: 'application/pdf',
+      storageKey: `dossiers/${own.id}/k`,
+      size: 10,
+      version: 1,
     })
     const detail = (await as(ADMIN).get(`/v1/admin/dossiers/${second.id}`).expect(200)).body
     expect(detail.answers).toEqual([
       expect.objectContaining({ id: stored.id, dossierId: second.id, value: 'Bio' }),
     ])
+    // Each version with its library document's field and type (E05.06).
     expect(detail.documents).toEqual([
-      expect.objectContaining({ filename: 'kbis.pdf', dossierId: second.id }),
+      expect.objectContaining({
+        filename: 'kbis.pdf',
+        dossierId: second.id,
+        fieldId: null,
+        type: 'other',
+      }),
     ])
+    expect(detail.documents[0]).not.toHaveProperty('libraryDocument')
     // Another account reaches neither, whatever the dossier.
     await as(MARC).get(`/v1/dossiers/${second.id}/answers`).expect(404)
     await as(MARC).get(`/v1/dossiers/${second.id}/documents`).expect(404)

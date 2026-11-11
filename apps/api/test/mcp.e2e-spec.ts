@@ -11,7 +11,7 @@ import { mountOAuthServer } from './../src/modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './../src/modules/mcp/mcp.http'
 import { guideText } from './../src/modules/mcp/conversation-guides'
 import { hashToken } from './../src/modules/oauth/oauth.constants'
-import { createFakePrisma } from '../src/testing/fake-prisma'
+import { createFakePrisma, seedDocument } from '../src/testing/fake-prisma'
 import { pdfWithPages } from '../src/testing/document-fixtures'
 import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
 
@@ -327,16 +327,14 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     expect(written.isError).toBe(true)
     expect((written.content as Array<{ text: string }>)[0].text).toContain('déposez le fichier')
 
-    await fake.prisma.document.create({
-      data: {
-        companyId: 'c-11111111-1111-4111-8111-111111111111',
-        filename: 'kbis.pdf',
-        version: 1,
-        storageKey: 'dossiers/x/lost',
-        mimetype: 'application/pdf',
-        size: 12,
-        fieldId: 'f-kbis',
-      },
+    await seedDocument(fake.prisma, {
+      companyId: 'c-11111111-1111-4111-8111-111111111111',
+      filename: 'kbis.pdf',
+      version: 1,
+      storageKey: 'dossiers/x/lost',
+      mimetype: 'application/pdf',
+      size: 12,
+      fieldId: 'f-kbis',
     })
     const after = json(
       await c.callTool({ name: 'get_dossier', arguments: { dossier: 'biosensio' } }),
@@ -822,16 +820,14 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
           data: { companyId: 'c-11111111-1111-4111-8111-111111111111', fieldId, value },
         })
       }
-      await fake.prisma.document.create({
-        data: {
-          companyId: 'c-11111111-1111-4111-8111-111111111111',
-          filename: 'kbis.pdf',
-          version: 1,
-          storageKey: 'dossiers/x/kbis',
-          mimetype: 'application/pdf',
-          size: 12,
-          fieldId: 'f-kbis',
-        },
+      await seedDocument(fake.prisma, {
+        companyId: 'c-11111111-1111-4111-8111-111111111111',
+        filename: 'kbis.pdf',
+        version: 1,
+        storageKey: 'dossiers/x/kbis',
+        mimetype: 'application/pdf',
+        size: 12,
+        fieldId: 'f-kbis',
       })
       const c = await client(await connect('u-1', ['dossiers:read']))
       const done = json(
@@ -1070,8 +1066,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       expect(stored).toMatchObject({
         id: documentId,
         companyId: 'c-11111111-1111-4111-8111-111111111111',
-        fieldId: 'f-kbis',
         mimetype: 'application/pdf',
+      })
+      // The file answers its question through its library document (E05.06).
+      expect(fake.table('libraryDocument').get(stored.libraryDocumentId as string)).toMatchObject({
+        fieldId: 'f-kbis',
+        type: 'other',
       })
 
       const listed = json(
@@ -1245,15 +1245,13 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         expect(read).not.toHaveProperty('content')
       }
       // A file lost from the storage: said so, to be uploaded again.
-      const lost = await fake.prisma.document.create({
-        data: {
-          companyId: 'c-11111111-1111-4111-8111-111111111111',
-          filename: 'perdu.pdf',
-          version: 1,
-          storageKey: 'dossiers/x/lost',
-          mimetype: 'application/pdf',
-          size: 12,
-        },
+      const lost = await seedDocument(fake.prisma, {
+        companyId: 'c-11111111-1111-4111-8111-111111111111',
+        filename: 'perdu.pdf',
+        version: 1,
+        storageKey: 'dossiers/x/lost',
+        mimetype: 'application/pdf',
+        size: 12,
       })
       const gone = await c.callTool({
         name: 'read_document',

@@ -3,7 +3,7 @@ import { AnswerSourcesService } from '../../src/modules/answers/answer-sources.s
 import { AnswersService } from '../../src/modules/answers/answers.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
-import { companyOf, testDatabase } from './database'
+import { companyOf, testDatabase, documentOf } from './database'
 
 // E04.04: the provenance is written with the value, in the dossier's locked transaction, and the
 // database itself refuses an inconsistent one (the fake cannot show CHECK constraints or foreign
@@ -51,14 +51,9 @@ describe('answer provenance (PostgreSQL)', () => {
         questionnaireVersionId: version.id,
       },
     })
-    const document = await prisma.document.create({
-      data: {
-        companyId: dossier.companyId,
-        filename: 'kbis.pdf',
-        mimetype: 'application/pdf',
-        storageKey: `test/${tag}`,
-        size: 10,
-      },
+    const document = await documentOf(prisma, dossier.companyId, {
+      filename: 'kbis.pdf',
+      storageKey: `test/${tag}`,
     })
     return { user, field, dossier, document }
   }

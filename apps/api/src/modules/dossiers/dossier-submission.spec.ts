@@ -4,7 +4,7 @@ import type { AuditService } from '../audit/audit.service'
 import type { ClassificationService } from '../classification/classification.service'
 import { createVersionStructure } from '../questionnaires/questionnaire-structure'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
-import { createFakePrisma } from '../../testing/fake-prisma'
+import { createFakePrisma, seedDocument } from '../../testing/fake-prisma'
 import { DossiersService } from './dossiers.service'
 import { CompaniesService } from '../companies/companies.service'
 
@@ -72,9 +72,7 @@ async function setup() {
   const answer = (key: string, value: string) =>
     p.dossierAnswer.create({ data: { companyId: 'c-1', fieldId: fieldId(key), value } })
   const attach = (key: string | null, filename = 'kbis.pdf') =>
-    p.document.create({
-      data: { companyId: 'c-1', filename, fieldId: key ? fieldId(key) : null, version: 1 },
-    })
+    seedDocument(p, { companyId: 'c-1', filename, fieldId: key ? fieldId(key) : null })
   return { fake, svc, classify, answer, attach, audit, fieldId }
 }
 

@@ -18,6 +18,11 @@ import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261112100000_company_profile/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261112100000_company_profile.down.sql'))
+// The next migration (E05.06, the document library) builds on this one: undone first.
+const BACK_TO_E0504 = [
+  ...sqlStatements(join(CHECKS, '20261112200000_document_library.down.sql')),
+  ...DOWN,
+]
 
 class RolledBack extends Error {}
 
@@ -80,7 +85,11 @@ async function content(tx: Tx) {
 describe('company profile (PostgreSQL)', () => {
   const prisma = testDatabase()
   const classification = new ClassificationService(prisma)
-  const documents = new DocumentsService(prisma, new MemoryStorageAdapter())
+  const documents = new DocumentsService(
+    prisma,
+    new MemoryStorageAdapter(),
+    new AuditService(prisma),
+  )
   const answers = new AnswersService(
     prisma,
     classification,
@@ -189,7 +198,7 @@ describe('company profile (PostgreSQL)', () => {
     // The version a new company gets (a published company-profile form).
     const current = await new QuestionnairesService(prisma).ensureBootstrap()
     await rolledBack(async (tx) => {
-      await run(tx, DOWN)
+      await run(tx, BACK_TO_E0504)
       const legacy = await legacyDossiers(tx)
       const before = await content(tx)
       const owners = await rows(
@@ -252,7 +261,7 @@ describe('company profile (PostgreSQL)', () => {
   // runner) resumes by running the whole migration again: same schema, same data, no duplicate.
   it('resumes an interrupted deployment: any prefix of the migration, then the whole migration, gives the same database', async () => {
     await rolledBack(async (tx) => {
-      await run(tx, DOWN)
+      await run(tx, BACK_TO_E0504)
       await legacyDossiers(tx)
       await tx.$executeRawUnsafe('SAVEPOINT legacy')
       await run(tx, UP)
@@ -269,7 +278,7 @@ describe('company profile (PostgreSQL)', () => {
   it('refuses to merge the profiles of a company with several dossiers, and to undo such a company', async () => {
     // Before the migration: a second dossier attached to an existing company.
     await rolledBack(async (tx) => {
-      await run(tx, DOWN)
+      await run(tx, BACK_TO_E0504)
       const [{ dossier, company }] = await legacyDossiers(tx)
       const [d] = await rows(
         tx,
@@ -287,7 +296,7 @@ describe('company profile (PostgreSQL)', () => {
     await rolledBack(async (tx) => {
       await sharedProfile(tx)
       await tx.$executeRawUnsafe('SAVEPOINT shared')
-      await expect(run(tx, DOWN)).rejects.toThrow(/several dossiers/)
+      await expect(run(tx, BACK_TO_E0504)).rejects.toThrow(/several dossiers/)
       await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT shared')
     })
   })
