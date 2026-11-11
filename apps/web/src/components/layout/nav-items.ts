@@ -2,6 +2,7 @@ import {
   Building2,
   ClipboardList,
   FolderOpen,
+  Inbox,
   LayoutDashboard,
   Plug,
   Tags,
@@ -28,6 +29,14 @@ export const MY_WORKSPACES_NAV_ITEM: NavItemSpec = {
   to: '/workspaces',
   label: 'Mes workspaces',
   icon: Building2,
+}
+
+// ROADMAP E07.03: shown to a financeur and to any account that is an investisseur of a workspace —
+// the readers of opportunities (the API decides what each of them reaches).
+export const OPPORTUNITIES_NAV_ITEM: NavItemSpec = {
+  to: '/opportunites',
+  label: 'Opportunités',
+  icon: Inbox,
 }
 
 export const ADMIN_NAV_ITEMS: NavItemSpec[] = [

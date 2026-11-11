@@ -394,7 +394,8 @@ function AdminEditableField({
           </div>
         ) : (
           <div className="flex items-start justify-between gap-3">
-            <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+            {/* `min-w-0` and `wrap-anywhere`: an answer made of one long word wraps (375 px). */}
+            <p className="min-w-0 whitespace-pre-wrap wrap-anywhere text-sm text-foreground">
               {value ? answerLabel(question, value) : <span className="text-muted-foreground">—</span>}
             </p>
             <Button

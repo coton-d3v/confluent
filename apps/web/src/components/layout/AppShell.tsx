@@ -22,7 +22,13 @@ import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { useMyWorkspaceMemberships } from '@/features/workspaces/useMyWorkspaceMemberships'
 import { WorkspaceMembershipsContext } from '@/features/workspaces/memberships-context'
 import { WorkspaceSwitcher } from '@/features/workspaces/components/WorkspaceSwitcher'
-import { ADMIN_NAV_ITEMS, MY_WORKSPACES_NAV_ITEM, NAV_ITEMS, type NavItemSpec } from './nav-items'
+import {
+  ADMIN_NAV_ITEMS,
+  MY_WORKSPACES_NAV_ITEM,
+  NAV_ITEMS,
+  OPPORTUNITIES_NAV_ITEM,
+  type NavItemSpec,
+} from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
 
 function ProfileSheet({
@@ -253,12 +259,17 @@ export function AppShell() {
     return <Navigate to="/auth" replace />
   }
 
-  const navItems =
+  const baseNavItems =
     user.role === 'admin'
       ? ADMIN_NAV_ITEMS
       : memberships.data?.length
         ? [...NAV_ITEMS, MY_WORKSPACES_NAV_ITEM]
         : NAV_ITEMS
+  const readsOpportunities =
+    user.role === 'financeur' || (memberships.data ?? []).some((m) => m.role === 'investisseur')
+  const navItems = readsOpportunities
+    ? [baseNavItems[0], OPPORTUNITIES_NAV_ITEM, ...baseNavItems.slice(1)]
+    : baseNavItems
 
   async function handleLogout() {
     try {
