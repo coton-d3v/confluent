@@ -185,6 +185,19 @@ describe('workspace isolation (e2e)', () => {
           method: 'delete',
           path: '/workspaces/:workspaceId/candidatures/:candidatureId/eligibilities/:eligibilityId',
         },
+        // E06.06: its support path, and the path of a candidature it receives.
+        { method: 'get', path: '/workspaces/:workspaceId/support-steps' },
+        { method: 'post', path: '/admin/workspaces/:workspaceId/support-steps' },
+        { method: 'put', path: '/admin/workspaces/:workspaceId/support-steps/order' },
+        { method: 'patch', path: '/admin/workspaces/:workspaceId/support-steps/:stepId' },
+        {
+          method: 'get',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/support-path',
+        },
+        {
+          method: 'patch',
+          path: '/workspaces/:workspaceId/candidatures/:candidatureId/support-path/steps/:stepId',
+        },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

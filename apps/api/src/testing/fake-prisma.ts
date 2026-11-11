@@ -59,6 +59,8 @@ const UPDATED_AT = new Set([
   'fundingPlanLine',
   'eligibilityScheme',
   'candidatureEligibility',
+  'supportStep',
+  'candidatureStepValidation',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -513,6 +515,16 @@ export function createFakePrisma() {
       note: null,
       verifiedAt: null,
       verifiedById: null,
+    })),
+    supportStep: model('supportStep', () => ({ active: true, explanation: null })),
+    candidatureStepValidation: model('candidatureStepValidation', () => ({
+      version: 1,
+      validatedAt: null,
+      validatedById: null,
+    })),
+    candidatureStepValidationChange: model('candidatureStepValidationChange', () => ({
+      changedAt: new Date(),
+      actorId: null,
     })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
