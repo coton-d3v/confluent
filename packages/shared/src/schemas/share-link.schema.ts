@@ -27,16 +27,31 @@ export const shareAccessRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
 })
 
+// E07.01: the owner chooses the level of each invitation; none is assumed.
 export const createShareLinkSchema = z.object({
   recipientEmail: z.string().trim().toLowerCase().email(),
-  accessLevel: accessLevelSchema.optional(),
+  accessLevel: accessLevelSchema,
 })
 
-// What a financeur sees through a share link, already filtered server-side by `share.accessLevel`:
-// `fields`/`answers` only contain fields the level may read, `documents` only lists the documents the
-// dossier selects (E05.07), at the version selected, among those the level may read (an attachment
-// follows its field, any other document requires `complet`).
-export const financeurShareResponseSchema = z.object({
+// E07.01: the owner changes the level of an active share; the recipient keeps the same link.
+export const updateShareLinkSchema = z.object({
+  accessLevel: accessLevelSchema,
+})
+
+// Who revoked a share: the request's owner, or an administrator (E07.01).
+export const shareRevokedBySchema = z.enum(['owner', 'admin'])
+
+// One entry of the list of accesses, as its owner and administrators read it.
+export const shareAccessSchema = shareLinkSchema.extend({
+  revokedBy: shareRevokedBySchema.nullable(),
+})
+
+// What the recipient of a share reads, already filtered server-side by its level: `fields`/`answers`
+// only contain fields the level may read, `documents` only lists the documents the dossier selects
+// (E05.07), at the version selected, among those the level may read (an attachment follows its
+// field, any other document requires `complet`). One projection on the server builds it, for the
+// recipient and for the preview « Voir comme le destinataire » (E07.01).
+export const recipientViewSchema = z.object({
   dossier: dossierSchema.pick({
     id: true,
     name: true,
@@ -59,20 +74,46 @@ export const financeurShareResponseSchema = z.object({
     publicationStatus: true,
     publishedAt: true,
   }),
-  share: z.object({
-    recipientEmail: z.string().email(),
-    status: shareLinkStatusSchema,
-    accessLevel: accessLevelSchema,
-  }),
   sections: z.array(questionnaireSectionSchema),
   fields: z.array(questionnaireFieldSchema),
   answers: z.array(z.object({ fieldId: z.string().uuid(), value: z.string() })),
   documents: z.array(documentGroupSchema),
 })
 
+// What a financeur sees through a share link: the recipient's view at the level of this very link.
+export const financeurShareResponseSchema = recipientViewSchema.extend({
+  share: z.object({
+    recipientEmail: z.string().email(),
+    status: shareLinkStatusSchema,
+    accessLevel: accessLevelSchema,
+  }),
+})
+
+export const sharePreviewQuerySchema = z.object({
+  level: accessLevelSchema,
+})
+
+// E07.01 « Voir comme le destinataire »: exactly what a recipient at `preview.accessLevel` would read,
+// for the owner and administrators, without any link nor any view recorded. A preview delivers no
+// file: each version's `url` is null, its `availability` is the recipient's.
+export const sharePreviewSchema = recipientViewSchema.extend({
+  preview: z.object({
+    accessLevel: accessLevelSchema,
+    // Everything the request could show: the questions of its profile's version and the documents
+    // it selects, whatever their level.
+    totalQuestions: z.number().int().nonnegative(),
+    totalDocuments: z.number().int().nonnegative(),
+  }),
+})
+
 export type ShareLinkStatus = z.infer<typeof shareLinkStatusSchema>
 export type ShareLink = z.infer<typeof shareLinkSchema>
 export type ShareLinkWithUrl = z.infer<typeof shareLinkWithUrlSchema>
 export type CreateShareLinkInput = z.infer<typeof createShareLinkSchema>
+export type UpdateShareLinkInput = z.infer<typeof updateShareLinkSchema>
+export type ShareRevokedBy = z.infer<typeof shareRevokedBySchema>
+export type ShareAccess = z.infer<typeof shareAccessSchema>
+export type RecipientView = z.infer<typeof recipientViewSchema>
+export type SharePreview = z.infer<typeof sharePreviewSchema>
 export type ShareAccessRequest = z.infer<typeof shareAccessRequestSchema>
 export type FinanceurShareResponse = z.infer<typeof financeurShareResponseSchema>

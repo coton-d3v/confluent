@@ -60,6 +60,7 @@ export const auditActionSchema = z.enum([
   'support_steps_updated',
   'candidature_support_step_updated',
   'candidature_note_updated',
+  'share_link_level_changed',
 ]);
 
 export const auditLogSchema = z.object({

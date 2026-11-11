@@ -468,7 +468,11 @@ export function createFakePrisma() {
       archivedAt: null,
       updatedAt: new Date(),
     })),
-    shareLink: model('shareLink'),
+    shareLink: model('shareLink', () => ({
+      status: 'pending',
+      accessLevel: 'complet',
+      revokedAt: null,
+    })),
     questionnaire: model('questionnaire', () => ({
       archivedAt: null,
       workspaceId: null,

@@ -127,3 +127,16 @@ export function candidatureNotesDown(): string[] {
 export function candidatureNotesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261122000000_candidature_notes/migration.sql'))
 }
+
+// The revert of E07.01 (share links): it accepts that the journal of level changes is lost
+// (SET LOCAL, test transactions only).
+export function shareLinksDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_share_level_journal_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261123000000_share_links.down.sql')),
+  ]
+}
+
+export function shareLinksUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261123000000_share_links/migration.sql'))
+}

@@ -17,3 +17,13 @@ export function highestAccessLevel(levels: ReadonlyArray<AccessLevel>): AccessLe
 }
 
 export type AccessLevel = z.infer<typeof accessLevelSchema>
+
+// E07.01: the three levels of a nominative share, as the owner chooses them and the recipient reads
+// them (the site, the preview « Voir comme le destinataire »).
+export const ACCESS_LEVEL_LABELS: Record<AccessLevel, string> = {
+  public: 'Public',
+  partiel: 'Partiel',
+  complet: 'Complet',
+}
+
+export const ACCESS_LEVELS = accessLevelSchema.options

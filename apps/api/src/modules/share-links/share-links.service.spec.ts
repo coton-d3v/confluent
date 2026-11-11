@@ -1,5 +1,10 @@
 import { Test } from '@nestjs/testing'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ShareLinksService } from './share-links.service'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -15,6 +20,7 @@ function buildModule(overrides: {
   shareCreate?: jest.Mock
   shareFindUnique?: jest.Mock
   shareUpdate?: jest.Mock
+  shareUpdateMany?: jest.Mock
   shareFindMany?: jest.Mock
   userFindUnique?: jest.Mock
   userCreate?: jest.Mock
@@ -26,27 +32,45 @@ function buildModule(overrides: {
   getVersion?: jest.Mock
   listDocuments?: jest.Mock
 }) {
-  return {
-    prisma: {
-      shareLink: {
-        create: overrides.shareCreate ?? jest.fn().mockResolvedValue({ id: 'sl-1' }),
-        findUnique: overrides.shareFindUnique ?? jest.fn(),
-        update: overrides.shareUpdate ?? jest.fn(),
-        findMany: overrides.shareFindMany ?? jest.fn().mockResolvedValue([]),
-      },
-      dossier: { findUnique: overrides.dossierFindUnique ?? jest.fn() },
-      dossierAnswer: { findMany: overrides.answerFindMany ?? jest.fn().mockResolvedValue([]) },
-      user: {
-        findUnique: overrides.userFindUnique ?? jest.fn().mockResolvedValue(null),
-        create:
-          overrides.userCreate ??
-          jest
-            .fn()
-            .mockImplementation(async (args: { data: Record<string, unknown> }) =>
-              Promise.resolve({ id: 'recipient-1', locale: 'fr', ...args.data }),
-            ),
-      },
+  const self: { prisma?: unknown } = {}
+  const prisma = {
+    // The dossier's lock (E07.01): the transaction runs on the same stand-in.
+    $transaction: jest.fn((fn: (tx: unknown) => unknown): unknown => fn(self.prisma)),
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    shareLink: {
+      create: overrides.shareCreate ?? jest.fn().mockResolvedValue({ id: 'sl-1' }),
+      findUnique: overrides.shareFindUnique ?? jest.fn(),
+      update: overrides.shareUpdate ?? jest.fn(),
+      updateMany: overrides.shareUpdateMany ?? jest.fn().mockResolvedValue({ count: 1 }),
+      findMany: overrides.shareFindMany ?? jest.fn().mockResolvedValue([]),
     },
+    auditLog: { findMany: jest.fn().mockResolvedValue([]) },
+    questionnaireField: { count: jest.fn().mockResolvedValue(0) },
+    dossier: {
+      findUnique:
+        overrides.dossierFindUnique ??
+        jest.fn().mockResolvedValue({
+          id: 'd-1',
+          userId: 'u-1',
+          name: 'Biosensio',
+          publicationStatus: 'draft',
+        }),
+    },
+    dossierAnswer: { findMany: overrides.answerFindMany ?? jest.fn().mockResolvedValue([]) },
+    user: {
+      findUnique: overrides.userFindUnique ?? jest.fn().mockResolvedValue(null),
+      create:
+        overrides.userCreate ??
+        jest
+          .fn()
+          .mockImplementation(async (args: { data: Record<string, unknown> }) =>
+            Promise.resolve({ id: 'recipient-1', locale: 'fr', ...args.data }),
+          ),
+    },
+  }
+  self.prisma = prisma
+  return {
+    prisma,
     audit: { record: overrides.auditRecord ?? jest.fn().mockResolvedValue(undefined) },
     config: {
       get: (k: string) =>
@@ -96,6 +120,8 @@ async function instantiate(mocks: ReturnType<typeof buildModule>): Promise<Share
   return moduleRef.get(ShareLinksService)
 }
 
+const OWNER = { id: 'u-1', email: 'sophie@biosensio.fr' }
+
 describe('ShareLinksService', () => {
   it('creates a share link with a CSPRNG token + dispatches email + audits', async () => {
     const mocks = buildModule({
@@ -109,8 +135,9 @@ describe('ShareLinksService', () => {
 
     const result = await svc.create({
       dossierId: 'd-1',
-      userId: 'u-1',
+      user: OWNER,
       recipientEmail: 'bob@invest.fr',
+      accessLevel: 'partiel',
     })
     expect(result.shareUrl).toMatch(/^https:\/\/app\.confluent\/share\/[0-9a-f-]{36}$/)
     expect(mocks.audit.record).toHaveBeenCalledWith(
@@ -120,6 +147,7 @@ describe('ShareLinksService', () => {
         metadata: expect.objectContaining({
           recipientUserId: 'recipient-1',
           createdNewUser: true,
+          accessLevel: 'partiel',
         }),
       }),
     )
@@ -148,7 +176,12 @@ describe('ShareLinksService', () => {
     })
     const svc = await instantiate(mocks)
 
-    await svc.create({ dossierId: 'd-1', userId: 'u-1', recipientEmail: 'bob@invest.fr' })
+    await svc.create({
+      dossierId: 'd-1',
+      user: OWNER,
+      recipientEmail: 'bob@invest.fr',
+      accessLevel: 'complet',
+    })
 
     expect(userCreate).toHaveBeenCalledWith({
       data: {
@@ -176,7 +209,12 @@ describe('ShareLinksService', () => {
     })
     const svc = await instantiate(mocks)
 
-    await svc.create({ dossierId: 'd-1', userId: 'u-1', recipientEmail: 'lea@fund.io' })
+    await svc.create({
+      dossierId: 'd-1',
+      user: OWNER,
+      recipientEmail: 'lea@fund.io',
+      accessLevel: 'public',
+    })
 
     expect(userCreate).not.toHaveBeenCalled()
     expect(mocks.audit.record).toHaveBeenCalledWith(
@@ -190,21 +228,35 @@ describe('ShareLinksService', () => {
   })
 
   it('revoke sets status + revokedAt and audits share_link_revoked', async () => {
+    const shareFindUnique = jest
+      .fn()
+      .mockResolvedValue({ id: 'sl-2', dossierId: 'd-1', recipientEmail: 'bob@invest.fr' })
     const mocks = buildModule({
-      shareFindUnique: jest.fn().mockResolvedValue({ id: 'sl-2', dossierId: 'd-1' }),
-      shareUpdate: jest.fn().mockResolvedValue({
-        id: 'sl-2',
-        status: 'revoked',
-        revokedAt: new Date(),
-      }),
+      shareFindUnique,
+      shareFindMany: jest.fn().mockResolvedValue([{ id: 'sl-2', status: 'revoked' }]),
     })
     const svc = await instantiate(mocks)
 
-    const result = await svc.revoke('d-1', 'sl-2', 'u-1')
+    const result = await svc.revokeAsOwner('d-1', 'sl-2', 'u-1')
     expect(result.status).toBe('revoked')
+    expect(mocks.prisma.shareLink.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sl-2', status: { not: 'revoked' } },
+      data: { status: 'revoked', revokedAt: expect.any(Date) },
+    })
     expect(mocks.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ actionType: 'share_link_revoked', shareLinkId: 'sl-2' }),
     )
+  })
+
+  it('revoking a share already revoked journals nothing more', async () => {
+    const mocks = buildModule({
+      shareFindUnique: jest.fn().mockResolvedValue({ id: 'sl-2', dossierId: 'd-1' }),
+      shareUpdateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      shareFindMany: jest.fn().mockResolvedValue([{ id: 'sl-2', status: 'revoked' }]),
+    })
+    const svc = await instantiate(mocks)
+    await svc.revokeAsAdmin('d-1', 'sl-2', 'admin-1')
+    expect(mocks.audit.record).not.toHaveBeenCalled()
   })
 
   it('revoke throws 404 when the link does not belong to the dossier', async () => {
@@ -212,7 +264,155 @@ describe('ShareLinksService', () => {
       shareFindUnique: jest.fn().mockResolvedValue({ id: 'sl-2', dossierId: 'other' }),
     })
     const svc = await instantiate(mocks)
-    await expect(svc.revoke('d-1', 'sl-2', 'u-1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(svc.revokeAsOwner('d-1', 'sl-2', 'u-1')).rejects.toBeInstanceOf(NotFoundException)
+    await expect(svc.revokeAsAdmin('d-1', 'sl-2', 'admin-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(mocks.prisma.shareLink.updateMany).not.toHaveBeenCalled()
+  })
+
+  describe('invitation and level rules (E07.01)', () => {
+    const archived = () =>
+      jest.fn().mockResolvedValue({
+        id: 'd-1',
+        userId: 'u-1',
+        name: 'Biosensio',
+        publicationStatus: 'archived',
+      })
+    const invite = (svc: ShareLinksService, recipientEmail: string) =>
+      svc.create({ dossierId: 'd-1', user: OWNER, recipientEmail, accessLevel: 'public' })
+
+    it('refuses to invite oneself, before any write', async () => {
+      const mocks = buildModule({})
+      const svc = await instantiate(mocks)
+      await expect(invite(svc, ' Sophie@Biosensio.fr ')).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      )
+      expect(mocks.prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('refuses a new share on an archived request, read under its lock', async () => {
+      const mocks = buildModule({ dossierFindUnique: archived() })
+      const svc = await instantiate(mocks)
+      await expect(invite(svc, 'bob@invest.fr')).rejects.toBeInstanceOf(ConflictException)
+      expect(mocks.prisma.$queryRaw).toHaveBeenCalled()
+      expect(mocks.prisma.shareLink.create).not.toHaveBeenCalled()
+      expect(mocks.email.sendShareInvite).not.toHaveBeenCalled()
+    })
+
+    it('refuses a second active share to the same recipient, whatever the case', async () => {
+      const mocks = buildModule({
+        shareFindMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 'sl-1', recipientEmail: 'bob@invest.fr', status: 'active' }]),
+      })
+      const svc = await instantiate(mocks)
+      await expect(invite(svc, 'BOB@invest.fr')).rejects.toBeInstanceOf(ConflictException)
+      expect(mocks.prisma.user.create).not.toHaveBeenCalled()
+      expect(mocks.prisma.shareLink.create).not.toHaveBeenCalled()
+    })
+
+    const active = { id: 'sl-1', dossierId: 'd-1', status: 'active', recipientEmail: 'b@x.fr' }
+    const change = (svc: ShareLinksService, accessLevel: 'public' | 'complet') =>
+      svc.changeLevel({ dossierId: 'd-1', linkId: 'sl-1', userId: 'u-1', accessLevel })
+
+    it('widens an archived request’s share never, restricts it always', async () => {
+      const mocks = buildModule({
+        dossierFindUnique: archived(),
+        shareFindUnique: jest.fn().mockResolvedValue({ ...active, accessLevel: 'partiel' }),
+        shareFindMany: jest.fn().mockResolvedValue([active]),
+      })
+      const svc = await instantiate(mocks)
+      await expect(change(svc, 'complet')).rejects.toBeInstanceOf(ConflictException)
+      expect(mocks.prisma.shareLink.updateMany).not.toHaveBeenCalled()
+      await change(svc, 'public')
+      expect(mocks.prisma.shareLink.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sl-1', status: 'active', accessLevel: 'partiel' },
+        data: { accessLevel: 'public' },
+      })
+      expect(mocks.audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'share_link_level_changed',
+          metadata: { recipientEmail: 'b@x.fr', from: 'partiel', to: 'public' },
+        }),
+      )
+    })
+
+    it('refuses to change a revoked share, or one changed meanwhile; the same level changes nothing', async () => {
+      const revoked = buildModule({
+        shareFindUnique: jest.fn().mockResolvedValue({ ...active, status: 'revoked' }),
+      })
+      await expect(change(await instantiate(revoked), 'complet')).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+      const meanwhile = buildModule({
+        shareFindUnique: jest.fn().mockResolvedValue({ ...active, accessLevel: 'public' }),
+        shareUpdateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      })
+      await expect(change(await instantiate(meanwhile), 'complet')).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+      expect(meanwhile.audit.record).not.toHaveBeenCalled()
+      const same = buildModule({
+        shareFindUnique: jest.fn().mockResolvedValue({ ...active, accessLevel: 'public' }),
+        shareFindMany: jest.fn().mockResolvedValue([active]),
+      })
+      await change(await instantiate(same), 'public')
+      expect(same.prisma.shareLink.updateMany).not.toHaveBeenCalled()
+      expect(same.audit.record).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('preview « Voir comme le destinataire » (E07.01)', () => {
+    const version = (url: string | null) => ({
+      id: 'v1',
+      version: 1,
+      availability: 'available',
+      url,
+    })
+    const doc = {
+      id: 'doc-1',
+      filename: 'bp.pdf',
+      current: version('https://s3/bp'),
+      versions: [version('https://s3/bp')],
+    }
+
+    it('is the recipient’s view without any file, link nor view, for the owner only', async () => {
+      const listDocuments = jest.fn().mockResolvedValue([doc])
+      const mocks = buildModule({ listDocuments })
+      mocks.prisma.questionnaireField.count.mockResolvedValue(7)
+      const svc = await instantiate(mocks)
+      const preview = await svc.previewForOwner('d-1', 'u-1', 'partiel')
+      expect(mocks.dossiers.getByIdForUser).toHaveBeenCalledWith('d-1', 'u-1')
+      // The recipient's documents at that level, then all the selected ones for the total.
+      expect(listDocuments.mock.calls.map((c) => [c[1], c[2]])).toEqual(
+        expect.arrayContaining([
+          ['partiel', 'share'],
+          ['complet', 'share'],
+        ]),
+      )
+      expect(preview.documents).toEqual([
+        { ...doc, current: version(null), versions: [version(null)] },
+      ])
+      expect(preview.preview).toEqual({
+        accessLevel: 'partiel',
+        totalQuestions: 7,
+        totalDocuments: 1,
+      })
+      expect(mocks.audit.record).not.toHaveBeenCalled()
+      expect(mocks.prisma.shareLink.create).not.toHaveBeenCalled()
+    })
+
+    it('answers like an unknown request to anyone but its owner', async () => {
+      const mocks = buildModule({
+        getByIdForUser: jest.fn().mockRejectedValue(new NotFoundException()),
+      })
+      const svc = await instantiate(mocks)
+      await expect(svc.previewForOwner('d-1', 'u-2', 'complet')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+      expect(mocks.documents.listForDossier).not.toHaveBeenCalled()
+    })
   })
 
   describe('resolveForFinanceur — access levels applied server-side', () => {

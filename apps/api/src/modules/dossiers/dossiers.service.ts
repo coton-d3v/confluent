@@ -583,9 +583,9 @@ export class DossiersService {
 }
 
 // The dossier's row, held for the rest of the transaction: its presentation and publication change
-// one at a time (E05.07). Still the owner's once the lock is held: a transfer of its company
-// (E05.08) committed meanwhile leaves the former owner with a 404.
-async function lockDossier(
+// one at a time (E05.07), and so do its shares (E07.01). Still the owner's once the lock is held: a
+// transfer of its company (E05.08) committed meanwhile leaves the former owner with a 404.
+export async function lockDossier(
   tx: Prisma.TransactionClient,
   id: string,
   ownerId: string,
