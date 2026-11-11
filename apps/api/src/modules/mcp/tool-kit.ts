@@ -30,6 +30,13 @@ export function sameName(a: string, b: string): boolean {
   return a.trim().localeCompare(b.trim(), 'fr', { sensitivity: 'base' }) === 0
 }
 
+// Who fills dossiers of their own through MCP: project owners, and administrators (who also test
+// forms). Closed by default: a financeur, or any unknown role, does not. Used by create_dossier and
+// to offer the « Remplir mon dossier » guide (E04.10).
+export function canOwnDossiers(user: { role: string }): boolean {
+  return user.role === 'entrepreneur' || user.role === 'admin'
+}
+
 // E04.08: a consequential action (submitting a dossier, publishing a form) happens only on the
 // person's explicit request in the conversation. Confluent cannot see the conversation: the tool
 // requires the request as the person wrote it, which is journaled with the application. Never text
