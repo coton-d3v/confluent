@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { accessLevelSchema } from './access-level.schema.js'
 import { FINANCING_AMOUNT_MAX_EUR, financingTypeSchema } from './financing.schema.js'
+import { interestIdentitySchema, opportunityInterestSchema } from './interest.schema.js'
 import { recipientViewSchema } from './share-link.schema.js'
 
 // ROADMAP E07.03 — an investor's opportunities (« inbox »): the financing requests they may read,
@@ -116,6 +117,8 @@ export const opportunityAccessSchema = z.object({
   sources: z.array(opportunitySourceSchema).min(1),
   // The latest of its sources' dates.
   receivedAt: z.string().datetime(),
+  // The reader's own mark of interest (E07.05, interest.schema.ts), `null` without one.
+  interest: opportunityInterestSchema.nullable(),
 })
 export type OpportunityAccess = z.infer<typeof opportunityAccessSchema>
 
@@ -163,9 +166,10 @@ export const opportunitiesSchema = z.object({
 })
 
 // An opportunity: the projection of a nominative share at its level (`recipientViewSchema`) and how
-// it reaches its reader. Reading it is journaled once (`opportunity_viewed`).
+// it reaches its reader, with who the owner would see should the reader show their name on their mark
+// of interest (E07.05). Reading it is journaled once (`opportunity_viewed`).
 export const opportunitySchema = recipientViewSchema.extend({
-  opportunity: opportunityAccessSchema,
+  opportunity: opportunityAccessSchema.extend({ shownAs: interestIdentitySchema }),
 })
 
 export type OpportunitiesQuery = z.input<typeof opportunitiesQuerySchema>

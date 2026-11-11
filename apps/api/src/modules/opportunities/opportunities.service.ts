@@ -8,7 +8,7 @@ import {
   type OpportunitySort,
   type OpportunitySourceKind,
 } from '@confluent/shared'
-import type { Dossier } from '@prisma/client'
+import type { Dossier, InvestorInterest, Prisma, User } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -47,17 +47,32 @@ export type OpportunitySourceView =
   | { kind: 'share'; accessLevel: AccessLevel; since: Date }
   | { kind: 'pool'; accessLevel: AccessLevel; since: Date; workspace: WorkspaceRef }
 
+// @confluent/shared `opportunityInterestSchema` (E07.05): the reader's own mark.
+export interface OpportunityInterestView {
+  markedAt: Date
+  nameVisible: boolean
+}
+
+// @confluent/shared `interestIdentitySchema` (E07.05).
+export interface InterestIdentityView {
+  name: string | null
+  organizations: string[]
+}
+
 // @confluent/shared `opportunityAccessSchema`.
 export interface OpportunityAccessView {
   accessLevel: AccessLevel
   sources: OpportunitySourceView[]
   receivedAt: Date
+  interest: OpportunityInterestView | null
 }
 
-// One request the reader reaches, before its projection; the share ids are for the journal only.
-interface Reached extends OpportunityAccessView {
+// One request the reader reaches, before its projection; the share ids are for the journal only,
+// the organizations (the reader's, in the workspaces whose pools bring it) for their name (E07.05).
+export interface ReachedOpportunity extends Omit<OpportunityAccessView, 'interest'> {
   dossier: Dossier
   shareLinkIds: string[]
+  organizations: string[]
 }
 
 type ListedDossier = Pick<
@@ -89,9 +104,11 @@ export interface OpportunitiesView {
 }
 
 // @confluent/shared `opportunitySchema`.
-export type OpportunityView = RecipientView & { opportunity: OpportunityAccessView }
+export type OpportunityView = RecipientView & {
+  opportunity: OpportunityAccessView & { shownAs: InterestIdentityView }
+}
 
-const opportunityNotFound = () =>
+export const opportunityNotFound = () =>
   new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunité introuvable.' })
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -135,6 +152,10 @@ export class OpportunitiesService {
     const projected = await this.dossiers.projectEachForLevel(
       reached.map((r) => ({ dossier: r.dossier, level: r.accessLevel })),
     )
+    const interests = await this.interestsOf(
+      reader,
+      reached.map((r) => r.dossier.id),
+    )
     const rows = reached.map((r, i) => ({
       access: r,
       dossier: listedDossier(presentationForShare(projected[i])),
@@ -177,6 +198,7 @@ export class OpportunitiesService {
         accessLevel: access.accessLevel,
         sources: access.sources,
         receivedAt: access.receivedAt,
+        interest: interests.get(access.dossier.id) ?? null,
         dossier,
       })),
     }
@@ -188,9 +210,13 @@ export class OpportunitiesService {
   // revoked share — is the same `404`. Each reading is journaled once (`opportunity_viewed`), on the
   // reader's direct share if they have one, so that it counts as that share's view and once only.
   async get(reader: OpportunityReader, dossierId: string): Promise<OpportunityView> {
-    const [found] = (await this.reach(reader, dossierId)).reached
+    const found = await this.reachOne(reader, dossierId)
     if (!found) throw opportunityNotFound()
     const view = await this.shareLinks.recipientView(found.dossier, found.accessLevel)
+    const [interests, account] = await Promise.all([
+      this.interestsOf(reader, [found.dossier.id]),
+      this.prisma.user.findUnique({ where: { id: reader.id } }),
+    ])
     await this.audit.record({
       actionType: 'opportunity_viewed',
       actorId: reader.id,
@@ -203,7 +229,43 @@ export class OpportunitiesService {
       },
     })
     const { accessLevel, sources, receivedAt } = found
-    return { ...view, opportunity: { accessLevel, sources, receivedAt } }
+    return {
+      ...view,
+      opportunity: {
+        accessLevel,
+        sources,
+        receivedAt,
+        interest: interests.get(found.dossier.id) ?? null,
+        shownAs: interestIdentity(account ?? {}, found.organizations),
+      },
+    }
+  }
+
+  // THE rule of who reads one request as an opportunity, and how, as `get` applies it: also what a
+  // mark of interest requires and what makes it count (E07.05). `db`: the caller's transaction.
+  async reachOne(
+    reader: OpportunityReader,
+    dossierId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<ReachedOpportunity | null> {
+    const [found] = (await this.reach(reader, dossierId, db)).reached
+    return found ?? null
+  }
+
+  // The reader's own marks of interest on these requests (E07.05).
+  private async interestsOf(
+    reader: OpportunityReader,
+    dossierIds: string[],
+  ): Promise<Map<string, OpportunityInterestView>> {
+    if (dossierIds.length === 0) return new Map()
+    const marks = await this.prisma.investorInterest.findMany({
+      where: { investorId: reader.id, dossierId: { in: dossierIds } },
+    })
+    return new Map(
+      marks
+        .filter((m) => m.investorId === reader.id)
+        .map((m) => [m.dossierId, interestView(m)] as const),
+    )
   }
 
   // The requests the reader reaches, each with its ways and level; `dossierId` narrows to one. Also
@@ -211,9 +273,10 @@ export class OpportunitiesService {
   private async reach(
     reader: OpportunityReader,
     dossierId?: string,
-  ): Promise<{ reached: Reached[]; pools: WorkspaceRef[] }> {
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<{ reached: ReachedOpportunity[]; pools: WorkspaceRef[] }> {
     const [links, memberships] = await Promise.all([
-      this.prisma.shareLink.findMany({
+      db.shareLink.findMany({
         where: {
           recipientEmail: { equals: reader.email, mode: 'insensitive' },
           status: 'active',
@@ -221,23 +284,25 @@ export class OpportunitiesService {
         },
       }),
       // Every membership of the reader: THE rule (`readsPool`) decides which pools they read.
-      this.prisma.workspaceMembership.findMany({ where: { userId: reader.id } }),
+      db.workspaceMembership.findMany({ where: { userId: reader.id } }),
     ])
     // The share link's rule, whatever the query matched: active, and sent to this very address.
     const shares = links.filter(
       (l) => l.status === 'active' && sameEmail(l.recipientEmail, reader.email),
     )
-    const poolIds = memberships
-      .filter((m) => m.userId === reader.id && readsPool(m))
-      .map((m) => m.workspaceId)
+    const poolMemberships = memberships.filter((m) => m.userId === reader.id && readsPool(m))
+    const poolIds = poolMemberships.map((m) => m.workspaceId)
+    const organizationIn = new Map(
+      poolMemberships.map((m) => [m.workspaceId, m.organization?.trim() ?? ''] as const),
+    )
     const [workspaces, listed] = await Promise.all([
       poolIds.length === 0
         ? Promise.resolve([])
-        : this.prisma.workspace.findMany({
+        : db.workspace.findMany({
             where: { id: { in: poolIds } },
             select: { id: true, name: true },
           }),
-      listedPoolPublications(this.prisma, poolIds, dossierId),
+      listedPoolPublications(db, poolIds, dossierId),
     ])
     const pools = workspaces
       .map((w) => ({ id: w.id, name: w.name }))
@@ -248,9 +313,7 @@ export class OpportunitiesService {
       (id) => !listed.some((p) => p.dossier.id === id),
     )
     const sharedDossiers =
-      sharedIds.length === 0
-        ? []
-        : await this.prisma.dossier.findMany({ where: { id: { in: sharedIds } } })
+      sharedIds.length === 0 ? [] : await db.dossier.findMany({ where: { id: { in: sharedIds } } })
     const dossierById = new Map<string, Dossier>([
       ...sharedDossiers.map((d) => [d.id, d] as const),
       ...listed.map((p) => [p.dossier.id, p.dossier] as const),
@@ -285,22 +348,43 @@ export class OpportunitiesService {
       })
     }
 
-    const reached: Reached[] = []
+    const reached: ReachedOpportunity[] = []
     for (const [id, { sources, shareLinkIds }] of byDossier) {
       const dossier = dossierById.get(id)
       // The reader's own requests are theirs, not opportunities.
       if (!dossier || dossier.userId === reader.id || sources.length === 0) continue
       sources.sort(sourceOrder)
+      const organizations = sources.flatMap((s) =>
+        s.kind === 'pool' ? [organizationIn.get(s.workspace.id) ?? ''] : [],
+      )
       reached.push({
         dossier,
         accessLevel: highestAccessLevel(sources.map((s) => s.accessLevel))!,
         sources,
         receivedAt: new Date(Math.max(...sources.map((s) => s.since.getTime()))),
         shareLinkIds,
+        organizations: [...new Set(organizations.filter((o) => o !== ''))],
       })
     }
     return { reached, pools }
   }
+}
+
+export function interestView(mark: InvestorInterest): OpportunityInterestView {
+  return { markedAt: mark.createdAt, nameVisible: mark.nameVisible }
+}
+
+// Who an investor is to the owner when they show their name (E07.05, D05): their account's name,
+// never their address, and their organizations in the pools that bring them the request.
+export function interestIdentity(
+  account: Partial<Pick<User, 'firstName' | 'lastName'>>,
+  organizations: string[],
+): InterestIdentityView {
+  const name = [account.firstName, account.lastName]
+    .map((part) => part?.trim() ?? '')
+    .filter((part) => part !== '')
+    .join(' ')
+  return { name: name === '' ? null : name, organizations }
 }
 
 // The direct share first, then the pools by workspace name.
@@ -329,7 +413,7 @@ function listedDossier(d: Dossier): ListedDossier {
   }
 }
 
-type Row = { access: Reached; dossier: ListedDossier }
+type Row = { access: ReachedOpportunity; dossier: ListedDossier }
 
 // Every filter on what the projection shows: a hidden sector, amount or type matches nothing.
 function matches({ access, dossier }: Row, f: OpportunityFilter): boolean {

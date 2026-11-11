@@ -1,7 +1,19 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  Query,
+} from '@nestjs/common'
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -9,18 +21,21 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
-import { opportunitiesQuerySchema } from '@confluent/shared'
+import { markInterestSchema, opportunitiesQuerySchema } from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
+import { InterestsService } from './interests.service'
 import {
   OpportunitiesService,
   type OpportunitiesView,
+  type OpportunityInterestView,
   type OpportunityView,
 } from './opportunities.service'
 
 class OpportunitiesQueryDto extends createZodDto(opportunitiesQuerySchema) {}
+class MarkInterestDto extends createZodDto(markInterestSchema) {}
 
 const uuid = new ParseUUIDPipe()
 
@@ -36,13 +51,27 @@ const OPPORTUNITY_SCOPE =
   'parcours, statut de financement ou notes. Ses propres demandes n’en sont pas. ' +
   ACCESS_LEVELS_DOC
 
+// What a mark of interest is and who sees what of it (E07.05, D05), said once for both routes.
+export const INTEREST_SCOPE =
+  'Une marque d’intérêt par investisseur et demande, posée sur une opportunité que le compte ' +
+  'connecté lit maintenant (même règle que `GET /v1/opportunities/:dossierId`). Le porteur voit ' +
+  'toujours le nombre de marques des investisseurs qui lisent encore la demande, et le nom d’un ' +
+  'investisseur seulement si celui-ci l’a choisi (`nameVisible`) : nom du compte et organisation ' +
+  'enregistrée dans les structures dont le vivier lui apporte la demande, jamais son adresse. ' +
+  'Personne d’autre ne lit les marques (ni conseillers, ni autres investisseurs). Une marque d’un ' +
+  'investisseur qui ne lit plus la demande (partage révoqué, publication retirée ou en pause, ' +
+  'adhésion ou compte désactivés) n’est ni comptée ni nommée tant que cela dure.'
+
 // ROADMAP E07.03: the signed-in investor's opportunities (« inbox »), read from their account only.
 @ApiTags('Opportunités')
 @ApiBearerAuth('jwt')
 @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
 @Controller('opportunities')
 export class OpportunitiesController {
-  constructor(private readonly opportunities: OpportunitiesService) {}
+  constructor(
+    private readonly opportunities: OpportunitiesService,
+    private readonly interests: InterestsService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -91,5 +120,50 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OpportunityView> {
     return this.opportunities.get(user, dossierId)
+  }
+
+  @Put(':dossierId/interest')
+  @ApiOperation({
+    summary: 'Marquer mon intérêt pour une opportunité',
+    description:
+      INTEREST_SCOPE +
+      '\n\nCorps `{ nameVisible }`, sans valeur par défaut : `true` autorise le porteur à voir qui ' +
+      'vous êtes. Marquer à nouveau ne change que ce choix ; la même réponse ne change rien. ' +
+      'Journalisé (`investor_interest_marked`, invisible du porteur). Ne compte pas comme une ' +
+      'lecture de l’opportunité.',
+  })
+  @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
+  @ApiOkResponse({ description: 'La marque : `markedAt` (première marque), `nameVisible`.' })
+  @ApiBadRequestResponse({ description: '`nameVisible` absent ou invalide.' })
+  @ApiNotFoundResponse({ description: 'Demande que le compte ne lit pas comme opportunité.' })
+  @ApiConflictResponse({
+    description:
+      'Demande archivée : ni nouvelle marque ni nom nouvellement montré (masquer son nom reste ' +
+      'possible).',
+  })
+  markInterest(
+    @Param('dossierId', uuid) dossierId: string,
+    @Body() body: MarkInterestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OpportunityInterestView> {
+    return this.interests.mark(user, dossierId, body)
+  }
+
+  @Delete(':dossierId/interest')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Retirer ma marque d’intérêt',
+    description:
+      INTEREST_SCOPE +
+      '\n\nRetire la marque du compte connecté, qu’il lise encore la demande ou non ; même réponse ' +
+      'sans marque. Journalisé (`investor_interest_withdrawn`, invisible du porteur).',
+  })
+  @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
+  @ApiNoContentResponse({ description: 'Plus aucune marque de ce compte sur cette demande.' })
+  withdrawInterest(
+    @Param('dossierId', uuid) dossierId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.interests.withdraw(user, dossierId)
   }
 }
