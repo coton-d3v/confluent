@@ -103,9 +103,10 @@ export class DossiersController {
   @ApiOperation({
     summary: 'Supprimer un dossier',
     description:
-      'Cascade sur `dossier_answers`, `share_links`, `documents`. Les entrées `audit_log` sont conservées ' +
+      'Cascade sur `share_links`. Les entrées `audit_log` sont conservées ' +
       '(append-only — `dossier_id` devient `null` via `ON DELETE SET NULL`). Seul le propriétaire peut supprimer. ' +
-      'L’entreprise part avec son dernier dossier : jusqu’à E05.05, elle ne porte que son nom.',
+      'L’entreprise part avec son dernier dossier, et avec elle son profil (réponses, historique, documents ; E05.05) ; ' +
+      'les fichiers restent dans le stockage, comme avant.',
   })
   @ApiNoContentResponse({ description: 'Dossier supprimé.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })

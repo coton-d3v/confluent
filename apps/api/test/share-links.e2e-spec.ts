@@ -69,6 +69,12 @@ describe('ShareLinksController (e2e)', () => {
         },
         shareLink: { findUnique: shareFindUnique },
         dossier: { findUnique: dossierFindUnique },
+        // The answers of the company profile the dossier presents (E05.05).
+        dossierAnswer: {
+          findMany: jest.fn(({ where }: { where: { companyId: string } }) =>
+            Promise.resolve(where.companyId === 'c-1' ? profileAnswers : []),
+          ),
+        },
         questionnaireVersion: {
           findUnique: jest.fn().mockResolvedValue({ id: 'v-2', version: 2 }),
         },
@@ -118,13 +124,14 @@ describe('ShareLinksController (e2e)', () => {
       DEFAULT_CLASSIFICATION_RULES,
       new Set(['nom', 'secteur', 'stade_projet', 'origine_projet', 'stade_financement']),
     ),
+    companyId: 'c-1',
     questionnaireVersionId: 'v-2',
-    answers: [
-      { fieldId: 'f-name', value: 'Biosensio' },
-      { fieldId: 'f-origine', value: 'Spin-off' },
-      { fieldId: 'f-fin', value: 'Seed' },
-    ],
   }
+  const profileAnswers = [
+    { fieldId: 'f-name', value: 'Biosensio' },
+    { fieldId: 'f-origine', value: 'Spin-off' },
+    { fieldId: 'f-fin', value: 'Seed' },
+  ]
 
   // The dossier's questionnaire version, read through QuestionnairesService.getVersion.
   const sections = [
@@ -197,7 +204,7 @@ describe('ShareLinksController (e2e)', () => {
     { field: null, level: null, filename: 'annexe.pdf' },
   ].map((d, i) => ({
     id: `doc-${i}`,
-    dossierId: 'd-1',
+    companyId: 'c-1',
     filename: d.filename,
     version: 1,
     storageKey: `dossiers/d-1/k-${i}`,
@@ -230,6 +237,10 @@ describe('ShareLinksController (e2e)', () => {
     expect(res.body.dossier).toMatchObject({ axe1Projet: null, axe2Financier: null })
     expect(listedFiles(res.body)).toEqual(['kbis.pdf'])
     expect(res.body.documents[0]).toMatchObject({ fieldId: 'f-name' })
+    // The link opens the dossier, which presents its company's documents (E05.05).
+    expect(documentFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId: 'c-1' } }),
+    )
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: 'share_link_viewed',

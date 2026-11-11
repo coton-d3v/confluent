@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { HttpException } from '@nestjs/common'
 import { AuditService } from '../../src/modules/audit/audit.service'
@@ -8,20 +7,12 @@ import { CompaniesService } from '../../src/modules/companies/companies.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { testDatabase } from './database'
+import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
 
-const MIGRATION = join(__dirname, '../../prisma/migrations/20261112000000_companies/migration.sql')
-const DOWN = join(__dirname, '../../prisma/checks/20261112000000_companies.down.sql')
-
-// The statements of a SQL file without functions (one statement per `;` at the end of a line).
-function statements(path: string): string[] {
-  return readFileSync(path, 'utf8')
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('--'))
-    .join('\n')
-    .split(/;\s*\n/)
-    .map((s) => s.trim().replace(/;$/, ''))
-    .filter(Boolean)
-}
+const MIGRATION = join(MIGRATIONS, '20261112000000_companies/migration.sql')
+const DOWN = join(CHECKS, '20261112000000_companies.down.sql')
+// The next migration (E05.05) builds on companies: undone first.
+const NEXT_DOWN = join(CHECKS, '20261112100000_company_profile.down.sql')
 
 class RolledBack extends Error {}
 
@@ -62,9 +53,10 @@ describe('companies (PostgreSQL)', () => {
       prisma.$transaction(
         async (tx) => {
           const run = async (path: string) => {
-            for (const sql of statements(path)) await tx.$executeRawUnsafe(sql)
+            for (const sql of sqlStatements(path)) await tx.$executeRawUnsafe(sql)
           }
           // The database as it was before the migration, with dossiers as they were written then.
+          await run(NEXT_DOWN)
           await run(DOWN)
           const owner = randomUUID()
           const other = randomUUID()
@@ -155,7 +147,13 @@ describe('companies (PostgreSQL)', () => {
     const sophie = await account('sophie', 'entrepreneur')
     const marc = await account('marc', 'entrepreneur')
     const dossier = await dossiers.create({ owner: sophie, name: 'Biosensio' })
-    const marcs = await prisma.company.create({ data: { ownerId: marc.id, name: 'Agrotech' } })
+    const marcs = await prisma.company.create({
+      data: {
+        ownerId: marc.id,
+        name: 'Agrotech',
+        profileVersionId: dossier.questionnaireVersionId,
+      },
+    })
 
     // Attached to another account's company, or given another owner on its own: refused.
     await expect(
@@ -188,12 +186,15 @@ describe('companies (PostgreSQL)', () => {
 
   it('refuses a company name the API would never write', async () => {
     const sophie = await account('noms', 'entrepreneur')
+    const { id: profileVersionId } = await new QuestionnairesService(prisma).ensureBootstrap()
     for (const name of ['', '   ', ' Biosensio', 'Biosensio ', 'x'.repeat(201)]) {
-      await expect(prisma.company.create({ data: { ownerId: sophie.id, name } })).rejects.toThrow(
-        /check constraint/i,
-      )
+      await expect(
+        prisma.company.create({ data: { ownerId: sophie.id, name, profileVersionId } }),
+      ).rejects.toThrow(/check constraint/i)
     }
-    await prisma.company.create({ data: { ownerId: sophie.id, name: 'é'.repeat(200) } })
+    await prisma.company.create({
+      data: { ownerId: sophie.id, name: 'é'.repeat(200), profileVersionId },
+    })
   })
 
   it('creates a dossier and its company together, removes the company with its last dossier, and refuses a financeur', async () => {

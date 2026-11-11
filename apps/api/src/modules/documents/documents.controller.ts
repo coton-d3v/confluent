@@ -74,10 +74,11 @@ export class DocumentsController {
       'Envoi multipart/form-data, champ `file`. Max **20 MB** : `413` sans lecture du corps quand la taille ' +
       'annoncée le dépasse, sinon dès que la limite est franchie ; `411` si la taille n’est pas annoncée. ' +
       `Formats acceptés, reconnus d’après le contenu et non d’après le type annoncé : ${ACCEPTED_DOCUMENT_FORMATS_LABEL} ` +
-      '(sinon `415`). Le versioning est automatique par `(dossierId, filename)` : ré-upload avec le même nom ' +
-      '→ `version += 1`, les versions précédentes sont conservées. Le fichier est stocké dans le bucket S3 ' +
+      '(sinon `415`). Le document rejoint ceux de l’entreprise du dossier (E05.05). Le versioning est ' +
+      'automatique par `(fieldId, filename)` dans l’entreprise : ré-upload avec le même nom → `version += 1`, ' +
+      'les versions précédentes sont conservées. Le fichier est stocké dans le bucket S3 ' +
       'privé sous une clé opaque. Champ facultatif `fieldId` : le document répond au champ « pièce jointe » ' +
-      'du formulaire du dossier (`400` si ce n’est pas un champ pièce jointe de sa version) et suit son ' +
+      'du profil de l’entreprise (`400` si ce n’est pas un champ pièce jointe de sa version) et suit son ' +
       'niveau de lecture.',
   })
   @ApiConsumes('multipart/form-data')
@@ -114,10 +115,10 @@ export class DocumentsController {
     if (!file) {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'File is required.' })
     }
-    await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
     const fieldId = typeof body?.fieldId === 'string' && body.fieldId !== '' ? body.fieldId : null
     const created = await this.documents.upload({
-      dossierId,
+      dossier,
       filename: file.originalname,
       buffer: file.buffer,
       fieldId,
@@ -137,7 +138,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Lister les documents (groupés par filename)',
     description:
-      'Retourne un tableau de `{ filename, current, versions[] }`. Chaque version a son `id` et indique sa disponibilité ' +
+      'Retourne un tableau de `{ filename, current, versions[] }` : les documents de l’entreprise du dossier (E05.05). Chaque version a son `id` et indique sa disponibilité ' +
       '(`available` avec une URL signée de téléchargement valable 15 min, `missing` si le fichier est perdu ' +
       'et doit être redéposé, `unavailable` si le stockage est momentanément injoignable). Les versions sont triées desc par `version`. ' +
       'Chaque version indique le champ « pièce jointe » auquel elle répond (`fieldId`, null sinon). Financeur : seules les versions ' +
@@ -145,7 +146,10 @@ export class DocumentsController {
   })
   @ApiOkResponse({ description: 'Documents groupés par filename.' })
   async list(@Req() req: Request, @Param('dossierId') dossierId: string): Promise<DocumentGroup[]> {
-    const { accessLevel } = await this.dossiers.resolveReadAccess(dossierId, currentUser(req))
-    return this.documents.listForDossier(dossierId, accessLevel)
+    const { dossier, accessLevel } = await this.dossiers.resolveReadAccess(
+      dossierId,
+      currentUser(req),
+    )
+    return this.documents.listForDossier(dossier, accessLevel)
   }
 }

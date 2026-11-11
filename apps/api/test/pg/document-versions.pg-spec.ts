@@ -4,8 +4,8 @@ import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory
 import { companyOf, testDatabase } from './database'
 
 // Code review R48: a document is versioned per question it answers. Version numbers are assigned
-// under the dossier's row lock: the unique index (dossier, field, name, version) cannot protect a
-// file without a question (NULL field ids are distinct in PostgreSQL).
+// under the profile's lock (its company's row, E05.05): the unique index (company, field, name,
+// version) cannot protect a file without a question (NULL field ids are distinct in PostgreSQL).
 describe('document versions under concurrency (PostgreSQL)', () => {
   const prisma = testDatabase()
   const documents = new DocumentsService(prisma, new MemoryStorageAdapter())
@@ -42,31 +42,31 @@ describe('document versions under concurrency (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
-        companyId: await companyOf(prisma, user.id),
+        companyId: await companyOf(prisma, user.id, version.id),
         name: 'R48',
         slug: `r48-${tag}`,
         questionnaireVersionId: version.id,
       },
     })
-    return { dossierId: dossier.id, kbis: kbis.id, statuts: statuts.id }
+    return { dossier, kbis: kbis.id, statuts: statuts.id }
   }
 
   it('gives distinct versions to simultaneous uploads of the same name without question', async () => {
-    const { dossierId } = await dossierWithTwoAttachments()
+    const { dossier } = await dossierWithTwoAttachments()
     const docs = await Promise.all(
       Array.from({ length: 6 }, () =>
-        documents.upload({ dossierId, filename: 'bp.pdf', buffer: PDF }),
+        documents.upload({ dossier, filename: 'bp.pdf', buffer: PDF }),
       ),
     )
     expect(docs.map((d) => d.version).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6])
   })
 
   it('versions the same name separately for each question, also when sent at the same time', async () => {
-    const { dossierId, kbis, statuts } = await dossierWithTwoAttachments()
+    const { dossier, kbis, statuts } = await dossierWithTwoAttachments()
     const docs = await Promise.all([
-      documents.upload({ dossierId, filename: 'scan.pdf', buffer: PDF, fieldId: kbis }),
-      documents.upload({ dossierId, filename: 'scan.pdf', buffer: PDF, fieldId: statuts }),
-      documents.upload({ dossierId, filename: 'scan.pdf', buffer: PDF, fieldId: kbis }),
+      documents.upload({ dossier, filename: 'scan.pdf', buffer: PDF, fieldId: kbis }),
+      documents.upload({ dossier, filename: 'scan.pdf', buffer: PDF, fieldId: statuts }),
+      documents.upload({ dossier, filename: 'scan.pdf', buffer: PDF, fieldId: kbis }),
     ])
     const byField = (fieldId: string) =>
       docs
@@ -75,7 +75,7 @@ describe('document versions under concurrency (PostgreSQL)', () => {
         .sort()
     expect(byField(kbis)).toEqual([1, 2])
     expect(byField(statuts)).toEqual([1])
-    const listed = await documents.listForDossier(dossierId, 'complet')
+    const listed = await documents.listForDossier(dossier, 'complet')
     expect(listed.map((g) => [g.fieldId, g.versions.length]).sort()).toEqual(
       [
         [kbis, 2],

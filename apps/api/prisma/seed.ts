@@ -108,7 +108,8 @@ async function main(): Promise<void> {
     orderBy: { version: 'desc' },
   })
 
-  // A dossier comes with its own company, named after it (E05.04); an existing one is kept as is.
+  // A dossier comes with its own company, named after it, whose profile answers the dossier's form
+  // version (E05.04, E05.05); an existing one is kept as is.
   const seedDossier = async (
     data: Omit<Prisma.DossierUncheckedCreateInput, 'userId' | 'companyId'> & { slug: string },
   ) => {
@@ -116,7 +117,11 @@ async function main(): Promise<void> {
     if (existing) return existing
     return prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
-        data: { ownerId: entrepreneur.id, name: data.name },
+        data: {
+          ownerId: entrepreneur.id,
+          name: data.name,
+          profileVersionId: data.questionnaireVersionId,
+        },
       })
       return tx.dossier.create({
         data: { ...data, userId: entrepreneur.id, companyId: company.id },
@@ -134,13 +139,13 @@ async function main(): Promise<void> {
     submittedAt: new Date('2026-03-15T10:00:00.000Z'),
   })
   const biosensioAnswerCount = await prisma.dossierAnswer.count({
-    where: { dossierId: biosensio.id },
+    where: { companyId: biosensio.companyId },
   })
   if (biosensioAnswerCount === 0) {
     const answersData = activeVersion.fields
       .filter((f) => BIOSENSIO_ANSWERS[f.label] !== undefined)
       .map((f) => ({
-        dossierId: biosensio.id,
+        companyId: biosensio.companyId,
         fieldId: f.id,
         value: BIOSENSIO_ANSWERS[f.label],
       }))

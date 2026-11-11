@@ -10,6 +10,7 @@ import { CompaniesService } from '../companies/companies.service'
 
 interface PrismaMock {
   $transaction: jest.Mock
+  $queryRaw: jest.Mock
   company: { create: jest.Mock; findUnique: jest.Mock; delete: jest.Mock }
   dossier: {
     create: jest.Mock
@@ -31,6 +32,7 @@ interface PrismaMock {
 function buildPrisma(): PrismaMock {
   const prisma: PrismaMock = {
     $transaction: jest.fn((fn: (tx: PrismaMock) => Promise<unknown>) => fn(prisma)),
+    $queryRaw: jest.fn().mockResolvedValue([]),
     company: {
       create: jest.fn((args: { data: Record<string, unknown> }) =>
         Promise.resolve({
@@ -122,6 +124,10 @@ describe('DossiersService', () => {
 
     await svc.create({ owner: OWNER, name: 'Foo' })
     expect(ensureBootstrap).toHaveBeenCalled()
+    // The company's profile answers that version; the dossier carries it too (E05.05).
+    expect(prisma.company.create).toHaveBeenCalledWith({
+      data: { ownerId: 'u-1', name: 'Foo', profileVersionId: 'qv-bootstrap' },
+    })
     expect(prisma.dossier.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ questionnaireVersionId: 'qv-bootstrap' }),
@@ -275,12 +281,15 @@ describe('DossiersService', () => {
     })
   })
 
-  it('deletes the dossier and relies on prisma cascade for children', async () => {
+  it('deletes the dossier under its profile’s lock and relies on prisma cascade for children', async () => {
     const prisma = buildPrisma()
     prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1', companyId: 'c-1' })
     const svc = await instantiate(prisma)
 
     await svc.delete('d-1', 'u-1')
     expect(prisma.dossier.delete).toHaveBeenCalledWith({ where: { id: 'd-1' } })
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.dossier.delete.mock.invocationCallOrder[0],
+    )
   })
 })

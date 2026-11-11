@@ -22,6 +22,7 @@ function buildModule(overrides: {
   sendMagicLink?: jest.Mock
   auditRecord?: jest.Mock
   dossierFindUnique?: jest.Mock
+  answerFindMany?: jest.Mock
   getVersion?: jest.Mock
   listDocuments?: jest.Mock
 }) {
@@ -34,6 +35,7 @@ function buildModule(overrides: {
         findMany: overrides.shareFindMany ?? jest.fn().mockResolvedValue([]),
       },
       dossier: { findUnique: overrides.dossierFindUnique ?? jest.fn() },
+      dossierAnswer: { findMany: overrides.answerFindMany ?? jest.fn().mockResolvedValue([]) },
       user: {
         findUnique: overrides.userFindUnique ?? jest.fn().mockResolvedValue(null),
         create:
@@ -225,13 +227,15 @@ describe('ShareLinksService', () => {
       axe3Origine: 3,
       deeptechScore: 3,
       preCreation: false,
+      companyId: 'c-1',
       questionnaireVersionId: 'v-2',
-      answers: [
-        { fieldId: 'f-name', value: 'Biosensio' },
-        { fieldId: 'f-origine', value: 'Spin-off d’un laboratoire' },
-        { fieldId: 'f-financement', value: 'Seed – investisseurs professionnels' },
-      ],
     }
+    // The company profile the dossier presents (E05.05).
+    const answers = [
+      { fieldId: 'f-name', value: 'Biosensio' },
+      { fieldId: 'f-origine', value: 'Spin-off d’un laboratoire' },
+      { fieldId: 'f-financement', value: 'Seed – investisseurs professionnels' },
+    ]
     const structure = {
       version: { id: 'v-2' },
       sections: [
@@ -250,6 +254,7 @@ describe('ShareLinksService', () => {
     async function resolve(accessLevel: string) {
       const mocks = buildModule({
         dossierFindUnique: jest.fn().mockResolvedValue(dossierRow),
+        answerFindMany: jest.fn().mockResolvedValue(answers),
         getVersion: jest.fn().mockResolvedValue(structure),
         listDocuments: jest.fn().mockResolvedValue(docs),
       })
@@ -278,7 +283,15 @@ describe('ShareLinksService', () => {
       )
       expect(res.dossier).toMatchObject({ sector: 'biotech', axe2Financier: null })
       // Documents are filtered by DocumentsService at the level of this link (E03.11).
-      expect(mocks.documents.listForDossier).toHaveBeenCalledWith('d-1', 'public')
+      expect(mocks.documents.listForDossier).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'd-1', companyId: 'c-1' }),
+        'public',
+      )
+      // The answers are those of the dossier's company.
+      expect(mocks.prisma.dossierAnswer.findMany).toHaveBeenCalledWith({
+        where: { companyId: 'c-1' },
+        select: { fieldId: true, value: true },
+      })
       expect(res.documents).toEqual(docs)
     })
 
@@ -286,7 +299,10 @@ describe('ShareLinksService', () => {
       const { res, mocks } = await resolve('partiel')
       expect(res.answers.map((a) => a.fieldId)).toEqual(['f-name', 'f-origine'])
       expect(res.dossier).toMatchObject({ axe1Projet: 3, axe2Financier: null })
-      expect(mocks.documents.listForDossier).toHaveBeenCalledWith('d-1', 'partiel')
+      expect(mocks.documents.listForDossier).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'd-1' }),
+        'partiel',
+      )
     })
 
     it('complet: all answers, all classification, documents', async () => {

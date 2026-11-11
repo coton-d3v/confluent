@@ -246,8 +246,7 @@ export function createFakePrisma() {
     return { ...row, grant: withClient }
   }
 
-  // Dossier with its version's fields and its answers, as read by the classification; with its
-  // company and owner (E05.04).
+  // Dossier with its company and owner (E05.04).
   includes.dossier = (row, include) => ({
     ...row,
     ...(include.company ? { company: get('company', row.companyId) } : {}),
@@ -260,20 +259,21 @@ export function createFakePrisma() {
           }),
         }
       : {}),
-    ...(include.answers ? { answers: filtered('dossierAnswer', { dossierId: row.id }) } : {}),
-    ...(include.questionnaireVersion
+  })
+
+  // Company with its dossiers, newest first (E05.04); with its profile's version fields and its
+  // answers, as read by the classification (E05.05).
+  includes.company = (row, include) => ({
+    ...row,
+    ...(include.answers ? { answers: filtered('dossierAnswer', { companyId: row.id }) } : {}),
+    ...(include.profileVersion
       ? {
-          questionnaireVersion: {
-            ...get('questionnaireVersion', row.questionnaireVersionId),
-            fields: filtered('questionnaireField', { versionId: row.questionnaireVersionId }),
+          profileVersion: {
+            ...get('questionnaireVersion', row.profileVersionId),
+            fields: filtered('questionnaireField', { versionId: row.profileVersionId }),
           },
         }
       : {}),
-  })
-
-  // Company with its dossiers, newest first (E05.04).
-  includes.company = (row, include) => ({
-    ...row,
     ...(include.dossiers
       ? {
           dossiers: sorted('dossier', filtered('dossier', { companyId: row.id }), {

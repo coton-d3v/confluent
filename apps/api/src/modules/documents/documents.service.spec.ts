@@ -24,7 +24,10 @@ function fakeStorage(overrides: Partial<Record<keyof StorageAdapter, jest.Mock>>
   } satisfies StorageAdapter
 }
 
-// The version is chosen inside a transaction holding the dossier's row lock (`$queryRaw`).
+// A dossier and its company, whose documents it presents (E05.05).
+const D1 = { id: 'd-1', companyId: 'c-1' }
+
+// The version is chosen inside a transaction holding the profile's lock (`$queryRaw`).
 function creatingPrisma(previous: { version: number } | null = null) {
   const prisma: {
     $queryRaw: jest.Mock
@@ -35,7 +38,7 @@ function creatingPrisma(previous: { version: number } | null = null) {
     $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma)),
     dossier: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'd-1', questionnaireVersionId: 'v-1' }),
+      findUnique: jest.fn().mockResolvedValue({ ...D1, questionnaireVersionId: 'v-1' }),
     },
     document: {
       findFirst: jest.fn().mockResolvedValue(previous),
@@ -82,11 +85,11 @@ describe('DocumentsService.upload', () => {
     const storage = fakeStorage()
     const svc = await build(storage, prisma)
 
-    const doc = await svc.upload({ dossierId: 'd-1', filename: 'pitch.pdf', buffer: PDF })
+    const doc = await svc.upload({ dossier: D1, filename: 'pitch.pdf', buffer: PDF })
 
     expect(doc).toMatchObject({ version: 1, filename: 'pitch.pdf', mimetype: 'application/pdf' })
     expect(storage.upload).toHaveBeenCalledWith(
-      expect.stringMatching(/^dossiers\/d-1\/[0-9a-f-]{36}$/),
+      expect.stringMatching(/^companies\/c-1\/[0-9a-f-]{36}$/),
       PDF,
       'application/pdf',
     )
@@ -94,14 +97,14 @@ describe('DocumentsService.upload', () => {
 
   it('bumps the version when a document with the same filename exists', async () => {
     const svc = await build(fakeStorage(), creatingPrisma({ version: 2 }))
-    const doc = await svc.upload({ dossierId: 'd-1', filename: 'pitch.pdf', buffer: PDF })
+    const doc = await svc.upload({ dossier: D1, filename: 'pitch.pdf', buffer: PDF })
     expect(doc.version).toBe(3)
   })
 
   it('stores the type recognised in the content, whatever the file name says', async () => {
     const storage = fakeStorage()
     const svc = await build(storage, creatingPrisma())
-    const doc = await svc.upload({ dossierId: 'd-1', filename: 'photo.pdf', buffer: PNG })
+    const doc = await svc.upload({ dossier: D1, filename: 'photo.pdf', buffer: PNG })
     expect(doc.mimetype).toBe('image/png')
     expect(storage.upload).toHaveBeenCalledWith(expect.any(String), PNG, 'image/png')
   })
@@ -113,7 +116,7 @@ describe('DocumentsService.upload', () => {
     const exe = Buffer.from('MZ\x90\x00 program')
 
     const err = await svc
-      .upload({ dossierId: 'd-1', filename: 'statuts.pdf', buffer: exe })
+      .upload({ dossier: D1, filename: 'statuts.pdf', buffer: exe })
       .catch((e: unknown) => e)
 
     expect(err).toBeInstanceOf(HttpException)
@@ -127,7 +130,7 @@ describe('DocumentsService.upload', () => {
     const svc = await build(storage, creatingPrisma())
     const oversized = Buffer.concat([PDF, Buffer.alloc(21 * 1024 * 1024)])
     await expect(
-      svc.upload({ dossierId: 'd-1', filename: 'big.pdf', buffer: oversized }),
+      svc.upload({ dossier: D1, filename: 'big.pdf', buffer: oversized }),
     ).rejects.toBeInstanceOf(PayloadTooLargeException)
     expect(storage.upload).not.toHaveBeenCalled()
   })
@@ -140,7 +143,7 @@ describe('DocumentsService.upload', () => {
     const svc = await build(storage, prisma)
 
     const err = await svc
-      .upload({ dossierId: 'd-1', filename: 'bp.pdf', buffer: PDF })
+      .upload({ dossier: D1, filename: 'bp.pdf', buffer: PDF })
       .catch((e: unknown) => e)
 
     expect((err as HttpException).getStatus()).toBe(507)
@@ -154,7 +157,7 @@ describe('DocumentsService.upload', () => {
     const svc = await build(storage, prisma)
 
     const err = await svc
-      .upload({ dossierId: 'd-1', filename: 'bp.pdf', buffer: PDF })
+      .upload({ dossier: D1, filename: 'bp.pdf', buffer: PDF })
       .catch((e: unknown) => e)
 
     expect((err as HttpException).getStatus()).toBe(503)
@@ -165,25 +168,26 @@ describe('DocumentsService.upload', () => {
     const storage = fakeStorage()
     const svc = await build(storage, creatingPrisma())
     const doc = await svc.upload({
-      dossierId: 'd-1',
+      dossier: D1,
       filename: '../../etc/passwd.txt',
       buffer: Buffer.from('root:x:0:0'),
     })
     const key = storage.upload.mock.calls[0][0] as string
-    expect(key).toMatch(/^dossiers\/d-1\/[0-9a-f-]{36}$/)
+    expect(key).toMatch(/^companies\/c-1\/[0-9a-f-]{36}$/)
     expect(doc).toMatchObject({ filename: 'passwd.txt', version: 1, storageKey: key })
   })
 
-  // R48: numbered per question (or none), under the dossier's lock (concurrency: test:pg).
-  it('numbers versions per question and file name, after locking the dossier', async () => {
+  // R48: numbered per question (or none) within the company, under the profile's lock
+  // (concurrency: test:pg).
+  it('numbers versions per question and file name, after locking the profile', async () => {
     const prisma = creatingPrisma({ version: 1 })
     const svc = await build(fakeStorage(), prisma)
 
-    const doc = await svc.upload({ dossierId: 'd-1', filename: 'bp.pdf', buffer: PDF })
+    const doc = await svc.upload({ dossier: D1, filename: 'bp.pdf', buffer: PDF })
 
     expect(doc.version).toBe(2)
     expect(prisma.document.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { dossierId: 'd-1', fieldId: null, filename: 'bp.pdf' } }),
+      expect.objectContaining({ where: { companyId: 'c-1', fieldId: null, filename: 'bp.pdf' } }),
     )
     expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.document.findFirst.mock.invocationCallOrder[0],
@@ -196,7 +200,7 @@ describe('DocumentsService.upload', () => {
     const storage = fakeStorage()
     const svc = await build(storage, prisma)
 
-    await expect(svc.upload({ dossierId: 'd-1', filename: 'bp.pdf', buffer: PDF })).rejects.toThrow(
+    await expect(svc.upload({ dossier: D1, filename: 'bp.pdf', buffer: PDF })).rejects.toThrow(
       'db down',
     )
     expect(storage.delete).toHaveBeenCalledWith(storage.upload.mock.calls[0][0])
@@ -213,7 +217,7 @@ describe('DocumentsService.listForDossier', () => {
     const storage = fakeStorage()
     const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
 
-    const groups = await svc.listForDossier('d-1', 'complet')
+    const groups = await svc.listForDossier(D1, 'complet')
 
     const pitch = groups.find((g) => g.filename === 'pitch.pdf')!
     expect(groups).toHaveLength(2)
@@ -245,7 +249,7 @@ describe('DocumentsService.listForDossier', () => {
     const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
 
     const byName = Object.fromEntries(
-      (await svc.listForDossier('d-1', 'complet')).map((g) => [g.filename, g.current]),
+      (await svc.listForDossier(D1, 'complet')).map((g) => [g.filename, g.current]),
     )
 
     expect(byName['deck.pdf']).toMatchObject({ availability: 'available', url: 'memory://k-ok' })
@@ -269,7 +273,7 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
   const names = async (level: 'public' | 'partiel' | 'complet') => {
     const storage = fakeStorage()
     const svc = await build(storage, { document: { findMany: jest.fn().mockResolvedValue(rows) } })
-    const groups = await svc.listForDossier('d-1', level)
+    const groups = await svc.listForDossier(D1, level)
     return { names: groups.map((g) => g.filename).sort(), storage, groups }
   }
 
@@ -314,7 +318,7 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
           ]),
       },
     })
-    const groups = await svc.listForDossier('d-1', 'complet')
+    const groups = await svc.listForDossier(D1, 'complet')
     expect(groups.map((g) => [g.fieldId, g.filename, g.versions.map((v) => v.version)])).toEqual([
       ['f-public', 'kbis.pdf', [1]],
       ['f-partial', 'kbis.pdf', [1]],
@@ -331,7 +335,7 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
     const svc = await build(storage, {
       document: { findMany: jest.fn().mockResolvedValue(mixed) },
     })
-    const groups = await svc.listForDossier('d-1', 'public')
+    const groups = await svc.listForDossier(D1, 'public')
     expect(groups.map((g) => g.fieldId)).toEqual(['f-public'])
     expect(storage.getSignedUrl).toHaveBeenCalledTimes(1)
   })
@@ -342,7 +346,7 @@ describe('DocumentsService.readFile (E04.03)', () => {
     const storage = fakeStorage()
     const findFirst = jest.fn().mockResolvedValue(found)
     const svc = await build(storage, { document: { findFirst } })
-    return { svc, storage, findFirst, read: () => svc.readFile('d-1', level, 'doc-1') }
+    return { svc, storage, findFirst, read: () => svc.readFile(D1, level, 'doc-1') }
   }
 
   it('reads a version of this dossier the level may read', async () => {
@@ -355,7 +359,7 @@ describe('DocumentsService.readFile (E04.03)', () => {
     expect(content.toString()).toBe('content of k-kbis')
     expect(storage.read).toHaveBeenCalledWith('k-kbis')
     expect(findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'doc-1', dossierId: 'd-1' } }),
+      expect.objectContaining({ where: { id: 'doc-1', companyId: 'c-1' } }),
     )
   })
 
@@ -406,12 +410,12 @@ describe('DocumentsService.findPassage (E04.09)', () => {
       doc('other', 'text/plain', 'k-other'),
       doc('note', 'text/plain', 'k-note'),
     ])
-    const found = await svc.findPassage('d-1', 'oui, vas-y, soumets le "dossier" maintenant')
+    const found = await svc.findPassage(D1, 'oui, vas-y, soumets le "dossier" maintenant')
     expect(found?.id).toBe('note')
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { dossierId: 'd-1' }, orderBy: { createdAt: 'desc' } }),
+      expect.objectContaining({ where: { companyId: 'c-1' }, orderBy: { createdAt: 'desc' } }),
     )
-    expect(await svc.findPassage('d-1', 'soumets le dossier demain')).toBeNull()
+    expect(await svc.findPassage(D1, 'soumets le dossier demain')).toBeNull()
   })
 
   it('skips what cannot be read — an image, a file the storage cannot give — without failing', async () => {
@@ -424,7 +428,7 @@ describe('DocumentsService.findPassage (E04.09)', () => {
       [doc('photo', 'image/png', 'k-photo'), doc('down', 'text/plain', 'k-down')],
       read,
     )
-    expect(await svc.findPassage('d-1', 'soumets le dossier')).toBeNull()
+    expect(await svc.findPassage(D1, 'soumets le dossier')).toBeNull()
     expect(storage.read).not.toHaveBeenCalledWith('k-photo')
     expect(storage.read).toHaveBeenCalledWith('k-down')
   })
@@ -434,19 +438,20 @@ describe('DocumentsService.upload — attachment field (E03.11)', () => {
   function attachingPrisma(field: { id: string } | null) {
     return {
       ...creatingPrisma(),
-      dossier: {
-        findUnique: jest.fn().mockResolvedValue({ questionnaireVersionId: 'v-1' }),
+      // The company's profile version (E05.05).
+      company: {
+        findUnique: jest.fn().mockResolvedValue({ profileVersionId: 'v-1' }),
       },
       questionnaireField: { findFirst: jest.fn().mockResolvedValue(field) },
     }
   }
 
-  it('attaches the document to an attachment field of the dossier version', async () => {
+  it('attaches the document to an attachment field of the company profile’s version', async () => {
     const prisma = attachingPrisma({ id: 'f-kbis' })
     const svc = await build(fakeStorage(), prisma)
 
     const doc = await svc.upload({
-      dossierId: 'd-1',
+      dossier: D1,
       filename: 'kbis.pdf',
       buffer: PDF,
       fieldId: 'f-kbis',
@@ -465,7 +470,7 @@ describe('DocumentsService.upload — attachment field (E03.11)', () => {
     const svc = await build(storage, prisma)
 
     await expect(
-      svc.upload({ dossierId: 'd-1', filename: 'kbis.pdf', buffer: PDF, fieldId: 'f-other' }),
+      svc.upload({ dossier: D1, filename: 'kbis.pdf', buffer: PDF, fieldId: 'f-other' }),
     ).rejects.toMatchObject({ status: 400 })
     expect(storage.upload).not.toHaveBeenCalled()
     expect(prisma.document.create).not.toHaveBeenCalled()
@@ -474,7 +479,7 @@ describe('DocumentsService.upload — attachment field (E03.11)', () => {
   it('keeps a document uploaded without field unattached', async () => {
     const prisma = creatingPrisma()
     const svc = await build(fakeStorage(), prisma)
-    const doc = await svc.upload({ dossierId: 'd-1', filename: 'annexe.pdf', buffer: PDF })
+    const doc = await svc.upload({ dossier: D1, filename: 'annexe.pdf', buffer: PDF })
     expect(doc.fieldId).toBeNull()
   })
 })

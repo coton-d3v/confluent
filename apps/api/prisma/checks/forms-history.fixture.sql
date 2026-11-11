@@ -17,3 +17,8 @@ INSERT INTO dossiers (id, user_id, name, slug, questionnaire_version_id, updated
 INSERT INTO dossier_answers (id, dossier_id, field_id, value, updated_at) VALUES
   ('a-lettre', 'd-check', 'f-lettre', 'A_2', now()),
   ('a-nom-2', 'd-check', 'f-nom-2', 'Sophie', now());
+-- Documents of several dossiers, for the move of the profile to the companies (E05.05).
+INSERT INTO documents (id, dossier_id, filename, mimetype, storage_key, size, version, created_at) VALUES
+  ('doc-check-1', 'd-check', 'kbis.pdf', 'application/pdf', 'dossiers/d-check/k1', 10, 1, now()),
+  ('doc-check-2', 'd-check', 'kbis.pdf', 'application/pdf', 'dossiers/d-check/k2', 11, 2, now()),
+  ('doc-blank', 'd-blank', 'kbis.pdf', 'application/pdf', 'dossiers/d-blank/k1', 12, 1, now());

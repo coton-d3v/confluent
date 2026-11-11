@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
 // Companies (ROADMAP E05.04): the company an entrepreneur presents, owner of the common profile and,
-// from E05.06, of the document library; its financing dossiers are attached to it. Until E05.05
-// moves the profile answers and documents onto the company, they stay on its dossier and each new
-// dossier comes with its own company.
+// from E05.06, of the document library; its financing dossiers are attached to it. Since E05.05 the
+// profile's answers and documents are the company's, presented by each of its dossiers; until
+// E05.07 each new dossier still comes with its own company.
 
 // The single rule of who may own a company, hence its financing dossiers: an entrepreneur, or an
 // administrator (who could already create dossiers). Closed by default: any other global role,

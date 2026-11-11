@@ -1,11 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import type { Dossier, DossierAnswer, DossierAnswerRevision, Prisma } from '@prisma/client'
+import type { DossierAnswer, DossierAnswerRevision, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
   ClassificationService,
   storedClassification,
 } from '../classification/classification.service'
-import { lockDossier } from '../dossiers/dossier-lock'
+import { lockProfile, type DossierRef } from '../dossiers/dossier-profile'
 import {
   declarationErrors,
   keepsRevision,
@@ -34,7 +34,8 @@ export interface AnswerRevisionView {
 }
 
 // An answer as the API returns it: its provenance (E04.04) and history (E04.05) only for the
-// dossier's owner.
+// dossier's owner. The answer is its company's (E05.05); `dossierId` is the dossier it was read
+// through.
 export interface AnswerView {
   id: string
   dossierId: string
@@ -58,25 +59,26 @@ export class AnswersService {
     private readonly sources: AnswerSourcesService,
   ) {}
 
-  listForDossier(dossierId: string): Promise<DossierAnswer[]> {
+  // The answers of the profile a dossier presents: its company's (E05.05).
+  listForDossier(dossier: DossierRef): Promise<DossierAnswer[]> {
     return this.prisma.dossierAnswer.findMany({
-      where: { dossierId },
+      where: { companyId: dossier.companyId },
       orderBy: { createdAt: 'asc' },
     })
   }
 
-  async listViews(dossierId: string, detail: AnswerDetail): Promise<AnswerView[]> {
-    return this.views(dossierId, await this.listForDossier(dossierId), detail)
+  async listViews(dossier: DossierRef, detail: AnswerDetail): Promise<AnswerView[]> {
+    return this.views(dossier, await this.listForDossier(dossier), detail)
   }
 
   async views(
-    dossierId: string,
+    dossier: DossierRef,
     rows: DossierAnswer[],
     detail: AnswerDetail,
   ): Promise<AnswerView[]> {
-    if (detail === 'value') return rows.map((row) => answerView(row))
+    if (detail === 'value') return rows.map((row) => answerView(row, dossier.id))
     const [documents, revisions] = await Promise.all([
-      this.prisma.document.findMany({ where: { dossierId } }),
+      this.prisma.document.findMany({ where: { companyId: dossier.companyId } }),
       detail === 'history' && rows.length
         ? this.prisma.dossierAnswerRevision.findMany({
             where: { answerId: { in: rows.map((r) => r.id) } },
@@ -86,7 +88,7 @@ export class AnswersService {
     ])
     const byId = new Map(documents.map((d) => [d.id, d]))
     return rows.map((row) => {
-      const view = answerView(row, provenanceView(row, row.updatedAt, byId))
+      const view = answerView(row, dossier.id, provenanceView(row, row.updatedAt, byId))
       if (detail !== 'history') return view
       const history = revisions
         .filter((r) => r.answerId === row.id)
@@ -99,40 +101,44 @@ export class AnswersService {
     })
   }
 
-  // The only way to write answers (site, admin, MCP): every field must belong to the dossier's own
-  // questionnaire version and every value must fit its type — all or nothing. A submitted dossier
-  // keeps all its required answers. The state is read under the dossier's lock, never taken from
-  // the caller's earlier read (code review R40). Each value is stored with its provenance (E04.04):
-  // `author` says who writes and through which channel; a cited source is checked beforehand,
-  // outside the lock (reading a document may take a while).
+  // The only way to write answers (site, admin, MCP), through one of the company's dossiers: they
+  // are its company's profile (E05.05). Every field must belong to the profile's own form version
+  // and every value must fit its type — all or nothing. Once one of the company's dossiers is
+  // submitted, the profile keeps all its required answers. The state is read under the profile's
+  // lock, never taken from the caller's earlier read (code review R40). Each value is stored with
+  // its provenance (E04.04): `author` says who writes and through which channel; a cited source is
+  // checked beforehand, outside the lock (reading a document may take a while).
   async saveForDossier(
-    dossier: Pick<Dossier, 'id'>,
+    dossier: DossierRef,
     answers: AnswerInput[],
     author: AnswerAuthor,
   ): Promise<DossierAnswer[]> {
-    const cited = await this.sources.check(dossier.id, answers)
+    const cited = await this.sources.check(dossier, answers)
     return this.prisma.$transaction(async (tx) => {
-      const current = await lockDossier(tx, dossier.id)
+      // The dossier carries its company's profile version (kept equal by the database).
+      const current = await lockProfile(tx, dossier.id)
       const fields = await tx.questionnaireField.findMany({
         where: { versionId: current.questionnaireVersionId },
       })
+      const submitted = { companyId: current.companyId, submittedAt: { not: null } }
+      const anySubmitted = (await tx.dossier.count({ where: submitted })) > 0
       const normalized = normalizeAnswers(fields, answers)
       const errors = validateAnswers(fields, normalized)
-      if (current.submittedAt) errors.push(...submittedDossierErrors(fields, normalized))
+      if (anySubmitted) errors.push(...submittedDossierErrors(fields, normalized))
       const labels = new Map(fields.map((f) => [f.id, f.label]))
       for (const e of [...declarationErrors(answers), ...cited.errors]) {
         errors.push({ ...e, label: labels.get(e.fieldId) })
       }
       if (errors.length) throw new InvalidAnswersException(errors)
-      const saved = await upsertMany(tx, current.id, normalized, author, cited.sources)
-      // A submitted dossier is classified: its derived data follows its answers at once, whatever
-      // the path of the change (site, admin, MCP — code review R18). A draft is classified when
-      // submitted.
-      if (current.submittedAt) {
-        const classification = await this.classification.evaluate(current.id, tx)
+      const saved = await upsertMany(tx, current.companyId, normalized, author, cited.sources)
+      // A submitted dossier is classified: its derived data follows its company's answers at once,
+      // whatever the path of the change (site, admin, MCP — code review R18). A draft is
+      // classified when submitted.
+      if (anySubmitted) {
+        const classification = await this.classification.evaluate(current.companyId, tx)
         if (classification) {
-          await tx.dossier.update({
-            where: { id: current.id },
+          await tx.dossier.updateMany({
+            where: submitted,
             data: storedClassification(classification),
           })
         }
@@ -143,18 +149,18 @@ export class AnswersService {
 
   // The owner confirms an AI proposal as it was shown to them (E04.05): same value and source, now
   // confirmed by them through `author`'s channel; the pending state goes to the history. Under the
-  // dossier's lock, like any write: nothing is confirmed if the answer changed since it was shown
+  // profile's lock, like any write: nothing is confirmed if the answer changed since it was shown
   // (`expected`), or is no proposal waiting for confirmation.
   async confirmProposal(
-    dossier: Pick<Dossier, 'id'>,
+    dossier: DossierRef,
     fieldId: string,
     expected: { value: string; updatedAt: Date },
     author: AnswerAuthor,
   ): Promise<DossierAnswer> {
     return this.prisma.$transaction(async (tx) => {
-      await lockDossier(tx, dossier.id)
+      const { companyId } = await lockProfile(tx, dossier.id)
       const current = await tx.dossierAnswer.findUnique({
-        where: { dossierId_fieldId: { dossierId: dossier.id, fieldId } },
+        where: { companyId_fieldId: { companyId, fieldId } },
       })
       if (!current) {
         throw new NotFoundException({ code: 'ANSWER_NOT_FOUND', message: 'Réponse introuvable.' })
@@ -189,15 +195,19 @@ export class AnswersService {
   }
 }
 
-function answerView(row: DossierAnswer, provenance?: AnswerProvenanceView | null): AnswerView {
-  const { id, dossierId, fieldId, value, createdAt, updatedAt } = row
+function answerView(
+  row: DossierAnswer,
+  dossierId: string,
+  provenance?: AnswerProvenanceView | null,
+): AnswerView {
+  const { id, fieldId, value, createdAt, updatedAt } = row
   const view: AnswerView = { id, dossierId, fieldId, value, createdAt, updatedAt }
   return provenance === undefined ? view : { ...view, provenance }
 }
 
 async function upsertMany(
   tx: Prisma.TransactionClient,
-  dossierId: string,
+  companyId: string,
   answers: AnswerInput[],
   author: AnswerAuthor,
   sources: Array<CheckedSource | null>,
@@ -205,7 +215,7 @@ async function upsertMany(
   const previous = new Map(
     (
       await tx.dossierAnswer.findMany({
-        where: { dossierId, fieldId: { in: answers.map((a) => a.fieldId) } },
+        where: { companyId, fieldId: { in: answers.map((a) => a.fieldId) } },
       })
     ).map((row) => [row.fieldId, row]),
   )
@@ -220,8 +230,8 @@ async function upsertMany(
       await tx.dossierAnswerRevision.create({ data: revisionOf(before) })
     }
     const row = await tx.dossierAnswer.upsert({
-      where: { dossierId_fieldId: { dossierId, fieldId: a.fieldId } },
-      create: { dossierId, fieldId: a.fieldId, value: a.value, ...provenance },
+      where: { companyId_fieldId: { companyId, fieldId: a.fieldId } },
+      create: { companyId, fieldId: a.fieldId, value: a.value, ...provenance },
       update: { value: a.value, ...provenance },
     })
     previous.set(a.fieldId, row)

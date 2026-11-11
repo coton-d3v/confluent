@@ -50,7 +50,7 @@ async function main(): Promise<number> {
         take: PAGE,
         ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
         orderBy: { id: 'asc' },
-        include: { dossier: { select: { name: true, user: { select: { email: true } } } } },
+        include: { company: { select: { name: true, owner: { select: { email: true } } } } },
       })
       if (rows.length === 0) break
       cursor = rows[rows.length - 1].id
@@ -58,14 +58,14 @@ async function main(): Promise<number> {
         checked++
         if (await storage.exists(doc.storageKey)) continue
         const newer = await prisma.document.count({
-          where: { dossierId: doc.dossierId, filename: doc.filename, version: { gt: doc.version } },
+          where: { companyId: doc.companyId, filename: doc.filename, version: { gt: doc.version } },
         })
         lost++
         if (newer === 0) lostCurrent++
         console.log(
           [
-            doc.dossier.name,
-            doc.dossier.user.email,
+            doc.company.name,
+            doc.company.owner.email,
             doc.filename,
             `v${doc.version}`,
             doc.createdAt.toISOString().slice(0, 10),

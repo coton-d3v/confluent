@@ -80,19 +80,24 @@ export class ShareLinksService {
     })
   }
 
+  // A share opens a dossier, which presents its company's profile (E05.05): the answers and
+  // documents its level may read.
   async resolveForFinanceur(shareLink: ShareLink): Promise<FinanceurShareResponse> {
-    const dossier = await this.prisma.dossier.findUnique({
-      where: { id: shareLink.dossierId },
-      include: { answers: { select: { fieldId: true, value: true } } },
-    })
+    const dossier = await this.prisma.dossier.findUnique({ where: { id: shareLink.dossierId } })
     if (!dossier) {
       throw new NotFoundException({ code: 'DOSSIER_NOT_FOUND', message: 'Dossier not found.' })
     }
-    const structure = await this.questionnaires.getVersion(dossier.questionnaireVersionId)
+    const [structure, answers] = await Promise.all([
+      this.questionnaires.getVersion(dossier.questionnaireVersionId),
+      this.prisma.dossierAnswer.findMany({
+        where: { companyId: dossier.companyId },
+        select: { fieldId: true, value: true },
+      }),
+    ])
     // The level of this very link — not the highest across the recipient's links: the token is what
     // was shared, and it may have been forwarded.
     const accessLevel = grantedLevel(shareLink.accessLevel)
-    const { answers, ...row } = await this.dossiers.projectForLevel(dossier, accessLevel)
+    const row = await this.dossiers.projectForLevel(dossier, accessLevel)
     const fields = (structure?.fields ?? []).filter((f) => fieldVisibleAt(f, accessLevel))
     const visibleIds = new Set(fields.map((f) => f.id))
     return {
@@ -116,8 +121,10 @@ export class ShareLinksService {
         fields.some((f) => f.sectionId === sec.id),
       ),
       fields,
-      answers: answers.filter((a) => visibleIds.has(a.fieldId)),
-      documents: await this.documents.listForDossier(dossier.id, accessLevel),
+      answers: answers
+        .filter((a) => visibleIds.has(a.fieldId))
+        .map((a) => ({ fieldId: a.fieldId, value: a.value })),
+      documents: await this.documents.listForDossier(dossier, accessLevel),
     }
   }
 

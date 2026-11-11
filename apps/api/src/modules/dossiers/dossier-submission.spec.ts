@@ -40,10 +40,15 @@ async function setup() {
       orderIndex: 2,
     },
   ])
+  // The dossier presents its company's profile (E05.05).
+  await p.company.create({
+    data: { id: 'c-1', ownerId: 'u-1', name: 'Biosensio', profileVersionId: version.id },
+  })
   await p.dossier.create({
     data: {
       id: 'd-1',
       userId: 'u-1',
+      companyId: 'c-1',
       name: 'Biosensio',
       slug: 'biosensio',
       questionnaireVersionId: version.id,
@@ -65,10 +70,10 @@ async function setup() {
   const fieldId = (key: string) =>
     [...fake.table('questionnaireField').values()].find((f) => f.key === key)!.id
   const answer = (key: string, value: string) =>
-    p.dossierAnswer.create({ data: { dossierId: 'd-1', fieldId: fieldId(key), value } })
+    p.dossierAnswer.create({ data: { companyId: 'c-1', fieldId: fieldId(key), value } })
   const attach = (key: string | null, filename = 'kbis.pdf') =>
     p.document.create({
-      data: { dossierId: 'd-1', filename, fieldId: key ? fieldId(key) : null, version: 1 },
+      data: { companyId: 'c-1', filename, fieldId: key ? fieldId(key) : null, version: 1 },
     })
   return { fake, svc, classify, answer, attach, audit, fieldId }
 }
@@ -118,6 +123,8 @@ describe('DossiersService.submit', () => {
     const again = await svc.submit('d-1', 'u-1', SITE_ORIGIN)
     expect(again.submittedAt!.getTime()).toBe(firstDate)
     expect(classify).toHaveBeenCalledTimes(2)
+    // The classification is that of the company profile the dossier presents (E05.05).
+    expect(classify).toHaveBeenCalledWith('c-1', expect.anything())
   })
 
   it('journals each submission with its channel; through MCP, the application and the instruction it reports (E04.08)', async () => {
@@ -126,7 +133,7 @@ describe('DossiersService.submit', () => {
     await attach('kbis')
     // An AI proposal still to confirm does not block the submission (E04.05, D02): it is counted.
     await fake.prisma.dossierAnswer.update({
-      where: { dossierId_fieldId: { dossierId: 'd-1', fieldId: fieldId('nom') } },
+      where: { companyId_fieldId: { companyId: 'c-1', fieldId: fieldId('nom') } },
       data: { origin: 'ai', confirmation: 'pending' },
     })
     const viaMcp = {

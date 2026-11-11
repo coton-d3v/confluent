@@ -23,7 +23,8 @@ BEGIN
 
   -- The answer « A_2 » keeps its meaning, and the answer to the second « Nom » keeps its field.
   SELECT string_agg(field_id || '=' || value, ',' ORDER BY field_id) INTO got
-  FROM dossier_answers WHERE dossier_id = 'd-check';
+  FROM dossier_answers
+  WHERE company_id = (SELECT company_id FROM dossiers WHERE id = 'd-check');
   IF got IS DISTINCT FROM 'f-lettre=a_2_2,f-nom-2=Sophie' THEN
     RAISE EXCEPTION 'answers: %', got;
   END IF;
@@ -52,6 +53,25 @@ BEGIN
   IF (SELECT count(DISTINCT company_id) FROM dossiers) <> (SELECT count(*) FROM dossiers)
      OR (SELECT count(*) FROM companies) <> (SELECT count(*) FROM dossiers) THEN
     RAISE EXCEPTION 'one company per dossier expected';
+  END IF;
+
+  -- E05.05: answers and documents moved, same rows, to the company of their dossier, whose profile
+  -- answers the dossier's form version.
+  SELECT string_agg(x.id || '=' || d.id, ',' ORDER BY x.id) INTO got
+  FROM (SELECT id, company_id FROM dossier_answers UNION ALL SELECT id, company_id FROM documents) x
+  JOIN dossiers d ON d.company_id = x.company_id;
+  IF got IS DISTINCT FROM 'a-lettre=d-check,a-nom-2=d-check,doc-blank=d-blank,doc-check-1=d-check,doc-check-2=d-check' THEN
+    RAISE EXCEPTION 'profile owners: %', got;
+  END IF;
+  IF (SELECT string_agg(storage_key || '@' || version, ',' ORDER BY id) FROM documents)
+     IS DISTINCT FROM 'dossiers/d-blank/k1@1,dossiers/d-check/k1@1,dossiers/d-check/k2@2' THEN
+    RAISE EXCEPTION 'documents changed by the move';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM dossiers d JOIN companies c ON c.id = d.company_id
+    WHERE c.profile_version_id IS DISTINCT FROM d.questionnaire_version_id
+  ) THEN
+    RAISE EXCEPTION 'profile version differs from the dossier''s';
   END IF;
 END
 $$;

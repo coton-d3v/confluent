@@ -13,7 +13,8 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { CompaniesService, type CompanyView } from './companies.service'
 
 // The signed-in entrepreneur's companies (ROADMAP E05.04). A company is created with a dossier
-// (`POST /v1/dossiers`) and removed with its last one until E05.05 gives it a profile of its own.
+// (`POST /v1/dossiers`) and removed, with its profile (E05.05), with its last one until a company page
+// and several financing requests (E05.07) let its owner reach it on its own.
 @ApiTags('Entreprises')
 @ApiBearerAuth('jwt')
 @ApiUnauthorizedResponse({ description: 'JWT manquant, invalide, ou user désactivé.' })

@@ -134,7 +134,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     })
     // Every dossier belongs to a company of its owner (E05.04).
     await p.company.create({
-      data: { id: 'c-11111111-1111-4111-8111-111111111111', ownerId: 'u-1', name: 'Biosensio' },
+      data: {
+        id: 'c-11111111-1111-4111-8111-111111111111',
+        ownerId: 'u-1',
+        name: 'Biosensio',
+        profileVersionId: 'v-2',
+      },
     })
     await p.dossier.create({
       data: {
@@ -147,7 +152,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       },
     })
     await p.company.create({
-      data: { id: 'c-22222222-2222-4222-8222-222222222222', ownerId: 'u-2', name: 'Autre' },
+      data: {
+        id: 'c-22222222-2222-4222-8222-222222222222',
+        ownerId: 'u-2',
+        name: 'Autre',
+        profileVersionId: 'v-2',
+      },
     })
     await p.dossier.create({
       data: {
@@ -319,7 +329,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
 
     await fake.prisma.document.create({
       data: {
-        dossierId: '11111111-1111-4111-8111-111111111111',
+        companyId: 'c-11111111-1111-4111-8111-111111111111',
         filename: 'kbis.pdf',
         version: 1,
         storageKey: 'dossiers/x/lost',
@@ -808,11 +818,13 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         ['f-site', 'biosensio.fr'],
         ['f-stage', 'fonds_propres_uniquement'],
       ]) {
-        await fake.prisma.dossierAnswer.create({ data: { dossierId: DOSSIER, fieldId, value } })
+        await fake.prisma.dossierAnswer.create({
+          data: { companyId: 'c-11111111-1111-4111-8111-111111111111', fieldId, value },
+        })
       }
       await fake.prisma.document.create({
         data: {
-          dossierId: DOSSIER,
+          companyId: 'c-11111111-1111-4111-8111-111111111111',
           filename: 'kbis.pdf',
           version: 1,
           storageKey: 'dossiers/x/kbis',
@@ -1057,7 +1069,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       const [stored] = [...fake.table('document').values()]
       expect(stored).toMatchObject({
         id: documentId,
-        dossierId: DOSSIER,
+        companyId: 'c-11111111-1111-4111-8111-111111111111',
         fieldId: 'f-kbis',
         mimetype: 'application/pdf',
       })
@@ -1235,7 +1247,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       // A file lost from the storage: said so, to be uploaded again.
       const lost = await fake.prisma.document.create({
         data: {
-          dossierId: DOSSIER,
+          companyId: 'c-11111111-1111-4111-8111-111111111111',
           filename: 'perdu.pdf',
           version: 1,
           storageKey: 'dossiers/x/lost',
@@ -1679,7 +1691,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       ['f-stage', 'fonds_propres_uniquement'],
       ['f-sector', 'Biotech'],
     ]) {
-      await p.dossierAnswer.create({ data: { dossierId: id, fieldId, value } })
+      await p.dossierAnswer.create({ data: { companyId: `c-${id}`, fieldId, value } })
     }
     await p.dossier.update({ where: { id }, data: { submittedAt: new Date(), sector: 'Biotech' } })
 
@@ -1984,7 +1996,7 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       })
       await fake.prisma.dossierAnswer.create({
         data: {
-          dossierId: DOSSIER,
+          companyId: 'c-11111111-1111-4111-8111-111111111111',
           fieldId: 'f-stage',
           value: 'fonds_propres_uniquement',
           origin: 'ai',
@@ -2074,7 +2086,9 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
         ['f-name', 'Biosensio'],
         ['f-stage', 'fonds_propres_uniquement'],
       ]) {
-        await fake.prisma.dossierAnswer.create({ data: { dossierId: DOSSIER, fieldId, value } })
+        await fake.prisma.dossierAnswer.create({
+          data: { companyId: 'c-11111111-1111-4111-8111-111111111111', fieldId, value },
+        })
       }
       const res = await fetch(`${base}/v1/dossiers/${DOSSIER}/submit`, {
         method: 'POST',
@@ -2094,10 +2108,18 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     // never submits, not even once its tokens are refreshed (same scopes as the grant).
     it('an authorization given before dossiers:submit existed never submits', async () => {
       await fake.prisma.dossierAnswer.create({
-        data: { dossierId: DOSSIER, fieldId: 'f-name', value: 'Biosensio' },
+        data: {
+          companyId: 'c-11111111-1111-4111-8111-111111111111',
+          fieldId: 'f-name',
+          value: 'Biosensio',
+        },
       })
       await fake.prisma.dossierAnswer.create({
-        data: { dossierId: DOSSIER, fieldId: 'f-stage', value: 'fonds_propres_uniquement' },
+        data: {
+          companyId: 'c-11111111-1111-4111-8111-111111111111',
+          fieldId: 'f-stage',
+          value: 'fonds_propres_uniquement',
+        },
       })
       for (const scopes of [['dossiers:write'], ['dossiers:read', 'dossiers:write']]) {
         const res = await rawToolCall(await connect('u-1', scopes), 'submit_dossier', {
