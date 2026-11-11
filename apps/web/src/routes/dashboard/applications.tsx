@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { CheckIcon, CopyIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +16,8 @@ import {
   revokeConnectedApplication,
   type ConnectedApplication,
 } from '@/features/oauth/api'
+import { ConversationGuides } from '@/features/oauth/components/ConversationGuides'
+import { CopyButton } from '@/features/oauth/components/CopyButton'
 import { API_BASE_URL } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 
@@ -54,6 +55,8 @@ export default function ApplicationsRoute() {
       </p>
 
       <ConnectorAddress />
+
+      <ConversationGuides />
 
       <section className="mt-10">
         <h2 className="font-heading text-xl font-semibold text-foreground">Applications connectées</h2>
@@ -115,16 +118,6 @@ export default function ApplicationsRoute() {
 }
 
 function ConnectorAddress() {
-  const [copied, setCopied] = useState(false)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(MCP_URL)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      toast.error('Copie impossible : sélectionnez l’adresse à la main.')
-    }
-  }
   return (
     <section className="mt-8 max-w-2xl rounded-lg border border-border bg-card p-4">
       <h2 className="text-sm font-medium text-foreground">Adresse du connecteur</h2>
@@ -132,9 +125,7 @@ function ConnectorAddress() {
         <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-sm text-foreground">
           {MCP_URL}
         </code>
-        <Button variant="outline" size="sm" onClick={() => void copy()} aria-label="Copier l’adresse du connecteur">
-          {copied ? <CheckIcon className="size-4" aria-hidden="true" /> : <CopyIcon className="size-4" aria-hidden="true" />}
-        </Button>
+        <CopyButton text={MCP_URL} label="Copier l’adresse du connecteur" />
       </div>
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>Dans Claude ou ChatGPT, ajoutez un connecteur personnalisé avec cette adresse.</li>

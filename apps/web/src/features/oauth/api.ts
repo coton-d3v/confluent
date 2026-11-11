@@ -1,7 +1,7 @@
-import type { ConnectedApplication } from '@confluent/shared'
+import type { ConnectedApplication, ConversationGuide } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
-export type { ConnectedApplication }
+export type { ConnectedApplication, ConversationGuide }
 
 export interface OAuthConsentRequest {
   id: string
@@ -39,4 +39,9 @@ export function revokeConnectedApplication(clientId: string): Promise<void> {
   return apiRequest<void>(`/v1/oauth/applications/${encodeURIComponent(clientId)}`, {
     method: 'DELETE',
   })
+}
+
+// E04.10: the conversation guides this account can follow with a connected assistant.
+export function listConversationGuides(): Promise<ConversationGuide[]> {
+  return apiRequest<ConversationGuide[]>('/v1/conversation-guides')
 }
