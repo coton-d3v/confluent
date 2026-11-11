@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   COMPANY_TRANSFER_STATUS_LABELS,
   DOSSIER_PRESENTATION_LIMITS,
+  DOSSIER_PUBLICATION_STATUS_LABELS,
   dossierNameSchema,
+  publicationStatusOf,
   type Company,
   type CompanyDossier,
 } from '@confluent/shared'
@@ -154,7 +156,7 @@ function PreparationNotice({ preparation }: { preparation: NonNullable<Company['
 function RequestCard({ dossier }: { dossier: CompanyDossier }) {
   const amount = formatAmount(dossier.amountEur)
   const types = financingTypeLabels(dossier.financingTypes)
-  const published = dossier.publicationStatus === 'published'
+  const status = publicationStatusOf(dossier.publicationStatus)
   return (
     <Link
       to={`/dashboard/dossiers/view/${encodeURIComponent(dossier.slug)}?tab=demande`}
@@ -163,8 +165,10 @@ function RequestCard({ dossier }: { dossier: CompanyDossier }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h3 className="min-w-0 break-words text-base font-medium text-foreground">{dossier.name}</h3>
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant={published ? 'default' : 'secondary'}>
-            {published ? 'Publiée' : 'Brouillon'}
+          <Badge
+            variant={status === 'published' ? 'default' : status === 'archived' ? 'outline' : 'secondary'}
+          >
+            {DOSSIER_PUBLICATION_STATUS_LABELS[status]}
           </Badge>
           {!dossier.submittedAt && <Badge variant="outline">Profil à soumettre</Badge>}
         </div>

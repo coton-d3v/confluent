@@ -9,6 +9,7 @@ import { NativeSelect } from '@/components/ui/native-select'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 import { createCandidature, listCandidatureWorkspaces, listDossierCandidatures } from '../api'
+import { FinancingStatusBadge } from './FinancingStatusPanel'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -26,10 +27,13 @@ export function DossierCandidatures({
   dossierId,
   profileSubmitted,
   inPreparation,
+  archived = false,
 }: {
   dossierId: string
   profileSubmitted: boolean
   inPreparation: boolean
+  // E06.01: an archived request is presented to no new structure.
+  archived?: boolean
 }) {
   const candidatures = useAsync(() => listDossierCandidatures(dossierId), [dossierId])
 
@@ -51,6 +55,11 @@ export function DossierCandidatures({
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           Cette entreprise est préparée pour un entrepreneur : seul son propriétaire, après avoir
           accepté la proposition, pourra la présenter à une structure.
+        </p>
+      ) : archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Cette demande est archivée : désarchivez-la (onglet « Demande ») pour la présenter à une
+          nouvelle structure. Les structures qui la suivent déjà gardent leur statut.
         </p>
       ) : (
         <PresentForm
@@ -98,9 +107,11 @@ function CandidatureRow({ candidature }: { candidature: CandidatureSummary }) {
         >
           {workspace.name}
         </Link>
-        <Badge variant={status === 'submitted' ? 'default' : 'outline'}>
-          {CANDIDATURE_STATUS_LABELS[status]}
-        </Badge>
+        {status === 'submitted' ? (
+          <FinancingStatusBadge status={candidature.financingStatus} />
+        ) : (
+          <Badge variant="outline">{CANDIDATURE_STATUS_LABELS[status]}</Badge>
+        )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground wrap-anywhere">
         {workspace.programName ? `${workspace.programName} · ` : ''}

@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   DOSSIER_PRESENTATION_LIMITS,
+  DOSSIER_PUBLICATION_STATUS_LABELS,
   FINANCING_TYPES,
   FINANCING_TYPE_LABELS,
   PUBLICATION_REQUIREMENT_LABELS,
+  isArchived,
   isPublished,
   missingForPublication,
   updateDossierSchema,
@@ -14,10 +16,17 @@ import {
 } from '@confluent/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import type { ApiError } from '@/lib/api-client'
-import { publishDossier, unpublishDossier, updateDossier } from '../api'
+import {
+  archiveDossier,
+  publishDossier,
+  unarchiveDossier,
+  unpublishDossier,
+  updateDossier,
+} from '../api'
 import { formatAmount, parseAmount } from '../presentation'
 
 interface Draft {
@@ -51,6 +60,8 @@ function errorMessage(err: unknown, fallback: string): string {
 
 // The owner's financing request (E05.07): its title and presentation, then its publication. The
 // presentation is plain text; recipients of the request's shares see it once it is published.
+// E06.01: the owner archives a request to close it — no edit, publication or new candidature until
+// unarchived, back to a draft; the API applies the same transitions (@confluent/shared).
 export function RequestEditor({
   dossier,
   onChange,
@@ -65,6 +76,7 @@ export function RequestEditor({
   const [draft, setDraft] = useState<Draft>(() => draftOf(dossier))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const ids = {
     name: useId(),
     summary: useId(),
@@ -74,6 +86,7 @@ export function RequestEditor({
     types: useId(),
   }
   const published = isPublished(dossier)
+  const archived = isArchived(dossier)
   const missing = missingForPublication(dossier)
   const saved = JSON.stringify(draftOf(dossier)) === JSON.stringify(draft)
 
@@ -157,6 +170,37 @@ export function RequestEditor({
     }
   }
 
+  async function changeArchiving(archive: boolean) {
+    setBusy(true)
+    try {
+      onChange(archive ? await archiveDossier(dossier.id) : await unarchiveDossier(dossier.id))
+      toast.success(
+        archive
+          ? 'Demande archivée : elle est close, vos partages ne montrent plus sa présentation.'
+          : 'Demande désarchivée : elle est de nouveau en brouillon.',
+      )
+    } catch (err) {
+      toast.error(
+        errorMessage(
+          err,
+          archive ? 'La demande n’a pas été archivée.' : 'La demande n’a pas été désarchivée.',
+        ),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function askArchive() {
+    setConfirm({
+      title: 'Archiver la demande ?',
+      description:
+        'La demande est close : sa présentation n’est plus modifiable, elle ne peut plus être publiée ni présentée à une nouvelle structure, et vos destinataires ne voient plus sa présentation. Vos partages restent ouverts et chaque structure garde son statut de financement. Vous pourrez la désarchiver.',
+      confirmLabel: 'Archiver',
+      onConfirm: () => void changeArchiving(true),
+    })
+  }
+
   const fieldError = (key: string, id: string) =>
     errors[key] ? (
       <p id={`${id}-error`} className="text-xs text-destructive">
@@ -176,8 +220,8 @@ export function RequestEditor({
           <h2 id="publication-heading" className="font-heading text-lg font-semibold text-foreground">
             Publication
           </h2>
-          <Badge variant={published ? 'default' : 'secondary'}>
-            {published ? 'Publiée' : 'Brouillon'}
+          <Badge variant={published ? 'default' : archived ? 'outline' : 'secondary'}>
+            {DOSSIER_PUBLICATION_STATUS_LABELS[archived ? 'archived' : published ? 'published' : 'draft']}
           </Badge>
         </div>
         {inPreparation ? (
@@ -185,6 +229,23 @@ export function RequestEditor({
             Vous préparez cette entreprise pour un entrepreneur : seul son propriétaire pourra
             publier cette demande, après avoir accepté votre proposition.
           </p>
+        ) : archived ? (
+          <>
+            <p className="text-sm text-muted-foreground">
+              {`Archivée le ${new Date(dossier.archivedAt ?? '').toLocaleDateString('fr-FR')}. La demande est close : sa présentation n’est plus modifiable, elle ne peut être ni publiée ni présentée à une nouvelle structure. Vos partages restent ouverts, sans sa présentation ; chaque structure garde son statut de financement.`}
+            </p>
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 px-4"
+                disabled={busy}
+                onClick={() => void changeArchiving(false)}
+              >
+                Désarchiver
+              </Button>
+            </div>
+          </>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
@@ -225,6 +286,15 @@ export function RequestEditor({
               >
                 {published ? 'Repasser en brouillon' : 'Publier la demande'}
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="ml-2 h-11 px-4"
+                disabled={busy}
+                onClick={askArchive}
+              >
+                Archiver
+              </Button>
               {!published && !saved && missing.length === 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Enregistrez d’abord vos modifications.
@@ -239,113 +309,121 @@ export function RequestEditor({
         <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">
           Présentation de la demande
         </h2>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={ids.name} className="text-sm font-medium text-foreground">
-            Titre
-          </label>
-          <Input
-            id={ids.name}
-            className="h-11"
-            value={draft.name}
-            maxLength={DOSSIER_PRESENTATION_LIMITS.name}
-            onChange={(e) => set('name', e.target.value)}
-            {...described('name', ids.name)}
-          />
-          {fieldError('name', ids.name)}
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={ids.summary} className="text-sm font-medium text-foreground">
-            Résumé
-          </label>
-          <Textarea
-            id={ids.summary}
-            rows={2}
-            value={draft.summary}
-            maxLength={DOSSIER_PRESENTATION_LIMITS.summary}
-            onChange={(e) => set('summary', e.target.value)}
-            {...described('summary', ids.summary)}
-          />
-          <p className="text-xs text-muted-foreground">
-            En une ou deux phrases ({draft.summary.length}/{DOSSIER_PRESENTATION_LIMITS.summary}).
+        {archived && (
+          <p className="text-sm text-muted-foreground">
+            Désarchivez la demande pour modifier sa présentation.
           </p>
-          {fieldError('summary', ids.summary)}
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={ids.objective} className="text-sm font-medium text-foreground">
-            Objectif du financement
-          </label>
-          <Textarea
-            id={ids.objective}
-            rows={3}
-            value={draft.objective}
-            maxLength={DOSSIER_PRESENTATION_LIMITS.objective}
-            onChange={(e) => set('objective', e.target.value)}
-            {...described('objective', ids.objective)}
-          />
-          <p className="text-xs text-muted-foreground">À quoi servira-t-il ?</p>
-          {fieldError('objective', ids.objective)}
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={ids.description} className="text-sm font-medium text-foreground">
-            Description <span className="font-normal text-muted-foreground">(facultative)</span>
-          </label>
-          <Textarea
-            id={ids.description}
-            rows={6}
-            value={draft.description}
-            maxLength={DOSSIER_PRESENTATION_LIMITS.description}
-            onChange={(e) => set('description', e.target.value)}
-            {...described('description', ids.description)}
-          />
-          <p className="text-xs text-muted-foreground">
-            Texte simple, sans mise en forme ({draft.description.length}/
-            {DOSSIER_PRESENTATION_LIMITS.description}).
-          </p>
-          {fieldError('description', ids.description)}
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={ids.amount} className="text-sm font-medium text-foreground">
-            Montant recherché (€)
-          </label>
-          <Input
-            id={ids.amount}
-            className="h-11 sm:w-64"
-            inputMode="numeric"
-            value={draft.amount}
-            onChange={(e) => set('amount', e.target.value)}
-            {...described('amountEur', ids.amount)}
-          />
-          {(() => {
-            const parsed = parseAmount(draft.amount)
-            return typeof parsed === 'number' ? (
-              <p className="text-xs text-muted-foreground">{formatAmount(parsed)}</p>
-            ) : null
-          })()}
-          {fieldError('amountEur', ids.amount)}
-        </div>
-        <fieldset className="flex flex-col gap-2" aria-describedby={errors.financingTypes ? `${ids.types}-error` : undefined}>
-          <legend className="text-sm font-medium text-foreground">Types de financement</legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {FINANCING_TYPES.map((type) => (
-              <label key={type} className="flex min-h-11 items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  className="size-4"
-                  checked={draft.financingTypes.includes(type)}
-                  onChange={(e) => toggleType(type, e.target.checked)}
-                />
-                {FINANCING_TYPE_LABELS[type]}
-              </label>
-            ))}
+        )}
+        <fieldset disabled={archived} className="contents">
+          <div className="flex flex-col gap-1">
+            <label htmlFor={ids.name} className="text-sm font-medium text-foreground">
+              Titre
+            </label>
+            <Input
+              id={ids.name}
+              className="h-11"
+              value={draft.name}
+              maxLength={DOSSIER_PRESENTATION_LIMITS.name}
+              onChange={(e) => set('name', e.target.value)}
+              {...described('name', ids.name)}
+            />
+            {fieldError('name', ids.name)}
           </div>
-          {fieldError('financingTypes', ids.types)}
+          <div className="flex flex-col gap-1">
+            <label htmlFor={ids.summary} className="text-sm font-medium text-foreground">
+              Résumé
+            </label>
+            <Textarea
+              id={ids.summary}
+              rows={2}
+              value={draft.summary}
+              maxLength={DOSSIER_PRESENTATION_LIMITS.summary}
+              onChange={(e) => set('summary', e.target.value)}
+              {...described('summary', ids.summary)}
+            />
+            <p className="text-xs text-muted-foreground">
+              En une ou deux phrases ({draft.summary.length}/{DOSSIER_PRESENTATION_LIMITS.summary}).
+            </p>
+            {fieldError('summary', ids.summary)}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={ids.objective} className="text-sm font-medium text-foreground">
+              Objectif du financement
+            </label>
+            <Textarea
+              id={ids.objective}
+              rows={3}
+              value={draft.objective}
+              maxLength={DOSSIER_PRESENTATION_LIMITS.objective}
+              onChange={(e) => set('objective', e.target.value)}
+              {...described('objective', ids.objective)}
+            />
+            <p className="text-xs text-muted-foreground">À quoi servira-t-il ?</p>
+            {fieldError('objective', ids.objective)}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={ids.description} className="text-sm font-medium text-foreground">
+              Description <span className="font-normal text-muted-foreground">(facultative)</span>
+            </label>
+            <Textarea
+              id={ids.description}
+              rows={6}
+              value={draft.description}
+              maxLength={DOSSIER_PRESENTATION_LIMITS.description}
+              onChange={(e) => set('description', e.target.value)}
+              {...described('description', ids.description)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Texte simple, sans mise en forme ({draft.description.length}/
+              {DOSSIER_PRESENTATION_LIMITS.description}).
+            </p>
+            {fieldError('description', ids.description)}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={ids.amount} className="text-sm font-medium text-foreground">
+              Montant recherché (€)
+            </label>
+            <Input
+              id={ids.amount}
+              className="h-11 sm:w-64"
+              inputMode="numeric"
+              value={draft.amount}
+              onChange={(e) => set('amount', e.target.value)}
+              {...described('amountEur', ids.amount)}
+            />
+            {(() => {
+              const parsed = parseAmount(draft.amount)
+              return typeof parsed === 'number' ? (
+                <p className="text-xs text-muted-foreground">{formatAmount(parsed)}</p>
+              ) : null
+            })()}
+            {fieldError('amountEur', ids.amount)}
+          </div>
+          <fieldset className="flex flex-col gap-2" aria-describedby={errors.financingTypes ? `${ids.types}-error` : undefined}>
+            <legend className="text-sm font-medium text-foreground">Types de financement</legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {FINANCING_TYPES.map((type) => (
+                <label key={type} className="flex min-h-11 items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={draft.financingTypes.includes(type)}
+                    onChange={(e) => toggleType(type, e.target.checked)}
+                  />
+                  {FINANCING_TYPE_LABELS[type]}
+                </label>
+              ))}
+            </div>
+            {fieldError('financingTypes', ids.types)}
+          </fieldset>
+          <div>
+            <Button type="submit" className="h-11 px-4" disabled={busy || saved || archived}>
+              Enregistrer
+            </Button>
+          </div>
         </fieldset>
-        <div>
-          <Button type="submit" className="h-11 px-4" disabled={busy || saved}>
-            Enregistrer
-          </Button>
-        </div>
       </form>
+      <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </div>
   )
 }
