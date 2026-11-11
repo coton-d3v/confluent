@@ -18,6 +18,7 @@ import {
   withdrawCandidature,
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
+import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import {
   FinancingStatusBadge,
@@ -173,7 +174,7 @@ function CandidatureEditor({
     setConfirm({
       title: 'Retirer la candidature ?',
       description:
-        'Vos réponses au formulaire de la structure et le plan de financement préparé pour elle seront supprimés ; le profil de l’entreprise et la demande ne changent pas.',
+        'Vos réponses au formulaire de la structure, le plan de financement et les dispositifs préparés pour elle seront supprimés ; le profil de l’entreprise et la demande ne changent pas.',
       confirmLabel: 'Retirer',
       onConfirm: () => {
         setBusy(true)
@@ -274,6 +275,16 @@ function CandidatureEditor({
           }
         />
 
+        <EligibilitiesPanel
+          scope={{ side: 'owner', candidatureId: candidature.id }}
+          intro={
+            submitted
+              ? `Les dispositifs proposés par ${workspace.name} auxquels votre entreprise se déclare éligible pour cette demande. Ses conseillers les voient, peuvent en indiquer et les marquer vérifiés ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne les voient.`
+              : `Indiquez les dispositifs proposés par ${workspace.name} auxquels votre entreprise se déclare éligible. Ses conseillers les verront une fois la candidature envoyée ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne les voient.`
+          }
+          describeSide={(side) => (side === 'owner' ? 'par vous' : `par ${workspace.name}`)}
+        />
+
         <section
           aria-label="Ce que la structure reçoit"
           className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
@@ -281,7 +292,8 @@ function CandidatureEditor({
           <p>
             Une fois envoyée, les conseillers de {workspace.name} lisent la présentation de la
             demande « {dossier.name} », le profil de l’entreprise tel que vous l’avez renseigné
-            (sans les pièces jointes), le plan de financement ci-dessus et vos réponses ci-dessous.
+            (sans les pièces jointes), le plan de financement et les dispositifs ci-dessus et vos
+            réponses ci-dessous.
           </p>
           <p className="mt-2 text-muted-foreground">
             Ces réponses sont propres à cette candidature : ni les autres structures, ni les

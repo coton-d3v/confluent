@@ -8,6 +8,7 @@ import {
   FinancingStatusPanel,
 } from '@/features/candidatures/components/FinancingStatusPanel'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
+import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
@@ -161,6 +162,12 @@ function ReceivedCandidatureView({
           intro="Les sources de financement de cette demande, réparties selon les sources de votre structure. L’entreprise et vous pouvez compléter ce plan ; aucune autre structure ni aucun investisseur ne le voit."
           describeSide={(side) => (side === 'owner' ? 'par l’entreprise' : 'par votre structure')}
           noObjective="L’entreprise n’a pas indiqué le montant recherché de cette demande : le reste à financer ne peut pas être calculé."
+        />
+
+        <EligibilitiesPanel
+          scope={{ side: 'workspace', workspaceId, candidatureId: candidature.id }}
+          intro="Les dispositifs de votre structure auxquels l’entreprise se déclare éligible pour cette demande. Vous pouvez en indiquer et marquer une éligibilité vérifiée par votre structure ; aucune autre structure ni aucun investisseur ne les voit."
+          describeSide={(side) => (side === 'owner' ? 'par l’entreprise' : 'par votre structure')}
         />
 
         <section aria-labelledby="rc-request">
