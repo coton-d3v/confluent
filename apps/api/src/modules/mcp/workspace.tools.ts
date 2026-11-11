@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
+  FINANCING_STATUS_LABELS,
   WORKSPACE_MEMBER_ROLE_LABELS,
   canPrepareCompanies,
   canReviewCandidatures,
@@ -16,6 +17,7 @@ import { readChoices } from '../questionnaires/questionnaire-structure'
 import { canManageWorkspace } from '../workspaces/workspace-access'
 import { WorkspaceMembersService } from '../workspaces/workspace-members.service'
 import { WorkspacesService } from '../workspaces/workspaces.service'
+import { describeFinancingStatus } from './follow-up.tools'
 import { McpAccess, serviceCall } from './mcp-access'
 import type { McpCaller } from './mcp.tools'
 import type { ToolRunner } from './tool-kit'
@@ -219,6 +221,8 @@ export class WorkspaceTools {
               submittedAt: c.submittedAt,
               company: c.company.name,
               request: c.dossier,
+              financingStatus: c.financingStatus,
+              financingStatusLabel: FINANCING_STATUS_LABELS[c.financingStatus],
               siteUrl: `${site}/workspaces/${ws.id}/candidatures/${c.id}`,
             })),
           }
@@ -269,6 +273,12 @@ export class WorkspaceTools {
               version: view.form.version.version,
               sections: answeredSections(view.form.sections, view.form.fields, view.form.answers),
             },
+            // E06.09: its financing status, and what the structure may change in it.
+            financingStatus: describeFinancingStatus(view, 'workspace'),
+            followUp:
+              'Plan de financement, dispositifs et parcours : get_funding_plan, ' +
+              'list_eligibilities et get_support_path avec workspace ; notes internes : ' +
+              'get_intervention_journal.',
             siteUrl: `${site}/workspaces/${ws.id}/candidatures/${view.id}`,
           }
         }),

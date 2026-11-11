@@ -20,5 +20,7 @@ import { SupportStepsService } from './support-steps.service'
     PortfolioController,
   ],
   providers: [SupportStepsService, SupportPathsService, PortfolioService],
+  // E06.09: used by the MCP tools.
+  exports: [SupportPathsService, PortfolioService],
 })
 export class SupportPathsModule {}

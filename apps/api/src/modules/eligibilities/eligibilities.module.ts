@@ -23,5 +23,7 @@ import { EligibilitySchemesService } from './eligibility-schemes.service'
     ReceivedEligibilitiesController,
   ],
   providers: [EligibilitySchemesService, EligibilitiesService],
+  // E06.09: used by the MCP tools.
+  exports: [EligibilitiesService],
 })
 export class EligibilitiesModule {}

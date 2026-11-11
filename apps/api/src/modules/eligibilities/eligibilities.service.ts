@@ -174,9 +174,15 @@ export class EligibilitiesService {
     candidatureId: string,
     eligibilityId: string,
     version: number,
+    // `unverifiedOnly`: refuse a verified eligibility, judged on the row read under the lock — the
+    // very version consumed — never on an earlier read (code review R62).
+    opts: { unverifiedOnly?: boolean } = {},
   ): Promise<EligibilitiesView> {
     const { candidature, result } = await this.write(party, candidatureId, async (tx, current) => {
       const eligibility = await eligibilityAt(tx, current.id, eligibilityId, version)
+      if (opts.unverifiedOnly && eligibility.verifiedAt) {
+        throw EligibilityErrors.verifiedRemovalRefused()
+      }
       const scheme = await tx.eligibilityScheme.findUnique({ where: { id: eligibility.schemeId } })
       await tx.candidatureEligibility.delete({ where: { id: eligibility.id } })
       return { eligibility, scheme }

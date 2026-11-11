@@ -18,7 +18,11 @@ import type {
   OAuthTokenRevocationRequest,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
-import type { OAuthConsentRequest, OAuthConsentWorkspace } from '@confluent/shared'
+import {
+  canReviewCandidatures,
+  type OAuthConsentRequest,
+  type OAuthConsentWorkspace,
+} from '@confluent/shared'
 import type { AppConfig } from '../../config/config.schema'
 import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -39,6 +43,7 @@ import {
   mcpResourceUrl,
   newOpaqueToken,
   expandScopes,
+  type GrantContext,
   grantableScopes,
 } from './oauth.constants'
 
@@ -53,9 +58,8 @@ export interface ConfluentAuthExtra extends Record<string, unknown> {
 
 // What an account may consent to (E05.10): its active memberships, offered as the workspaces an
 // application may reach, and whether it manages one of them (form permissions, E05.09).
-interface ConsentOptions {
+interface ConsentOptions extends GrantContext {
   workspaces: OAuthConsentWorkspace[]
-  managesWorkspace: boolean
 }
 
 // RFC 8707 canonical comparison: lowercase scheme/host, no trailing slash.
@@ -294,6 +298,8 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
       managesWorkspace: memberships.some((m) =>
         canManageWorkspace(user, { ...m, deactivatedAt: null }),
       ),
+      // E06.09: a conseiller of a workspace it may allow (an administrator member of one included).
+      reviewsCandidatures: memberships.some((m) => canReviewCandidatures(user, m)),
     }
   }
 

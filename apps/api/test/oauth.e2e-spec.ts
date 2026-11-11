@@ -249,6 +249,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
 
     const forEntrepreneur = await request()
     expect(await shown(forEntrepreneur, userJwt)).toEqual([
+      'candidatures:decide',
       'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
@@ -262,6 +263,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
 
     const forAdmin = await request()
     expect(await shown(forAdmin, adminJwt)).toEqual([
+      'candidatures:decide',
       'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
@@ -367,6 +369,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       // A manager designs the forms of their workspace: offered; presenting requests is not
       // (a financeur owns no company).
       expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
+        'candidatures:decide',
+        'candidatures:support',
         'dossiers:read',
         'dossiers:submit',
         'dossiers:write',
@@ -477,6 +481,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'dossiers:present',
         'forms:write',
         'forms:publish',
+        'candidatures:support',
+        'candidatures:decide',
       ],
     })
   })

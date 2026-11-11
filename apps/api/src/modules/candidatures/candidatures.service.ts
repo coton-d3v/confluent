@@ -394,24 +394,28 @@ export class CandidaturesService {
   // ── The financing status (E06.01, decision D03 to be confirmed) ──────────────────────────────
 
   // The owner's side of the financing status of a sent candidature: the transitions
-  // `FINANCING_STATUS_TRANSITIONS` gives to `owner` (abandon, reopen their own abandonment).
+  // `FINANCING_STATUS_TRANSITIONS` gives to `owner` (abandon, reopen their own abandonment). E06.09:
+  // journaled with its origin — the site, or an AI application on the owner's explicit instruction.
   async changeFinancingStatusAsOwner(
     candidatureId: string,
     userId: string,
     change: ChangeFinancingStatusInput,
+    origin: ActionOrigin = SITE_ORIGIN,
   ): Promise<CandidatureView> {
     const { candidature, dossier } = await this.findOwned(candidatureId, userId)
     const changed = await this.prisma.$transaction(async (tx) => {
       const current = await lockCandidature(tx, candidature.id, userId)
       return applyFinancingStatus(tx, current, change, 'owner', userId)
     })
-    await this.recordStatusChange(changed, change, 'owner', userId)
+    await this.recordStatusChange(changed, change, 'owner', userId, originMetadata(origin))
     return this.ownerView(changed, dossier)
   }
 
   // The workspace's side: its conseillers and Confluent administrators — whoever reads its
   // candidatures (`404` outside the workspace, `403` for an investisseur) —, on a sent candidature
-  // of this workspace only (`404` for a draft or another workspace's).
+  // of this workspace only (`404` for a draft or another workspace's). Its journal entry belongs to
+  // the request, which its owner reads: it never carries the structure's channel nor its words (an
+  // MCP call keeps them in its own entry, outside the request's journal, E06.09).
   async changeFinancingStatusForWorkspace(
     actor: WorkspaceActor,
     workspaceId: string,
@@ -436,12 +440,14 @@ export class CandidaturesService {
     change: ChangeFinancingStatusInput,
     by: FinancingStatusActor,
     actorId: string,
+    origin: Record<string, string> = {},
   ): Promise<void> {
     await this.audit.record({
       actionType: 'candidature_status_changed',
       actorId,
       dossierId: candidature.dossierId,
       metadata: {
+        ...origin,
         candidatureId: candidature.id,
         workspaceId: candidature.workspaceId,
         from: change.from,

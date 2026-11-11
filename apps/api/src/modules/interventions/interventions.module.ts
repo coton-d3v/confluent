@@ -11,5 +11,7 @@ import { InterventionsController } from './interventions.controller'
   imports: [CandidaturesModule, WorkspacesModule],
   controllers: [InterventionsController],
   providers: [InterventionJournalService, CandidatureNotesService],
+  // E06.09: used by the MCP tools.
+  exports: [InterventionJournalService, CandidatureNotesService],
 })
 export class InterventionsModule {}
