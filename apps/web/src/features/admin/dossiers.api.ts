@@ -4,9 +4,12 @@ import type {
   AnswerInput,
   AuditLog,
   CompanySummary,
+  AccessLevel,
   Dossier,
   DossierDocumentSelected,
+  ShareAccess,
   ShareLink,
+  SharePreview,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
@@ -61,8 +64,19 @@ export function getAdminDossierAuditLog(id: string): Promise<AuditLog[]> {
   )
 }
 
-export function adminRevokeShare(dossierId: string, linkId: string): Promise<ShareLink> {
-  return apiRequest<ShareLink>(
+// E07.01: the same list of accesses and preview as the owner's, on any request.
+export function adminListShares(dossierId: string): Promise<ShareAccess[]> {
+  return apiRequest<ShareAccess[]>(`/v1/admin/dossiers/${encodeURIComponent(dossierId)}/shares`)
+}
+
+export function adminSharePreview(dossierId: string, level: AccessLevel): Promise<SharePreview> {
+  return apiRequest<SharePreview>(
+    `/v1/admin/dossiers/${encodeURIComponent(dossierId)}/share-preview?level=${encodeURIComponent(level)}`,
+  )
+}
+
+export function adminRevokeShare(dossierId: string, linkId: string): Promise<ShareAccess> {
+  return apiRequest<ShareAccess>(
     `/v1/admin/dossiers/${encodeURIComponent(dossierId)}/shares/${encodeURIComponent(linkId)}`,
     { method: 'DELETE' },
   )

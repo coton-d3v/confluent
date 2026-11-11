@@ -1,5 +1,7 @@
+import type { AccessLevel } from '@confluent/shared'
+
+export type { AccessLevel }
 export type AccessStatus = 'active' | 'pending' | 'revoked'
-export type AccessLevel = 'public' | 'partiel' | 'complet'
 
 interface AccessEntryBase {
   readonly id: string
@@ -16,6 +18,7 @@ export type AccessEntry =
       readonly status: 'revoked'
       readonly revokedAt: string
       readonly revokedAtIso: string
+      // Who revoked it, as the reader names them (« vous », « l’administration »…), or '—'.
       readonly revokedBy: string
     })
 

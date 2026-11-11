@@ -3,8 +3,14 @@ import { Info } from 'lucide-react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCurrentUser } from '@/features/current-user/context'
-import { DOSSIER_PUBLICATION_STATUS_LABELS, publicationStatusOf } from '@confluent/shared'
 import {
+  ACCESS_LEVELS,
+  ACCESS_LEVEL_LABELS,
+  DOSSIER_PUBLICATION_STATUS_LABELS,
+  publicationStatusOf,
+} from '@confluent/shared'
+import {
+  adminListShares,
   adminRevokeShare,
   getAdminDossier,
   getAdminDossierAuditLog,
@@ -22,6 +28,11 @@ import type { ApiError } from '@/lib/api-client'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { AdminDossierDetail } from '@/features/admin/dossiers.api'
+import { AccessListRow } from '@/components/confluent/AccessListRow'
+import { RevokeAccessDialog } from '@/components/confluent/RevokeAccessDialog'
+import { buildAccessEntries } from '@/features/shares/build-access-entries'
+import type { AccessEntry } from '@/features/shares/access-entry'
+import { previewHref } from '@/features/shares/preview'
 
 const SEARCH_PAGE_SIZE = 100
 
@@ -47,7 +58,7 @@ function AdminDossierBySlug() {
   }
   const item = list.data?.items.find((d) => d.slug === slug)
   if (!item) return <NotFound />
-  return <AdminDossierDetailView dossierId={item.id} dossierName={item.name} />
+  return <AdminDossierDetailView dossierId={item.id} dossierName={item.name} slug={item.slug} />
 }
 
 function NotFound() {
@@ -68,13 +79,24 @@ function NotFound() {
 function AdminDossierDetailView({
   dossierId,
   dossierName,
+  slug,
 }: {
   dossierId: string
   dossierName: string
+  slug: string
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const detailQuery = useAsync(() => getAdminDossier(dossierId), [dossierId])
   const auditQuery = useAsync(() => getAdminDossierAuditLog(dossierId), [dossierId])
+  // E07.01: the list of accesses with who revoked each one, as its owner reads it.
+  const sharesQuery = useAsync(() => adminListShares(dossierId), [dossierId])
+  const accessEntries = useMemo(
+    () => buildAccessEntries(sharesQuery.data ?? [], undefined, 'admin'),
+    [sharesQuery.data],
+  )
+  const [entryToRevoke, setEntryToRevoke] = useState<AccessEntry | null>(null)
+  const revokingRef = useRef(false)
+  const basePath = `/admin/dossiers/${encodeURIComponent(slug)}`
 
   useEffect(() => {
     headingRef.current?.focus()
@@ -100,16 +122,19 @@ function AdminDossierDetailView({
     [dossierId, detailQuery, auditQuery],
   )
 
-  async function handleRevokeShare(linkId: string) {
+  async function handleConfirmRevoke(entry: AccessEntry) {
+    if (revokingRef.current) return
+    revokingRef.current = true
     try {
-      await adminRevokeShare(dossierId, linkId)
+      await adminRevokeShare(dossierId, entry.id)
       toast.success('Accès révoqué')
-      detailQuery.refetch()
-      auditQuery.refetch()
     } catch (err) {
       const apiErr = err as ApiError
       toast.error(apiErr?.message ?? 'Révocation impossible.')
     }
+    setEntryToRevoke(null)
+    sharesQuery.refetch()
+    auditQuery.refetch()
   }
 
   return (
@@ -201,44 +226,69 @@ function AdminDossierDetailView({
             })}
           </div>
 
-          <section className="mt-10">
-            <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">
-              Partages
+          <section className="mt-10" aria-labelledby="shares-heading">
+            <h2
+              id="shares-heading"
+              className="font-heading text-xl font-semibold text-foreground md:text-2xl"
+            >
+              Accès par lien nominatif
             </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Vous pouvez révoquer un accès ; le porteur de projet le verra « révoqué par
+              l’administration ». Le niveau d’un accès reste la décision du porteur.
+            </p>
             <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
-              {detailQuery.data.shareLinks.length === 0 ? (
+              {sharesQuery.isLoading ? (
+                <p className="px-4 py-6 text-center text-sm text-muted-foreground">Chargement…</p>
+              ) : sharesQuery.error ? (
+                <p className="px-4 py-6 text-center text-sm text-destructive">
+                  Impossible de charger les accès.
+                </p>
+              ) : accessEntries.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">
                   Aucun partage pour ce dossier.
                 </p>
               ) : (
-                <ul role="list" className="m-0 list-none divide-y divide-border p-0">
-                  {detailQuery.data.shareLinks.map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-foreground">{s.recipientEmail}</p>
-                        <p className="text-xs text-muted-foreground">Statut : {s.status}</p>
-                      </div>
-                      {s.status !== 'revoked' && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRevokeShare(s.id)}
-                        >
-                          Révoquer
-                        </Button>
-                      )}
-                    </li>
+                <ul role="list" className="m-0 list-none p-0">
+                  {accessEntries.map((entry) => (
+                    <AccessListRow
+                      key={entry.id}
+                      entry={entry}
+                      onRevokeClick={(e) => {
+                        revokingRef.current = false
+                        setEntryToRevoke(e)
+                      }}
+                      previewHref={previewHref(basePath, entry.accessLevel)}
+                    />
                   ))}
                 </ul>
               )}
             </div>
+            <h3 className="mt-6 text-sm font-medium text-foreground">Voir comme le destinataire</h3>
+            <ul role="list" className="mt-2 flex flex-wrap gap-2">
+              {ACCESS_LEVELS.map((level) => (
+                <li key={level}>
+                  <Link
+                    to={previewHref(basePath, level)}
+                    className="inline-flex min-h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground hover:border-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                  >
+                    Accès {ACCESS_LEVEL_LABELS[level].toLowerCase()}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
         </>
       )}
+
+      <RevokeAccessDialog
+        open={entryToRevoke !== null}
+        entry={entryToRevoke}
+        onOpenChange={(open) => {
+          if (!open) setEntryToRevoke(null)
+        }}
+        onConfirm={handleConfirmRevoke}
+      />
 
       <section className="mt-10">
         <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">
