@@ -14,6 +14,9 @@ import AdminFormsRoute from '@/routes/admin/formulaires'
 import AdminClassificationRoute from '@/routes/admin/classification'
 import AdminFormEditorRoute from '@/routes/admin/formulaires/[formId]'
 import AdminUtilisateursRoute from '@/routes/admin/utilisateurs'
+import AdminWorkspacesRoute from '@/routes/admin/workspaces'
+import AdminWorkspaceNewRoute from '@/routes/admin/workspaces/nouveau'
+import AdminWorkspaceRoute from '@/routes/admin/workspaces/[workspaceId]'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
 import AuthRoute from '@/routes/auth'
@@ -70,6 +73,13 @@ export const router = createBrowserRouter([
       // Former single-questionnaire page, replaced by the form builder.
       { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
       { path: 'admin/utilisateurs', element: <AdminUtilisateursRoute /> },
+      { path: 'admin/workspaces', element: <AdminWorkspacesRoute /> },
+      { path: 'admin/workspaces/nouveau', element: <AdminWorkspaceNewRoute /> },
+      {
+        path: 'admin/workspaces/:workspaceId',
+        element: <AdminWorkspaceRoute />,
+        handle: { hideBreadcrumb: true },
+      },
       { path: '*', element: <NotFoundRoute /> },
     ],
   },
