@@ -91,6 +91,8 @@ async function instantiate(
 }
 
 const OWNER = { id: 'u-1', role: 'entrepreneur' }
+// A dossier of u-1's own company, as read with the company's holder (E05.08).
+const OWNED = { userId: 'u-1', company: { ownerId: 'u-1', preparedInWorkspaceId: null } }
 
 describe('DossiersService', () => {
   it('creates a dossier with a slugified name and resolves a unique slug', async () => {
@@ -137,20 +139,30 @@ describe('DossiersService', () => {
 
   it('scopes list to the authenticated entrepreneur user', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findMany.mockResolvedValue([{ id: 'd-1', company: { id: 'c-1', name: 'X' } }])
+    prisma.dossier.findMany.mockResolvedValue([
+      { id: 'd-1', company: { id: 'c-1', name: 'X', ownerId: 'u-1', preparedInWorkspaceId: null } },
+    ])
     const svc = await instantiate(prisma)
 
-    await svc.listForUser({ id: 'u-1', email: 'user@example.com', role: 'entrepreneur' })
+    const rows = await svc.listForUser({
+      id: 'u-1',
+      email: 'user@example.com',
+      role: 'entrepreneur',
+    })
     expect(prisma.dossier.findMany).toHaveBeenCalledWith({
       where: { userId: 'u-1' },
-      include: { company: { select: { id: true, name: true } } },
+      include: {
+        company: { select: { id: true, name: true, ownerId: true, preparedInWorkspaceId: true } },
+      },
       orderBy: { createdAt: 'desc' },
     })
+    expect(rows).toEqual([{ id: 'd-1', company: { id: 'c-1', name: 'X', inPreparation: false } }])
   })
 
   it('scopes list to shared dossiers for a financeur and projects by access level', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findMany.mockResolvedValue([
+    // Owned first (none), then shared.
+    prisma.dossier.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {
         id: 'd-2',
         sector: 'biotech',
@@ -176,6 +188,9 @@ describe('DossiersService', () => {
 
     const [row] = await svc.listForUser({ id: 'u-2', email: 'fin@example.com', role: 'financeur' })
     expect(prisma.dossier.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'u-2' } }),
+    )
+    expect(prisma.dossier.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { shareLinks: { some: { recipientEmail: 'fin@example.com', status: 'active' } } },
         orderBy: { createdAt: 'desc' },
@@ -192,7 +207,7 @@ describe('DossiersService', () => {
 
     it('grants complet to the owner', async () => {
       const prisma = buildPrisma()
-      prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+      prisma.dossier.findUnique.mockResolvedValue({ ...OWNED, id: 'd-1' })
       const svc = await instantiate(prisma)
       const res = await svc.resolveReadAccess('d-1', {
         id: 'u-1',
@@ -258,12 +273,7 @@ describe('DossiersService', () => {
 
   it('updates name and regenerates slug', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findUnique.mockResolvedValue({
-      id: 'd-1',
-      userId: 'u-1',
-      name: 'Old',
-      slug: 'old',
-    })
+    prisma.dossier.findUnique.mockResolvedValue({ ...OWNED, id: 'd-1', name: 'Old', slug: 'old' })
     prisma.dossier.findMany.mockResolvedValue([])
     prisma.dossier.update.mockResolvedValue({
       id: 'd-1',
@@ -283,7 +293,7 @@ describe('DossiersService', () => {
 
   it('deletes the dossier under its profile’s lock and relies on prisma cascade for children', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1', companyId: 'c-1' })
+    prisma.dossier.findUnique.mockResolvedValue({ ...OWNED, id: 'd-1', companyId: 'c-1' })
     const svc = await instantiate(prisma)
 
     await svc.delete('d-1', 'u-1')

@@ -115,7 +115,7 @@ describe('Dossiers and companies (e2e)', () => {
   it('creates a dossier with its company, named after it and owned by the same account', async () => {
     const body = await create(SOPHIE, 'Biosensio')
     expect(body).toMatchObject({ name: 'Biosensio', slug: 'biosensio', userId: SOPHIE.id })
-    expect(body.company).toEqual({ id: body.companyId, name: 'Biosensio' })
+    expect(body.company).toEqual({ id: body.companyId, name: 'Biosensio', inPreparation: false })
     expect(dossierSchema.safeParse(body).error?.issues ?? []).toEqual([])
     expect(fake.table('company').get(body.companyId)).toMatchObject({
       ownerId: SOPHIE.id,
@@ -144,10 +144,10 @@ describe('Dossiers and companies (e2e)', () => {
 
     const list = (await as(SOPHIE).get('/v1/dossiers').expect(200)).body
     expect(list.map((d: { id: string }) => d.id)).toEqual([own.id])
-    expect(list[0].company).toEqual({ id: own.companyId, name: 'Biosensio' })
+    expect(list[0].company).toEqual({ id: own.companyId, name: 'Biosensio', inPreparation: false })
 
     const detail = (await as(SOPHIE).get(`/v1/dossiers/${own.id}`).expect(200)).body
-    expect(detail.company).toEqual({ id: own.companyId, name: 'Biosensio' })
+    expect(detail.company).toEqual({ id: own.companyId, name: 'Biosensio', inPreparation: false })
     await as(SOPHIE).get(`/v1/dossiers/${other.id}`).expect(404)
   })
 

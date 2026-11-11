@@ -116,7 +116,7 @@ export class AnswersService {
     const cited = await this.sources.check(dossier, answers)
     return this.prisma.$transaction(async (tx) => {
       // The dossier carries its company's profile version (kept equal by the database).
-      const current = await lockProfile(tx, dossier.id)
+      const current = await lockProfile(tx, dossier)
       const fields = await tx.questionnaireField.findMany({
         where: { versionId: current.questionnaireVersionId },
       })
@@ -158,7 +158,7 @@ export class AnswersService {
     author: AnswerAuthor,
   ): Promise<DossierAnswer> {
     return this.prisma.$transaction(async (tx) => {
-      const { companyId } = await lockProfile(tx, dossier.id)
+      const { companyId } = await lockProfile(tx, dossier)
       const current = await tx.dossierAnswer.findUnique({
         where: { companyId_fieldId: { companyId, fieldId } },
       })

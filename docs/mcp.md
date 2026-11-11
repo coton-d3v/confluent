@@ -116,6 +116,8 @@ Les documents longs sont découpés en parties d'environ 20 000 caractères ; au
 
 **Droits.** Propriétaire : toute la bibliothèque de l'entreprise de ses dossiers ; dépôt avec `dossiers:write` (un nouveau document est sélectionné par le dossier par lequel il est déposé). Financeur : les seuls documents que la demande sélectionne (E05.07), avec la seule version sélectionnée — la dernière, ou celle épinglée —, parmi ceux que son niveau de partage permet de lire dans le site (celui de la question pour une pièce jointe, partage complet pour les autres documents), jamais de dépôt. Le choix des documents, la présentation et la publication d'une demande se font dans le site (outils MCP : E05.10). Aucune URL de téléchargement n'est transmise à l'assistant.
 
+**Entreprise préparée par un conseiller (E05.08).** Tant qu'un conseiller tient une entreprise préparée pour un entrepreneur, il en est le propriétaire pour ces outils comme pour le site — seulement tant qu'il est conseiller actif du workspace où il l'a préparée — : il peut la lire et la compléter, jamais la partager ni publier ses demandes. Dès que l'entrepreneur accepte la proposition (dans le site), tout passe à l'entrepreneur et le conseiller n'y a plus accès. Préparer, inviter et accepter se font dans le site (outils MCP : E05.10).
+
 Chaque appel est inscrit au journal (utilisateur, application, outil, cible, document lu ou déposé, résultat).
 
 ## Provenance des réponses

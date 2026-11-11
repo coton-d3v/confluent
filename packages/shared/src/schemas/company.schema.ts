@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { companyOwnerEmailSchema, companyPreparationSchema } from './company-transfer.schema.js'
 import { dossierPublicationStatusSchema, financingTypeSchema } from './financing.schema.js'
 
 // Companies (ROADMAP E05.04): the company an entrepreneur presents, owner of the common profile and,
@@ -22,7 +23,26 @@ export const COMPANY_NAME_MAX_LENGTH = 200
 export const companySummarySchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(COMPANY_NAME_MAX_LENGTH),
+  // E05.08: true while a conseiller holds the company for an entrepreneur (given to that conseiller
+  // only): it can then be neither shared nor published.
+  inPreparation: z.boolean().optional(),
 })
+
+// E05.08: a company a conseiller prepares in a workspace for an entrepreneur, with its first
+// financing request (named after it), and the invitation sent to that entrepreneur.
+export const prepareCompanySchema = z
+  .object({
+    companyName: z
+      .string()
+      .trim()
+      .min(1, 'Le nom de l’entreprise est obligatoire.')
+      .max(
+        COMPANY_NAME_MAX_LENGTH,
+        `Le nom de l’entreprise compte au plus ${COMPANY_NAME_MAX_LENGTH} caractères.`,
+      ),
+    ownerEmail: companyOwnerEmailSchema,
+  })
+  .strict()
 
 // A financing dossier (request) as listed under its company, with what tells it apart (E05.07).
 export const companyDossierSchema = z.object({
@@ -39,12 +59,16 @@ export const companyDossierSchema = z.object({
 })
 
 // What the owner reads of their company. No owner identifier: only the owner reads it.
-export const companySchema = companySummarySchema.extend({
+export const companySchema = companySummarySchema.omit({ inPreparation: true }).extend({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   dossiers: z.array(companyDossierSchema),
+  // E05.08: null for a company of its own; for a company a conseiller holds for an entrepreneur,
+  // the workspace it is prepared in and its latest invitation.
+  preparation: companyPreparationSchema.nullable(),
 })
 
 export type CompanySummary = z.infer<typeof companySummarySchema>
 export type CompanyDossier = z.infer<typeof companyDossierSchema>
 export type Company = z.infer<typeof companySchema>
+export type PrepareCompanyInput = z.input<typeof prepareCompanySchema>

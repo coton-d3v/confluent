@@ -4,11 +4,12 @@ import { createTransport, type Transporter } from 'nodemailer'
 import type { AppConfig } from '../../../config/config.schema'
 import type {
   EmailTransport,
+  SendCompanyTransferInviteInput,
   SendMagicLinkInput,
   SendShareInviteInput,
   SendWorkspaceInviteInput,
 } from './email-transport'
-import { render } from './template-renderer'
+import { render, templateString } from './template-renderer'
 
 @Injectable()
 export class NodemailerTransport implements EmailTransport {
@@ -51,6 +52,25 @@ export class NodemailerTransport implements EmailTransport {
       workspaceName: input.workspaceName,
       roleLabel: input.roleLabel,
       signInUrl: input.signInUrl,
+    })
+    await this.send({ to: input.to, subject, html, text })
+  }
+
+  async sendCompanyTransferInvite(input: SendCompanyTransferInviteInput): Promise<void> {
+    const { subject, html, text } = render('company-transfer-invite', input.locale, {
+      companyName: input.companyName,
+      workspaceName: input.workspaceName,
+      fromLabel: input.fromLabel,
+      expiresOn: new Intl.DateTimeFormat('fr-FR', {
+        dateStyle: 'long',
+        timeZone: 'Europe/Paris',
+      }).format(input.expiresAt),
+      accountLine: templateString(
+        'company-transfer-invite',
+        input.locale,
+        input.existingAccount ? 'accountExisting' : 'accountCreated',
+      ),
+      invitationsUrl: input.invitationsUrl,
     })
     await this.send({ to: input.to, subject, html, text })
   }

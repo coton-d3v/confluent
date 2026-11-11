@@ -4,12 +4,24 @@ import type { Locale } from './email-transport'
 
 const TEMPLATES_DIR = join(__dirname, 'templates')
 
-export type TemplateName = 'magic-link' | 'share-invite' | 'workspace-invite'
+export type TemplateName =
+  | 'magic-link'
+  | 'share-invite'
+  | 'workspace-invite'
+  | 'company-transfer-invite'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
   'share-invite': { dossierName: string; shareUrl: string }
   'workspace-invite': { workspaceName: string; roleLabel: string; signInUrl: string }
+  'company-transfer-invite': {
+    companyName: string
+    workspaceName: string
+    fromLabel: string
+    expiresOn: string
+    accountLine: string
+    invitationsUrl: string
+  }
 }
 
 export interface RenderedEmail {
@@ -99,6 +111,13 @@ export function render<T extends TemplateName>(
   const html = substitute(loadHtml(name), allVars, true)
   const text = substitute(loadTxt(name), allVars, false)
   return { subject, html, text }
+}
+
+// One string of a template's i18n block, for a sentence chosen by the sender.
+export function templateString(name: TemplateName, locale: Locale, key: string): string {
+  const value = loadI18n(locale)[name]?.[key]
+  if (value === undefined) throw new Error(`Missing "${key}" in i18n[${locale}][${name}]`)
+  return value
 }
 
 export function clearCacheForTesting(): void {

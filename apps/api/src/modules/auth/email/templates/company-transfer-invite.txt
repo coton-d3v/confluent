@@ -1,0 +1,16 @@
+{{brandLabel}}
+
+{{title}}
+
+{{body}}
+
+  {{companyName}}
+  {{preparedBy}} {{fromLabel}}, {{workspaceIntro}} {{workspaceName}}.
+
+{{decision}} {{expiresIntro}} {{expiresOn}}. {{accountLine}}
+
+{{cta}} : {{invitationsUrl}}
+
+{{signInHint}}
+
+{{footer}}

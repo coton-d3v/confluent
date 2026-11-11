@@ -42,6 +42,11 @@ export const auditActionSchema = z.enum([
   'dossier_unpublished',
   'dossier_document_selected',
   'dossier_document_unselected',
+  'company_prepared',
+  'company_transfer_invited',
+  'company_transfer_accepted',
+  'company_transfer_declined',
+  'company_transfer_cancelled',
 ]);
 
 export const auditLogSchema = z.object({

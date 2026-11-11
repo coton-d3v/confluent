@@ -10,5 +10,13 @@
     "workspaceName": "CCI Touraine",
     "roleLabel": "conseiller",
     "signInUrl": "https://confluent.local/auth"
+  },
+  "company-transfer-invite": {
+    "companyName": "Biosensio",
+    "workspaceName": "CCI Touraine",
+    "fromLabel": "Marie Dupont (marie@cci-touraine.fr)",
+    "expiresOn": "11 décembre 2026",
+    "accountLine": "Elle sera rattachée à votre compte Confluent existant.",
+    "invitationsUrl": "https://confluent.local/dashboard/propositions"
   }
 }

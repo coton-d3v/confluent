@@ -100,7 +100,9 @@ export function createFakePrisma() {
         orderBy,
       }: { where?: Where; include?: Record<string, unknown>; orderBy?: unknown } = {}) =>
         Promise.resolve(
-          sorted(name, filtered(name, where), orderBy).map((r) => withInclude(name, r, include)),
+          sorted(name, filtered(name, where), orderBy)
+            .filter((r) => relationsMatch(name, r, where))
+            .map((r) => withInclude(name, r, include)),
         ),
     ),
     count: jest.fn(({ where }: { where?: Where } = {}) =>
@@ -209,6 +211,12 @@ export function createFakePrisma() {
   })
 
   const get = (name: string, id: unknown) => table(name).get(id as string)
+  // `{ shareLinks: { some: … } }` on dossiers: the dossiers shared with a recipient.
+  const relationsMatch = (name: string, row: Row, where?: Where) => {
+    const some = (where?.shareLinks as { some?: Where } | undefined)?.some
+    if (name !== 'dossier' || !some) return true
+    return filtered('shareLink', { ...some, dossierId: row.id }).length > 0
+  }
   const filtered = (name: string, where?: Where) =>
     [...table(name).values()].filter((r) => matches(r, where))
   // orderBy on columns and on one level of to-one relation, e.g. { section: { orderIndex: 'asc' } }.
@@ -272,6 +280,21 @@ export function createFakePrisma() {
   // answers, as read by the classification (E05.05).
   includes.company = (row, include) => ({
     ...row,
+    ...(include.owner ? { owner: get('user', row.ownerId) } : {}),
+    ...(include.preparedInWorkspace
+      ? {
+          preparedInWorkspace: row.preparedInWorkspaceId
+            ? (get('workspace', row.preparedInWorkspaceId) ?? null)
+            : null,
+        }
+      : {}),
+    ...(include.transfers
+      ? {
+          transfers: sorted('companyTransfer', filtered('companyTransfer', { companyId: row.id }), {
+            createdAt: 'desc',
+          }).slice(0, (include.transfers as { take?: number }).take ?? undefined),
+        }
+      : {}),
     ...(include.answers ? { answers: filtered('dossierAnswer', { companyId: row.id }) } : {}),
     ...(include.profileVersion
       ? {
@@ -339,6 +362,44 @@ export function createFakePrisma() {
     ...(include.workspace ? { workspace: get('workspace', row.workspaceId) } : {}),
   })
 
+  // E05.08: a company's new owner reaches its dossiers through their (company_id, user_id) foreign
+  // key, ON UPDATE CASCADE.
+  function withOwnerCascade<M extends ReturnType<typeof model>>(m: M): M {
+    const update = m.update
+    m.update = jest.fn(async (args: Parameters<typeof update>[0]) => {
+      const row = await update(args)
+      if (args.data.ownerId !== undefined) {
+        for (const d of table('dossier').values()) {
+          if (d.companyId === row.id) d.userId = row.ownerId
+        }
+      }
+      return row
+    }) as unknown as M['update']
+    return m
+  }
+
+  // Transfer with its company (and that company's own includes), workspace and people (E05.08).
+  includes.companyTransfer = (row, include) => {
+    const companyInclude = include.company as { include?: Record<string, unknown> } | true
+    const company = get('company', row.companyId)
+    return {
+      ...row,
+      ...(include.company
+        ? {
+            company:
+              company && typeof companyInclude === 'object' && companyInclude.include
+                ? includes.company({ ...company }, companyInclude.include)
+                : company && { ...company },
+          }
+        : {}),
+      ...(include.workspace ? { workspace: get('workspace', row.workspaceId) } : {}),
+      ...(include.fromUser
+        ? { fromUser: row.fromUserId ? (get('user', row.fromUserId) ?? null) : null }
+        : {}),
+      ...(include.toUser ? { toUser: get('user', row.toUserId) } : {}),
+    }
+  }
+
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),
@@ -359,7 +420,12 @@ export function createFakePrisma() {
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
     oAuthGrant: model('oAuthGrant', () => ({ revokedAt: null, lastUsedAt: null })),
     oAuthToken: model('oAuthToken', () => ({ usedAt: null, revokedAt: null, scopes: [] })),
-    company: model('company'),
+    company: withOwnerCascade(model('company', () => ({ preparedInWorkspaceId: null }))),
+    companyTransfer: model('companyTransfer', () => ({
+      status: 'pending',
+      decidedAt: null,
+      fromUserId: null,
+    })),
     dossier: model('dossier', () => ({
       submittedAt: null,
       sector: null,

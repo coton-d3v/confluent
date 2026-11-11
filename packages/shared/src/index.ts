@@ -1,6 +1,7 @@
 export * from './schemas/user.schema.js'
 export * from './schemas/financing.schema.js'
 export * from './schemas/company.schema.js'
+export * from './schemas/company-transfer.schema.js'
 export * from './schemas/dossier.schema.js'
 export * from './schemas/access-level.schema.js'
 export * from './schemas/share-link.schema.js'

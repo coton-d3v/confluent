@@ -99,9 +99,12 @@ describe('document library (PostgreSQL)', () => {
         orderIndex: 0,
       },
     })
-    const { id: company } = await tx.company.create({
-      data: { ownerId: user.id, name: 'Legacy', profileVersionId: version.id },
-    })
+    // Plain SQL: the later migrations (E05.08's column of companies among them) are undone.
+    const company = randomUUID()
+    await tx.$executeRawUnsafe(
+      `INSERT INTO companies (id, owner_id, name, profile_version_id, updated_at)
+       VALUES ('${company}', '${user.id}', 'Legacy', '${version.id}', now())`,
+    )
     const ids = Array.from({ length: 5 }, () => randomUUID())
     await tx.$executeRawUnsafe(
       `INSERT INTO documents (id, company_id, field_id, filename, mimetype, storage_key, size, version, created_at)
