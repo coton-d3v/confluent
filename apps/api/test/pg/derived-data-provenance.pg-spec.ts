@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { SITE_ORIGIN } from '../../src/modules/audit/action-origin'
+import { AuditService } from '../../src/modules/audit/audit.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
@@ -10,7 +12,12 @@ import { testDatabase } from './database'
 describe('derived data and rule changes (PostgreSQL)', () => {
   const prisma = testDatabase()
   const classification = new ClassificationService(prisma)
-  const dossiers = new DossiersService(prisma, new QuestionnairesService(prisma), classification)
+  const dossiers = new DossiersService(
+    prisma,
+    new QuestionnairesService(prisma),
+    classification,
+    new AuditService(prisma),
+  )
   afterAll(() => prisma.$disconnect())
 
   it('a rule change without reclassification never reveals a confidential source', async () => {
@@ -64,7 +71,7 @@ describe('derived data and rule changes (PostgreSQL)', () => {
       const rule = await prisma.classificationRule.create({
         data: { dimension: 'sector', fieldKey: privateKey },
       })
-      await dossiers.submit(dossier.id, user.id)
+      await dossiers.submit(dossier.id, user.id, SITE_ORIGIN)
       const submitted = await prisma.dossier.findUniqueOrThrow({ where: { id: dossier.id } })
       expect(submitted.sector).toBe('Secret')
 

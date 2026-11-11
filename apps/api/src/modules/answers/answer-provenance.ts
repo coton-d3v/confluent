@@ -49,6 +49,12 @@ export function declarationErrors(
     }))
 }
 
+// An AI proposal the person has not confirmed yet (E04.05): it counts as an answer, and is shown
+// as « à confirmer » until the person confirms or corrects it.
+export function isPendingProposal(row: Pick<DossierAnswer, 'origin' | 'confirmation'>): boolean {
+  return row.origin === 'ai' && row.confirmation === 'pending'
+}
+
 // The provenance columns written with a value.
 export function provenanceColumns(
   answer: AnswerDeclaration,

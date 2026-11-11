@@ -9,6 +9,7 @@ export const auditActionSchema = z.enum([
   'dossier_created',
   'dossier_updated',
   'dossier_classified',
+  'classification_rules_updated',
   'questionnaire_version_published',
   'user_deactivated',
   'user_reactivated',
@@ -28,6 +29,7 @@ export const auditActionSchema = z.enum([
   'form_updated',
   'form_draft_created',
   'form_draft_discarded',
+  'dossier_submitted',
 ]);
 
 export const auditLogSchema = z.object({

@@ -9,6 +9,9 @@ import {
   storedClassification,
 } from '../classification/classification.service'
 import { lockDossier } from './dossier-lock'
+import { isPendingProposal } from '../answers/answer-provenance'
+import { type ActionOrigin, originMetadata } from '../audit/action-origin'
+import { AuditService } from '../audit/audit.service'
 import { attachedFieldIds } from '../documents/attached-fields'
 import {
   fieldVisibleAt,
@@ -40,6 +43,7 @@ export class DossiersService {
     private readonly prisma: PrismaService,
     private readonly questionnaires: QuestionnairesService,
     private readonly classification: ClassificationService,
+    private readonly audit: AuditService,
   ) {}
 
   async create(params: CreateDossierParams): Promise<Dossier> {
@@ -176,37 +180,59 @@ export class DossiersService {
   // Verified on the server (E03.10): every required question of the dossier's version is answered.
   // Submitting again refreshes the classification but keeps the first submission date. Check,
   // classification and submission happen under the dossier's lock, so a save in progress is either
-  // seen complete or waits for the submission (code review R40).
-  async submit(id: string, userId: string): Promise<Dossier> {
+  // seen complete or waits for the submission (code review R40). The same submission whatever the
+  // channel (E04.08): the site, or an AI application on the owner's explicit instruction, which
+  // `origin` records in the journal. AI proposals still to confirm do not block it (E04.05, D02).
+  async submit(id: string, userId: string, origin: ActionOrigin): Promise<Dossier> {
     const { id: dossierId } = await this.getByIdForUser(id, userId)
-    return this.prisma.$transaction(async (tx) => {
-      const dossier = await lockDossier(tx, dossierId)
-      const [structure, answers, attached] = await Promise.all([
-        this.questionnaires.getVersion(dossier.questionnaireVersionId),
-        tx.dossierAnswer.findMany({ where: { dossierId } }),
-        attachedFieldIds(tx, dossierId),
-      ])
-      const missing = missingRequiredAnswers(
-        structure?.fields ?? [],
-        Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
-        attached,
-      )
-      if (missing.length > 0) {
-        throw new UnprocessableEntityException({
-          code: 'DOSSIER_INCOMPLETE',
-          message: `${missing.length} réponse(s) obligatoire(s) manquante(s).`,
-          details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
+    const { submitted, firstSubmission, pendingProposals } = await this.prisma.$transaction(
+      async (tx) => {
+        const dossier = await lockDossier(tx, dossierId)
+        const [structure, answers, attached] = await Promise.all([
+          this.questionnaires.getVersion(dossier.questionnaireVersionId),
+          tx.dossierAnswer.findMany({ where: { dossierId } }),
+          attachedFieldIds(tx, dossierId),
+        ])
+        const missing = missingRequiredAnswers(
+          structure?.fields ?? [],
+          Object.fromEntries(answers.map((a) => [a.fieldId, a.value])),
+          attached,
+        )
+        if (missing.length > 0) {
+          throw new UnprocessableEntityException({
+            code: 'DOSSIER_INCOMPLETE',
+            message: `${missing.length} réponse(s) obligatoire(s) manquante(s).`,
+            details: missing.map((f) => ({ fieldId: f.id, label: f.label })),
+          })
+        }
+        const classification = await this.classification.evaluate(dossierId, tx)
+        const updated = await tx.dossier.update({
+          where: { id: dossierId },
+          data: {
+            ...(classification ? storedClassification(classification) : {}),
+            submittedAt: dossier.submittedAt ?? new Date(),
+          },
         })
-      }
-      const classification = await this.classification.evaluate(dossierId, tx)
-      return tx.dossier.update({
-        where: { id: dossierId },
-        data: {
-          ...(classification ? storedClassification(classification) : {}),
-          submittedAt: dossier.submittedAt ?? new Date(),
-        },
-      })
+        return {
+          submitted: updated,
+          firstSubmission: dossier.submittedAt === null,
+          pendingProposals: answers.filter(isPendingProposal).length,
+        }
+      },
+    )
+    await this.audit.record({
+      actionType: 'dossier_submitted',
+      actorId: userId,
+      dossierId,
+      metadata: {
+        ...originMetadata(origin),
+        firstSubmission,
+        submittedAt: submitted.submittedAt?.toISOString() ?? null,
+        questionnaireVersionId: submitted.questionnaireVersionId,
+        pendingProposals,
+      },
     })
+    return submitted
   }
 
   private async uniqueSlug(base: string, ignoreDossierId?: string): Promise<string> {

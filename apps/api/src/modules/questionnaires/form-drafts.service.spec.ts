@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common'
+import { SITE_ORIGIN } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { FormDraftsService, type FormVersionView } from './form-drafts.service'
@@ -91,7 +92,7 @@ describe('FormDraftsService', () => {
   it('publishing archives the previous version; a new draft copies it and edits never reach it', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    const v1 = await s.drafts.publishDraft(ADMIN, form.id)
+    const v1 = await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     expect(v1.version).toMatchObject({ status: 'published', version: 1 })
     expect(v1.form).toMatchObject({ published: { version: 1 }, draft: null })
 
@@ -124,7 +125,7 @@ describe('FormDraftsService', () => {
       ],
     })
 
-    const published = await s.drafts.publishDraft(ADMIN, form.id)
+    const published = await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     expect(published.version).toMatchObject({ status: 'published', version: 2 })
     const v1Final = await s.drafts.getVersion(form.id, v1.version.id)
     expect(v1Final.version.status).toBe('archived')
@@ -140,7 +141,7 @@ describe('FormDraftsService', () => {
     const s = setup()
     const { form } = await formWithStage(s)
     await expect(s.drafts.createDraft(ADMIN, form.id)).rejects.toBeInstanceOf(ConflictException)
-    await s.drafts.publishDraft(ADMIN, form.id)
+    await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     await expect(s.drafts.addSection(ADMIN, form.id, { title: 'Équipe' })).rejects.toBeInstanceOf(
       NotFoundException,
     )
@@ -159,7 +160,7 @@ describe('FormDraftsService', () => {
     draft = await s.drafts.addSection(ADMIN, form.id, { title: 'Finances' })
     expect(draft.problems.map((p) => p.code)).toEqual(['EMPTY_SECTION', 'SELECT_WITHOUT_CHOICES'])
 
-    const attempt = s.drafts.publishDraft(ADMIN, form.id)
+    const attempt = s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     await expect(attempt).rejects.toBeInstanceOf(UnprocessableEntityException)
     expect((await s.drafts.getDraft(form.id)).version.status).toBe('draft')
   })
@@ -236,7 +237,7 @@ describe('FormDraftsService', () => {
   it('discards a draft and its structure; the published version stays', async () => {
     const s = setup()
     const { form } = await formWithStage(s)
-    await s.drafts.publishDraft(ADMIN, form.id)
+    await s.drafts.publishDraft(ADMIN, form.id, undefined, SITE_ORIGIN)
     const draft = await s.drafts.createDraft(ADMIN, form.id)
     await s.drafts.discardDraft(ADMIN, form.id)
     await expect(s.drafts.getDraft(form.id)).rejects.toBeInstanceOf(NotFoundException)
@@ -275,7 +276,7 @@ describe('FormDraftsService', () => {
         () => s.forms.restore(other, form.id),
         () => s.drafts.createDraft(other, form.id),
         () => s.drafts.discardDraft(other, form.id),
-        () => s.drafts.publishDraft(other, form.id),
+        () => s.drafts.publishDraft(other, form.id, undefined, SITE_ORIGIN),
         () => s.drafts.addSection(other, form.id, { title: 'Intrus' }),
         () => s.drafts.updateSection(other, form.id, sectionId, { title: 'Intrus' }),
         () => s.drafts.removeSection(other, form.id, sectionId),

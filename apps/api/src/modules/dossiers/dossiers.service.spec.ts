@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing'
 import { NotFoundException } from '@nestjs/common'
 import { DossiersService } from './dossiers.service'
+import { AuditService } from '../audit/audit.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
@@ -63,6 +64,7 @@ async function instantiate(
           classify: jest.fn().mockResolvedValue({ sector: null, maturityStage: null }),
         },
       },
+      { provide: AuditService, useValue: { record: jest.fn() } },
     ],
   }).compile()
   return moduleRef.get(DossiersService)

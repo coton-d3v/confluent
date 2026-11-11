@@ -67,6 +67,7 @@ enum audit_action {
   form_draft_created
   form_draft_discarded
   classification_rules_updated
+  dossier_submitted
 
   @@map("audit_action")
 }
