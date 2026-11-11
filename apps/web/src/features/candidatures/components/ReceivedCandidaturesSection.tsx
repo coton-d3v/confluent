@@ -241,8 +241,13 @@ function PhaseTabs({
           size="sm"
           variant={phase === tab.value ? 'default' : 'outline'}
           aria-pressed={phase === tab.value}
+          // A current step belongs to a candidature in preparation (R60): « Prêtes à lever » and
+          // « Sans parcours » drop it.
           onClick={() =>
-            onChange({ phase: tab.value, ...(tab.value === 'ready' ? { step: '' } : {}) })
+            onChange({
+              phase: tab.value,
+              ...(tab.value === 'ready' || tab.value === 'no_path' ? { step: '' } : {}),
+            })
           }
         >
           {tab.label} ({tab.count})
