@@ -139,6 +139,12 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
               >
                 Sources de financement
               </Link>
+              <Link
+                to={`/admin/workspaces/${workspace.id}/dispositifs`}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Dispositifs
+              </Link>
             </div>
           )}
           {!membership && (

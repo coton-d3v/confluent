@@ -6,7 +6,8 @@ import type {
   CandidatureSummary,
   CandidatureWorkspace,
   ReceivedCandidature,
-  ReceivedCandidatureSummary,
+  ReceivedCandidatureListItem,
+  ReceivedCandidaturesQuery,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
@@ -51,9 +52,19 @@ export const changeFinancingStatus = (candidatureId: string, change: ChangeFinan
     body: JSON.stringify(change),
   })
 
-// The workspace's side: its conseillers read the candidatures it receives.
-export const listReceivedCandidatures = (workspaceId: string) =>
-  apiRequest<ReceivedCandidatureSummary[]>(`/v1/workspaces/${id(workspaceId)}/candidatures`)
+// The workspace's side: its conseillers read the candidatures it receives, filtered by scheme,
+// verification and financing status when asked (E06.05).
+export const listReceivedCandidatures = (
+  workspaceId: string,
+  filter: ReceivedCandidaturesQuery = {},
+) => {
+  const query = new URLSearchParams(
+    Object.entries(filter).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  ).toString()
+  return apiRequest<ReceivedCandidatureListItem[]>(
+    `/v1/workspaces/${id(workspaceId)}/candidatures${query ? `?${query}` : ''}`,
+  )
+}
 
 export const getReceivedCandidature = (workspaceId: string, candidatureId: string) =>
   apiRequest<ReceivedCandidature>(
