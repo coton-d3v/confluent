@@ -4,12 +4,14 @@ import {
   INVESTOR_TYPE_LABELS,
   WORKSPACE_MEMBER_ROLE_LABELS,
   canPrepareCompanies,
+  canReviewCandidatures,
   type CurrentWorkspace,
 } from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/current-user/context'
 import { PreparedCompaniesSection } from '@/features/company-transfers/components/PreparedCompaniesSection'
+import { ReceivedCandidaturesSection } from '@/features/candidatures/components/ReceivedCandidaturesSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
 import { useWorkspaceMemberships } from '@/features/workspaces/memberships-context'
@@ -124,6 +126,12 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
               >
                 Membres
               </Link>
+              <Link
+                to={`/admin/workspaces/${workspace.id}/formulaires`}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Formulaires
+              </Link>
             </div>
           )}
           {!membership && (
@@ -132,6 +140,11 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
             </p>
           )}
         </section>
+
+        {/* E05.09: the candidatures it receives, for its conseillers. */}
+        {canReviewCandidatures(me, membership) && (
+          <ReceivedCandidaturesSection workspaceId={workspace.id} />
+        )}
 
         {/* E05.08: its conseillers prepare companies for entrepreneurs. */}
         {canPrepareCompanies(membership) && <PreparedCompaniesSection workspaceId={workspace.id} />}

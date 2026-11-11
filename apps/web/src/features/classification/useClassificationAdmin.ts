@@ -6,7 +6,7 @@ import type {
   QuestionnaireField,
 } from '@confluent/shared'
 import { getCoverage, listRules } from '@/features/admin/classification.api'
-import { getDraft, listForms } from '@/features/admin/forms.api'
+import { confluentFormsApi } from '@/features/admin/forms.api'
 import { getActiveQuestionnaire } from '@/features/questionnaire/api'
 import type { ApiError } from '@/lib/api-client'
 
@@ -19,9 +19,9 @@ export interface ClassificationAdminData {
 }
 
 async function dossierFormFields(): Promise<QuestionnaireField[]> {
-  const [published, forms] = await Promise.all([getActiveQuestionnaire(), listForms()])
+  const [published, forms] = await Promise.all([getActiveQuestionnaire(), confluentFormsApi.listForms()])
   const dossierForm = forms.find((f) => f.usage === 'dossier')
-  const draft = dossierForm?.draft ? await getDraft(dossierForm.id) : null
+  const draft = dossierForm?.draft ? await confluentFormsApi.getDraft(dossierForm.id) : null
   return [...published.fields, ...(draft?.fields ?? [])]
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { FormDetail, FormVersionStructure } from '@confluent/shared'
-import { getDraft, getForm, getFormVersion } from '@/features/admin/forms.api'
+import type { FormsApi } from '@/features/admin/forms.api'
 import type { ApiError } from '@/lib/api-client'
 
 export interface FormEditorData {
@@ -10,12 +10,12 @@ export interface FormEditorData {
   structure: FormVersionStructure | null
 }
 
-async function loadEditor(formId: string): Promise<FormEditorData> {
-  const detail = await getForm(formId)
+async function loadEditor(api: FormsApi, formId: string): Promise<FormEditorData> {
+  const detail = await api.getForm(formId)
   const structure = detail.draft
-    ? await getDraft(formId)
+    ? await api.getDraft(formId)
     : detail.published
-      ? await getFormVersion(formId, detail.published.id)
+      ? await api.getFormVersion(formId, detail.published.id)
       : null
   return { detail, structure }
 }
@@ -29,7 +29,7 @@ export function errorMessage(err: unknown, fallback = 'L’opération a échoué
 // the reload that follows are told apart (code review R37): a saved change whose reload fails is
 // reported as saved with an out-of-date screen (`stale`), never as a plain success, and `refresh`
 // retries the reading only, without sending the change again.
-export function useFormEditor(formId: string) {
+export function useFormEditor(api: FormsApi, formId: string) {
   const [data, setData] = useState<FormEditorData | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [stale, setStale] = useState(false)
@@ -37,7 +37,7 @@ export function useFormEditor(formId: string) {
 
   const refresh = useCallback(async (): Promise<boolean> => {
     try {
-      setData(await loadEditor(formId))
+      setData(await loadEditor(api, formId))
       setError(null)
       setStale(false)
       return true
@@ -46,12 +46,12 @@ export function useFormEditor(formId: string) {
       setStale(true)
       return false
     }
-  }, [formId])
+  }, [api, formId])
 
   // Initial load; state is set from the promise callbacks, and ignored once the form changed.
   useEffect(() => {
     let cancelled = false
-    loadEditor(formId).then(
+    loadEditor(api, formId).then(
       (loaded) => {
         if (!cancelled) setData(loaded)
       },
@@ -62,7 +62,7 @@ export function useFormEditor(formId: string) {
     return () => {
       cancelled = true
     }
-  }, [formId])
+  }, [api, formId])
 
   const run = useCallback(
     async (action: () => Promise<unknown>, success?: string): Promise<boolean> => {

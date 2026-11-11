@@ -3,7 +3,8 @@ import type { Workspace } from '@confluent/shared'
 import { useCurrentUser } from '@/features/current-user/context'
 import { cn } from '@/lib/utils'
 
-// Header of a workspace's management pages: trail, name, address and the Réglages / Membres tabs.
+// Header of a workspace's management pages: trail, name, address and the Réglages / Membres /
+// Formulaires (E05.09) tabs.
 // An administrator comes from the administration; a manager from « Mes workspaces ».
 export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
   const me = useCurrentUser()
@@ -38,6 +39,7 @@ export function WorkspacePageHeader({ workspace }: { workspace: Workspace }) {
           Réglages
         </Tab>
         <Tab to={`${base}/membres`}>Membres</Tab>
+        <Tab to={`${base}/formulaires`}>Formulaires</Tab>
       </nav>
     </>
   )

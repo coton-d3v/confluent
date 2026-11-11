@@ -20,8 +20,12 @@ import AdminWorkspacesRoute from '@/routes/admin/workspaces'
 import AdminWorkspaceNewRoute from '@/routes/admin/workspaces/nouveau'
 import AdminWorkspaceRoute from '@/routes/admin/workspaces/[workspaceId]'
 import AdminWorkspaceMembersRoute from '@/routes/admin/workspaces/[workspaceId]/membres'
+import AdminWorkspaceFormsRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires'
+import AdminWorkspaceFormEditorRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires/[formId]'
 import MyWorkspacesRoute from '@/routes/workspaces'
 import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
+import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
+import CandidatureRoute from '@/routes/dashboard/candidatures/[candidatureId]'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
 import AuthRoute from '@/routes/auth'
@@ -71,6 +75,11 @@ export const router = createBrowserRouter([
         element: <CompanyOffersRoute />,
         handle: { hideBreadcrumb: true },
       },
+      {
+        path: 'dashboard/candidatures/:candidatureId',
+        element: <CandidatureRoute />,
+        handle: { hideBreadcrumb: true },
+      },
       { path: 'admin', element: <AdminRoute /> },
       { path: 'admin/dossiers', element: <AdminDossiersRoute /> },
       {
@@ -100,10 +109,25 @@ export const router = createBrowserRouter([
         element: <AdminWorkspaceMembersRoute />,
         handle: { hideBreadcrumb: true },
       },
+      {
+        path: 'admin/workspaces/:workspaceId/formulaires',
+        element: <AdminWorkspaceFormsRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'admin/workspaces/:workspaceId/formulaires/:formId',
+        element: <AdminWorkspaceFormEditorRoute />,
+        handle: { hideBreadcrumb: true },
+      },
       { path: 'workspaces', element: <MyWorkspacesRoute /> },
       {
         path: 'workspaces/:workspaceId',
         element: <WorkspaceRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'workspaces/:workspaceId/candidatures/:candidatureId',
+        element: <ReceivedCandidatureRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: '*', element: <NotFoundRoute /> },
