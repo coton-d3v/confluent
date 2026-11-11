@@ -63,6 +63,7 @@ export const auditActionSchema = z.enum([
   'share_link_level_changed',
   'pool_publication_published',
   'pool_publication_withdrawn',
+  'opportunity_viewed',
 ]);
 
 export const auditLogSchema = z.object({

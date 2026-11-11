@@ -9,7 +9,7 @@ import {
   type PoolPublicationState,
   type PoolWithdrawalReason,
 } from '@confluent/shared'
-import type { Candidature, PoolPublication, Prisma } from '@prisma/client'
+import type { Candidature, Dossier, PoolPublication, Prisma } from '@prisma/client'
 import { grantedLevel } from '../dossiers/financeur-access'
 
 // @confluent/shared `poolPublicationSchema`.
@@ -40,6 +40,62 @@ export function poolPublicationView(
     withdrawnAt: row.withdrawnAt,
     withdrawnBecause: row.withdrawnAt && reason.success ? reason.data : null,
   }
+}
+
+// A publication listed in a pool, with what makes it listed.
+export interface ListedPoolPublication {
+  publication: PoolPublication
+  candidature: Candidature
+  dossier: Dossier
+}
+
+// E07.03: the publications listed in these workspaces' pools — what their investors read —, by THE
+// rule of the pool (`poolPublicationState`, @confluent/shared) applied to each publication not
+// withdrawn, with its candidature and request as they are now: a paused one (request no longer
+// published, financing status closed, candidature not sent) is left out like a withdrawn one.
+// `dossierId` narrows them to one request. In SQL terms: `withdrawn_at IS NULL`, the candidature in
+// the same workspace with `submitted_at IS NOT NULL` and `financing_status IN ('preparing',
+// 'in_committee')`, the request `publication_status = 'published'`; read by plain lookups (indexes
+// `pool_publications (workspace_id, withdrawn_at)`, primary keys) so that the rule is the shared one.
+export async function listedPoolPublications(
+  db: Prisma.TransactionClient,
+  workspaceIds: ReadonlyArray<string>,
+  dossierId?: string,
+): Promise<ListedPoolPublication[]> {
+  if (workspaceIds.length === 0) return []
+  const narrowed =
+    dossierId === undefined
+      ? null
+      : await db.candidature.findMany({
+          where: { dossierId, workspaceId: { in: [...workspaceIds] } },
+          select: { id: true },
+        })
+  if (narrowed?.length === 0) return []
+  const publications = await db.poolPublication.findMany({
+    where: {
+      workspaceId: { in: [...workspaceIds] },
+      withdrawnAt: null,
+      ...(narrowed ? { candidatureId: { in: narrowed.map((c) => c.id) } } : {}),
+    },
+  })
+  if (publications.length === 0) return []
+  const candidatures = await db.candidature.findMany({
+    where: { id: { in: publications.map((p) => p.candidatureId) } },
+  })
+  const dossiers = await db.dossier.findMany({
+    where: { id: { in: [...new Set(candidatures.map((c) => c.dossierId))] } },
+  })
+  const candidatureById = new Map(candidatures.map((c) => [c.id, c]))
+  const dossierById = new Map(dossiers.map((d) => [d.id, d]))
+  return publications.flatMap((publication) => {
+    const candidature = candidatureById.get(publication.candidatureId)
+    if (!candidature || candidature.workspaceId !== publication.workspaceId) return []
+    if (dossierId !== undefined && candidature.dossierId !== dossierId) return []
+    const dossier = dossierById.get(candidature.dossierId)
+    if (!dossier) return []
+    const { state } = poolPublicationState(publication, dossier, candidature)
+    return state === 'listed' ? [{ publication, candidature, dossier }] : []
+  })
 }
 
 // The pool publications of these candidatures, by candidature.

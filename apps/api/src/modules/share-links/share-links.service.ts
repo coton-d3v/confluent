@@ -169,9 +169,10 @@ export class ShareLinksService {
 
   // THE projection of a request for a share recipient at a level (E05.07, E07.01): the answers its
   // level may read, the classification it may read, the documents the dossier selects that it may
-  // read and, once published, its presentation. Shared by the recipient's page and the preview, so
-  // that what the owner previews is what a recipient reads.
-  private async recipientView(dossier: Dossier, accessLevel: AccessLevel): Promise<RecipientView> {
+  // read and, once published, its presentation. Shared by the recipient's page, the preview and an
+  // investor's opportunity (E07.03), so that what the owner previews is what a recipient or an
+  // investor of a pool reads. The caller has checked the reader's right to `accessLevel`.
+  async recipientView(dossier: Dossier, accessLevel: AccessLevel): Promise<RecipientView> {
     const [structure, answers] = await Promise.all([
       this.questionnaires.getVersion(dossier.questionnaireVersionId),
       this.prisma.dossierAnswer.findMany({
