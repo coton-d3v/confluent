@@ -8,8 +8,9 @@ import { AuditService } from '../../src/modules/audit/audit.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
+import { CompaniesService } from '../../src/modules/companies/companies.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
-import { testDatabase } from './database'
+import { companyOf, testDatabase } from './database'
 
 // Code review R40: saving answers and submitting the same dossier are serialized. A save working
 // from a dossier read before a submission must not clear a required answer of the now submitted
@@ -27,6 +28,7 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     new QuestionnairesService(prisma),
     classification,
     new AuditService(prisma),
+    new CompaniesService(prisma),
   )
 
   afterAll(() => prisma.$disconnect())
@@ -59,6 +61,7 @@ describe('dossier answers and submission under concurrency (PostgreSQL)', () => 
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
+        companyId: await companyOf(prisma, user.id),
         name: 'R40',
         slug: `r40-${tag}`,
         questionnaireVersionId: version.id,

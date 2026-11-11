@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { ActionOrigin } from '../audit/action-origin'
+import { canOwnCompanies } from '../companies/company-access'
 import type { DocumentsService } from '../documents/documents.service'
 import type { McpCaller } from './mcp.tools'
 
@@ -68,12 +69,10 @@ export function sameName(a: string, b: string): boolean {
   return a.trim().localeCompare(b.trim(), 'fr', { sensitivity: 'base' }) === 0
 }
 
-// Who fills dossiers of their own through MCP: project owners, and administrators (who also test
-// forms). Closed by default: a financeur, or any unknown role, does not. Used by create_dossier and
-// to offer the « Remplir mon dossier » guide (E04.10).
-export function canOwnDossiers(user: { role: string }): boolean {
-  return user.role === 'entrepreneur' || user.role === 'admin'
-}
+// Who fills dossiers of their own through MCP: whoever may own a company and its dossiers, by the
+// single rule of E05.04 (project owners and administrators, closed by default). Used by
+// create_dossier and to offer the « Remplir mon dossier » guide (E04.10).
+export const canOwnDossiers = canOwnCompanies
 
 // E04.08: a consequential action (submitting a dossier, publishing a form) happens only on the
 // person's explicit request in the conversation. Confluent cannot see the conversation: the tool

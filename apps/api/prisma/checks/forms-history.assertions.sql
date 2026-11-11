@@ -36,5 +36,22 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'answers saved before E04.04 must have no provenance';
   END IF;
+
+  -- E05.04: each dossier got its own company, owned by the dossier's owner, its name brought to the
+  -- company's format.
+  SELECT string_agg(d.id || '=' || c.name, ',' ORDER BY d.id) INTO got
+  FROM dossiers d JOIN companies c ON c.id = d.company_id AND c.owner_id = d.user_id
+  WHERE d.id IN ('d-check', 'd-blank');
+  IF got IS DISTINCT FROM 'd-blank=Entreprise sans nom,d-check=Contrôle' THEN
+    RAISE EXCEPTION 'companies: %', got;
+  END IF;
+  IF (SELECT c.name FROM dossiers d JOIN companies c ON c.id = d.company_id WHERE d.id = 'd-long')
+     IS DISTINCT FROM repeat('é', 199) THEN
+    RAISE EXCEPTION 'long company name not cut to the company format';
+  END IF;
+  IF (SELECT count(DISTINCT company_id) FROM dossiers) <> (SELECT count(*) FROM dossiers)
+     OR (SELECT count(*) FROM companies) <> (SELECT count(*) FROM dossiers) THEN
+    RAISE EXCEPTION 'one company per dossier expected';
+  END IF;
 END
 $$;

@@ -3,8 +3,9 @@ import { SITE_ORIGIN } from '../../src/modules/audit/action-origin'
 import { AuditService } from '../../src/modules/audit/audit.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
+import { CompaniesService } from '../../src/modules/companies/companies.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
-import { testDatabase } from './database'
+import { companyOf, testDatabase } from './database'
 
 // Code review R31 (recontrôle): a sector computed from a confidential field, then the rules are
 // changed to read a public field — without reclassifying. A public share must still not see the
@@ -17,6 +18,7 @@ describe('derived data and rule changes (PostgreSQL)', () => {
     new QuestionnairesService(prisma),
     classification,
     new AuditService(prisma),
+    new CompaniesService(prisma),
   )
   afterAll(() => prisma.$disconnect())
 
@@ -53,6 +55,7 @@ describe('derived data and rule changes (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
+        companyId: await companyOf(prisma, user.id),
         name: 'R31',
         slug: `r31-${tag}`,
         questionnaireVersionId: version.id,

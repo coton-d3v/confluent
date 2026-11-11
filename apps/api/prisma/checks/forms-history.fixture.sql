@@ -10,6 +10,10 @@ INSERT INTO questionnaire_fields (id, version_id, section, label, field_type, re
   ('f-lettre', 'v-check', 'Équipe', 'Lettre', 'select', true, 3, '{"A","À","A_2"}', 'lettre', 'complet');
 INSERT INTO dossiers (id, user_id, name, slug, questionnaire_version_id, updated_at)
   VALUES ('d-check', 'u-check', 'Contrôle', 'controle', 'v-check', now());
+-- Names the API never wrote, for the companies backfill (E05.04): blank, padded and too long.
+INSERT INTO dossiers (id, user_id, name, slug, questionnaire_version_id, updated_at) VALUES
+  ('d-blank', 'u-check', '   ', 'blank', 'v-check', now()),
+  ('d-long', 'u-check', '  ' || repeat('é', 199) || '  x' || repeat('y', 50), 'long', 'v-check', now());
 INSERT INTO dossier_answers (id, dossier_id, field_id, value, updated_at) VALUES
   ('a-lettre', 'd-check', 'f-lettre', 'A_2', now()),
   ('a-nom-2', 'd-check', 'f-nom-2', 'Sophie', now());

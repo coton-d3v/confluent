@@ -13,6 +13,8 @@ import { isPendingProposal } from '../answers/answer-provenance'
 import { type ActionOrigin, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { attachedFieldIds } from '../documents/attached-fields'
+import { CompaniesService } from '../companies/companies.service'
+import { assertCanOwnCompanies } from '../companies/company-access'
 import {
   fieldVisibleAt,
   grantedLevel,
@@ -21,9 +23,13 @@ import {
 } from './financeur-access'
 
 export interface CreateDossierParams {
-  userId: string
+  // The authenticated account, never an identifier supplied by the client.
+  owner: { id: string; role: string }
   name: string
 }
+
+// The company a dossier finances, as its owner reads it (E05.04).
+const COMPANY_SUMMARY = { select: { id: true, name: true } } as const
 
 export interface DossierReadAccess {
   dossier: Dossier
@@ -44,19 +50,29 @@ export class DossiersService {
     private readonly questionnaires: QuestionnairesService,
     private readonly classification: ClassificationService,
     private readonly audit: AuditService,
+    private readonly companies: CompaniesService,
   ) {}
 
-  async create(params: CreateDossierParams): Promise<Dossier> {
+  // A new dossier comes with its own company, named after it and owned by the same account (E05.04),
+  // both or neither: attaching a dossier to an existing company waits for the company's own profile
+  // (E05.05) and several financing requests (E05.07), otherwise the profile would be asked again.
+  async create(params: CreateDossierParams) {
+    assertCanOwnCompanies(params.owner)
     const baseSlug = slugify(params.name)
     const slug = await this.uniqueSlug(baseSlug)
     const version = await this.questionnaires.ensureBootstrap()
-    return this.prisma.dossier.create({
-      data: {
-        userId: params.userId,
-        name: params.name,
-        slug,
-        questionnaireVersionId: version.id,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const company = await this.companies.createForOwner(tx, params.owner, params.name)
+      const dossier = await tx.dossier.create({
+        data: {
+          userId: company.ownerId,
+          companyId: company.id,
+          name: params.name,
+          slug,
+          questionnaireVersionId: version.id,
+        },
+      })
+      return { ...dossier, company: { id: company.id, name: company.name } }
     })
   }
 
@@ -90,10 +106,15 @@ export class DossiersService {
         }),
       )
     }
-    return this.prisma.dossier.findMany({
+    const owned = await this.prisma.dossier.findMany({
       where: { userId: user.id },
+      include: { company: COMPANY_SUMMARY },
       orderBy: { createdAt: 'desc' },
     })
+    return owned.map(({ company, ...d }) => ({
+      ...d,
+      company: { id: company.id, name: company.name },
+    }))
   }
 
   async getByIdForUser(id: string, userId: string): Promise<Dossier> {
@@ -145,7 +166,19 @@ export class DossiersService {
       ...snapshot,
       fields: snapshot.fields.filter((f) => fieldVisibleAt(f, accessLevel)),
     }
-    return { ...(await this.projectForLevel(dossier, accessLevel)), questionnaireVersion }
+    // The company is its owner's: a share shows the dossier only (E05.04).
+    const company =
+      dossier.userId === user.id
+        ? await this.prisma.company.findUnique({
+            where: { id: dossier.companyId },
+            ...COMPANY_SUMMARY,
+          })
+        : null
+    return {
+      ...(await this.projectForLevel(dossier, accessLevel)),
+      ...(company ? { company: { id: company.id, name: company.name } } : {}),
+      questionnaireVersion,
+    }
   }
 
   // Derived data of a dossier as a share level may read it (code review R31): the only entry point
@@ -172,9 +205,15 @@ export class DossiersService {
     return this.prisma.dossier.update({ where: { id: dossier.id }, data })
   }
 
+  // The company goes with its last dossier: until E05.05 it holds nothing but its name, its profile
+  // and documents being the dossier's. Once it has a profile of its own, it will stay.
   async delete(id: string, userId: string): Promise<void> {
     const dossier = await this.getByIdForUser(id, userId)
-    await this.prisma.dossier.delete({ where: { id: dossier.id } })
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dossier.delete({ where: { id: dossier.id } })
+      const remaining = await tx.dossier.count({ where: { companyId: dossier.companyId } })
+      if (remaining === 0) await tx.company.delete({ where: { id: dossier.companyId } })
+    })
   }
 
   // Verified on the server (E03.10): every required question of the dossier's version is answered.

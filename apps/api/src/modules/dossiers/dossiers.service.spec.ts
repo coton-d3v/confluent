@@ -6,14 +6,18 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DEFAULT_CLASSIFICATION_RULES } from '../../testing/classification-rules.fixture'
 import { ClassificationService } from '../classification/classification.service'
+import { CompaniesService } from '../companies/companies.service'
 
 interface PrismaMock {
+  $transaction: jest.Mock
+  company: { create: jest.Mock; findUnique: jest.Mock; delete: jest.Mock }
   dossier: {
     create: jest.Mock
     findMany: jest.Mock
     findUnique: jest.Mock
     update: jest.Mock
     delete: jest.Mock
+    count: jest.Mock
   }
   questionnaireVersion: {
     findFirst: jest.Mock
@@ -25,13 +29,25 @@ interface PrismaMock {
 }
 
 function buildPrisma(): PrismaMock {
-  return {
+  const prisma: PrismaMock = {
+    $transaction: jest.fn((fn: (tx: PrismaMock) => Promise<unknown>) => fn(prisma)),
+    company: {
+      create: jest.fn((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({
+          id: 'c-new',
+          ...args.data,
+        }),
+      ),
+      findUnique: jest.fn(),
+      delete: jest.fn().mockResolvedValue({}),
+    },
     dossier: {
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
     },
     questionnaireVersion: {
       findFirst: jest.fn().mockResolvedValue({ id: 'qv-1', version: 1 }),
@@ -41,6 +57,7 @@ function buildPrisma(): PrismaMock {
     questionnaireField: { findMany: jest.fn().mockResolvedValue([]) },
     classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
   }
+  return prisma
 }
 
 async function instantiate(
@@ -50,6 +67,7 @@ async function instantiate(
   const moduleRef = await Test.createTestingModule({
     providers: [
       DossiersService,
+      CompaniesService,
       { provide: PrismaService, useValue: prisma },
       {
         provide: QuestionnairesService,
@@ -70,6 +88,8 @@ async function instantiate(
   return moduleRef.get(DossiersService)
 }
 
+const OWNER = { id: 'u-1', role: 'entrepreneur' }
+
 describe('DossiersService', () => {
   it('creates a dossier with a slugified name and resolves a unique slug', async () => {
     const prisma = buildPrisma()
@@ -79,10 +99,11 @@ describe('DossiersService', () => {
     )
     const svc = await instantiate(prisma)
 
-    const result = await svc.create({ userId: 'u-1', name: 'Biosensio' })
+    const result = await svc.create({ owner: OWNER, name: 'Biosensio' })
     expect(prisma.dossier.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'u-1',
+        companyId: 'c-new',
         name: 'Biosensio',
         slug: 'biosensio-2',
         questionnaireVersionId: 'qv-1',
@@ -99,7 +120,7 @@ describe('DossiersService', () => {
     )
     const svc = await instantiate(prisma, ensureBootstrap)
 
-    await svc.create({ userId: 'u-1', name: 'Foo' })
+    await svc.create({ owner: OWNER, name: 'Foo' })
     expect(ensureBootstrap).toHaveBeenCalled()
     expect(prisma.dossier.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -110,12 +131,13 @@ describe('DossiersService', () => {
 
   it('scopes list to the authenticated entrepreneur user', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findMany.mockResolvedValue([{ id: 'd-1' }])
+    prisma.dossier.findMany.mockResolvedValue([{ id: 'd-1', company: { id: 'c-1', name: 'X' } }])
     const svc = await instantiate(prisma)
 
     await svc.listForUser({ id: 'u-1', email: 'user@example.com', role: 'entrepreneur' })
     expect(prisma.dossier.findMany).toHaveBeenCalledWith({
       where: { userId: 'u-1' },
+      include: { company: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     })
   })
@@ -255,7 +277,7 @@ describe('DossiersService', () => {
 
   it('deletes the dossier and relies on prisma cascade for children', async () => {
     const prisma = buildPrisma()
-    prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1' })
+    prisma.dossier.findUnique.mockResolvedValue({ id: 'd-1', userId: 'u-1', companyId: 'c-1' })
     const svc = await instantiate(prisma)
 
     await svc.delete('d-1', 'u-1')

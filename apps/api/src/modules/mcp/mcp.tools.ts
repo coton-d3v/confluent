@@ -400,7 +400,7 @@ export class McpToolsFactory {
               )
             }
           }
-          const created = await this.dossiers.create({ userId: caller.user.id, name })
+          const created = await this.dossiers.create({ owner: caller.user, name })
           trace.dossierId = created.id
           const next = await this.nextQuestions(created, caller, {})
           return {

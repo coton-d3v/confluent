@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DocumentsService } from '../../src/modules/documents/documents.service'
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
-import { testDatabase } from './database'
+import { companyOf, testDatabase } from './database'
 
 // Code review R48: a document is versioned per question it answers. Version numbers are assigned
 // under the dossier's row lock: the unique index (dossier, field, name, version) cannot protect a
@@ -42,6 +42,7 @@ describe('document versions under concurrency (PostgreSQL)', () => {
     const dossier = await prisma.dossier.create({
       data: {
         userId: user.id,
+        companyId: await companyOf(prisma, user.id),
         name: 'R48',
         slug: `r48-${tag}`,
         questionnaireVersionId: version.id,

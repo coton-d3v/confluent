@@ -33,10 +33,13 @@ describe('PUT /v1/dossiers/:id/answers (e2e)', () => {
     await p.questionnaireVersion.create({
       data: { id: 'v-1', questionnaireId: 'form-1', version: 1, status: 'published' },
     })
+    // Every dossier belongs to a company of its owner (E05.04).
+    await p.company.create({ data: { id: 'c-d-1', ownerId: 'u-1', name: 'Biosensio' } })
     await p.dossier.create({
       data: {
         id: 'd-1',
         userId: 'u-1',
+        companyId: 'c-d-1',
         name: 'Biosensio',
         slug: 'biosensio',
         questionnaireVersionId: 'v-1',
