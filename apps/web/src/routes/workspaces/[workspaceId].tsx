@@ -12,6 +12,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/current-user/context'
 import { PreparedCompaniesSection } from '@/features/company-transfers/components/PreparedCompaniesSection'
 import { ReceivedCandidaturesSection } from '@/features/candidatures/components/ReceivedCandidaturesSection'
+import { FundingSourcesSection } from '@/features/funding-sources/components/FundingSourcesSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
 import { useWorkspaceMemberships } from '@/features/workspaces/memberships-context'
@@ -132,6 +133,12 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
               >
                 Formulaires
               </Link>
+              <Link
+                to={`/admin/workspaces/${workspace.id}/sources`}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Sources de financement
+              </Link>
             </div>
           )}
           {!membership && (
@@ -144,6 +151,11 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
         {/* E05.09: the candidatures it receives, for its conseillers. */}
         {canReviewCandidatures(me, membership) && (
           <ReceivedCandidaturesSection workspaceId={workspace.id} />
+        )}
+
+        {/* E06.02: the sources its financing plans are split into, for its conseillers. */}
+        {canReviewCandidatures(me, membership) && (
+          <FundingSourcesSection workspaceId={workspace.id} canManage={canManageWorkspace} />
         )}
 
         {/* E05.08: its conseillers prepare companies for entrepreneurs. */}
