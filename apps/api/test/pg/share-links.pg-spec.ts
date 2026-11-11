@@ -279,6 +279,43 @@ describe('nominative shares (PostgreSQL)', () => {
       expect(new Set(results.map((r) => r.revokedBy))).toEqual(new Set([expected]))
     })
 
+    // The revocation's author is read back from the journal: a revocation that waited for another
+    // one must read it, even when writing the journal entry takes time (here, 300 ms).
+    it('tells who revoked to a revocation that waited for another one, however slow the journal', async () => {
+      const { owner, dossierId } = await request()
+      const link = await shares.create({
+        dossierId,
+        user: owner,
+        recipientEmail: email('carol'),
+        accessLevel: 'partiel',
+      })
+      const admin = await prisma.user.create({
+        data: { email: email('admin2'), role: 'admin', emailVerifiedAt: new Date() },
+      })
+      const slow =
+        <T extends unknown[]>(fn: (...a: T) => Promise<void>) =>
+        async (...a: T) => {
+          await new Promise((resolve) => setTimeout(resolve, 300))
+          return fn(...a)
+        }
+      // Originals taken before spying: a spy's implementation must not call the spy itself.
+      const record = audit.record.bind(audit)
+      const recordIn = audit.recordIn.bind(audit)
+      const spies = [
+        jest.spyOn(audit, 'record').mockImplementation(slow(record)),
+        jest.spyOn(audit, 'recordIn').mockImplementation(slow(recordIn)),
+      ]
+      try {
+        const first = shares.revokeAsAdmin(dossierId, link.id, admin.id)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        const second = shares.revokeAsOwner(dossierId, link.id, owner.id)
+        const results = await Promise.all([first, second])
+        expect(results.map((r) => r.revokedBy)).toEqual(['admin', 'admin'])
+      } finally {
+        spies.forEach((s) => s.mockRestore())
+      }
+    })
+
     it('never changes the level of a share revoked at the same moment, nor journals it', async () => {
       for (let i = 0; i < 3; i++) {
         const { owner, dossierId } = await request()

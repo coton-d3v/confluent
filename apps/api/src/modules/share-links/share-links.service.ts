@@ -419,16 +419,22 @@ export class ShareLinksService {
 
   // Effective at the recipient's next request (the share guard reads the status each time). A share
   // already revoked stays as it was, without a second journal entry: two revocations at the same
-  // moment journal one (the update only applies to a share not yet revoked).
+  // moment journal one (the update only applies to a share not yet revoked). The entry is written in
+  // the same transaction as the update: a revocation that waited for another one reads who revoked
+  // (`revokedBy`, read back from the journal) instead of a share revoked by nobody. The request is
+  // locked first, as invitations and level changes do: the journal entry references it, and taking
+  // the locks in another order would deadlock with a level change. Access was checked by the caller.
   private async revoke(dossierId: string, linkId: string, actor: ShareActor) {
     const link = await this.findLink(this.prisma, dossierId, linkId)
     const revokedAt = new Date()
-    const { count } = await this.prisma.shareLink.updateMany({
-      where: { id: link.id, status: { not: 'revoked' } },
-      data: { status: 'revoked', revokedAt },
-    })
-    if (count > 0) {
-      await this.audit.record({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossierId} FOR UPDATE`
+      const { count } = await tx.shareLink.updateMany({
+        where: { id: link.id, status: { not: 'revoked' } },
+        data: { status: 'revoked', revokedAt },
+      })
+      if (count === 0) return
+      await this.audit.recordIn(tx, {
         actionType: actor.as === 'admin' ? 'admin_revoked_share_link' : 'share_link_revoked',
         actorId: actor.id,
         dossierId,
@@ -439,7 +445,7 @@ export class ShareLinksService {
           revokedAt: revokedAt.toISOString(),
         },
       })
-    }
+    })
     return this.accessEntry(dossierId, link.id)
   }
 
