@@ -19,6 +19,7 @@ import { OAuthModule } from './modules/oauth/oauth.module'
 import { McpModule } from './modules/mcp/mcp.module'
 import { CompanyTransfersModule } from './modules/company-transfers/company-transfers.module'
 import { CandidaturesModule } from './modules/candidatures/candidatures.module'
+import { FundingSourcesModule } from './modules/funding-sources/funding-sources.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -45,6 +46,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     McpModule,
     CompanyTransfersModule,
     CandidaturesModule,
+    FundingSourcesModule,
   ],
   controllers: [AppController],
   providers: [

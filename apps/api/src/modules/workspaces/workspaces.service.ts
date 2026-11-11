@@ -12,6 +12,7 @@ import {
 import { slugify } from '../../common/slug'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
+import { createDefaultFundingSourceCategories } from '../funding-sources/funding-source-defaults'
 import {
   MAX_SIGNED_URL_SECONDS,
   STORAGE_TOKEN,
@@ -144,16 +145,21 @@ export class WorkspacesService {
     }
     let created: Workspace
     try {
-      created = await this.prisma.workspace.create({
-        data: {
-          slug,
-          name: input.name,
-          programName: input.programName ?? null,
-          color: input.color ?? null,
-          presentation: input.presentation ?? null,
-          contactEmail: input.contactEmail ?? null,
-          emailDomain: input.emailDomain ?? null,
-        },
+      // With D04's default funding source categories (E06.02), in the same transaction.
+      created = await this.prisma.$transaction(async (tx) => {
+        const workspace = await tx.workspace.create({
+          data: {
+            slug,
+            name: input.name,
+            programName: input.programName ?? null,
+            color: input.color ?? null,
+            presentation: input.presentation ?? null,
+            contactEmail: input.contactEmail ?? null,
+            emailDomain: input.emailDomain ?? null,
+          },
+        })
+        await createDefaultFundingSourceCategories(tx, workspace.id)
+        return workspace
       })
     } catch (err) {
       // Two creations with the same slug at once: the unique index decides.
