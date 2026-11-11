@@ -54,9 +54,13 @@ function errorMessage(err: unknown, fallback: string): string {
 export function RequestEditor({
   dossier,
   onChange,
+  inPreparation = false,
 }: {
   dossier: Dossier
   onChange: (updated: Dossier) => void
+  // E05.08: a company a conseiller prepares for an entrepreneur is published by that entrepreneur
+  // only, once its owner.
+  inPreparation?: boolean
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(dossier))
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -176,50 +180,59 @@ export function RequestEditor({
             {published ? 'Publiée' : 'Brouillon'}
           </Badge>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {published
-            ? `Publiée le ${new Date(dossier.publishedAt ?? '').toLocaleDateString('fr-FR')}. Les destinataires de vos partages voient sa présentation ; elle pourra être proposée aux structures que vous choisirez.`
-            : 'En brouillon, les destinataires de vos partages voient le profil et les documents choisis, pas encore la présentation de la demande. Publier n’ouvre ni ne ferme aucun partage.'}
-        </p>
-        {!published && missing.length > 0 && (
-          <div className="text-sm">
-            <p className="text-foreground">Avant de publier :</p>
-            <ul className="mt-1 list-disc pl-5 text-muted-foreground">
-              {missing.map((item) => (
-                <li key={item}>
-                  {PUBLICATION_REQUIREMENT_LABELS[item]}
-                  {item === 'submitted' && (
-                    <>
-                      {' — '}
-                      <Link
-                        to={`/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossier.id)}`}
-                        className="underline underline-offset-4 hover:text-foreground"
-                      >
-                        vérifier et soumettre le profil
-                      </Link>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <div>
-          <Button
-            type="button"
-            variant={published ? 'outline' : 'default'}
-            className="h-11 px-4"
-            disabled={busy || (!published && (missing.length > 0 || !saved))}
-            onClick={() => void togglePublication()}
-          >
-            {published ? 'Repasser en brouillon' : 'Publier la demande'}
-          </Button>
-          {!published && !saved && missing.length === 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Enregistrez d’abord vos modifications.
+        {inPreparation ? (
+          <p className="text-sm text-muted-foreground">
+            Vous préparez cette entreprise pour un entrepreneur : seul son propriétaire pourra
+            publier cette demande, après avoir accepté votre proposition.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              {published
+                ? `Publiée le ${new Date(dossier.publishedAt ?? '').toLocaleDateString('fr-FR')}. Les destinataires de vos partages voient sa présentation ; elle pourra être proposée aux structures que vous choisirez.`
+                : 'En brouillon, les destinataires de vos partages voient le profil et les documents choisis, pas encore la présentation de la demande. Publier n’ouvre ni ne ferme aucun partage.'}
             </p>
-          )}
-        </div>
+            {!published && missing.length > 0 && (
+              <div className="text-sm">
+                <p className="text-foreground">Avant de publier :</p>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {missing.map((item) => (
+                    <li key={item}>
+                      {PUBLICATION_REQUIREMENT_LABELS[item]}
+                      {item === 'submitted' && (
+                        <>
+                          {' — '}
+                          <Link
+                            to={`/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossier.id)}`}
+                            className="underline underline-offset-4 hover:text-foreground"
+                          >
+                            vérifier et soumettre le profil
+                          </Link>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div>
+              <Button
+                type="button"
+                variant={published ? 'outline' : 'default'}
+                className="h-11 px-4"
+                disabled={busy || (!published && (missing.length > 0 || !saved))}
+                onClick={() => void togglePublication()}
+              >
+                {published ? 'Repasser en brouillon' : 'Publier la demande'}
+              </Button>
+              {!published && !saved && missing.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Enregistrez d’abord vos modifications.
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       <form onSubmit={(e) => void save(e)} className="flex flex-col gap-5" noValidate>

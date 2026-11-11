@@ -8,6 +8,7 @@ import { EmptyDossiersIllustration } from '@/components/confluent/illustrations/
 import { useDossiers } from '@/features/dossiers/hooks'
 import { useCurrentUser } from '@/features/current-user/context'
 import { listCompanies } from '@/features/companies/api'
+import { listCompanyOffers } from '@/features/company-transfers/api'
 import { useAsync } from '@/lib/useAsync'
 
 export default function DashboardRoute() {
@@ -33,6 +34,8 @@ export default function DashboardRoute() {
     [canCreate],
   ).data
   const companyNames = new Map((companies ?? []).map((c) => [c.id, c.name]))
+  // E05.08: companies a conseiller prepared for this account, waiting for its answer.
+  const offers = useAsync(() => listCompanyOffers(), []).data ?? []
 
   return (
     <>
@@ -56,6 +59,31 @@ export default function DashboardRoute() {
           </Button>
         )}
       </div>
+      {offers.length > 0 && (
+        <section
+          aria-labelledby="offers-heading"
+          className="mt-6 flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <h2 id="offers-heading" className="text-base font-medium text-foreground">
+              {offers.length === 1
+                ? 'Une entreprise vous est proposée'
+                : `${offers.length} entreprises vous sont proposées`}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {offers.length === 1
+                ? 'Un conseiller l’a préparée pour vous : acceptez-la pour en devenir propriétaire, ou refusez-la.'
+                : 'Des conseillers les ont préparées pour vous : acceptez-les pour en devenir propriétaire, ou refusez-les.'}
+            </p>
+          </div>
+          <Link
+            to="/dashboard/propositions"
+            className="inline-flex h-11 shrink-0 items-center justify-center self-start rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] sm:self-auto"
+          >
+            Voir {offers.length === 1 ? 'la proposition' : 'les propositions'}
+          </Link>
+        </section>
+      )}
       {companies && companies.length > 0 && (
         <section aria-labelledby="companies-heading" className="mt-6">
           <h2 id="companies-heading" className="text-sm font-medium text-muted-foreground">
@@ -106,6 +134,7 @@ export default function DashboardRoute() {
                 isShared={d.userId !== currentUser.id}
                 companyName={d.company ? companyNames.get(d.company.id) ?? d.company.name : undefined}
                 publicationStatus={d.userId === currentUser.id ? d.publicationStatus : undefined}
+                inPreparation={d.company?.inPreparation}
                 ownerEmail={d.ownerEmail}
                 ownerName={d.ownerName}
                 createdAt={d.createdAt}

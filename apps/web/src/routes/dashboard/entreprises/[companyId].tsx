@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  COMPANY_TRANSFER_STATUS_LABELS,
   DOSSIER_PRESENTATION_LIMITS,
   dossierNameSchema,
   type Company,
@@ -76,6 +77,8 @@ function CompanyView({ company }: { company: Company }) {
         publication, ses partages et choisit les documents qu’elle présente.
       </p>
 
+      {company.preparation && <PreparationNotice preparation={company.preparation} />}
+
       <section aria-labelledby="requests-heading" className="mt-8 flex flex-col gap-4">
         <h2
           id="requests-heading"
@@ -97,6 +100,54 @@ function CompanyView({ company }: { company: Company }) {
         <NewRequestForm companyId={company.id} />
       </section>
     </div>
+  )
+}
+
+// E05.08: the signed-in conseiller holds this company for an entrepreneur until they accept it.
+function PreparationNotice({ preparation }: { preparation: NonNullable<Company['preparation']> }) {
+  const { workspace, invitation } = preparation
+  const date = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
+  return (
+    <section
+      aria-labelledby="preparation-heading"
+      className="mt-6 flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="preparation-heading" className="text-base font-medium text-foreground">
+          Préparée pour un entrepreneur
+        </h2>
+        {invitation && (
+          <Badge variant={invitation.status === 'pending' ? 'outline' : 'secondary'}>
+            {COMPANY_TRANSFER_STATUS_LABELS[invitation.status]}
+          </Badge>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Vous préparez cette entreprise dans le workspace{' '}
+        <span className="text-foreground">{workspace.name}</span>. Elle ne peut être ni partagée
+        ni publiée tant que son entrepreneur n’a pas accepté de la reprendre ; ensuite, elle sera la
+        sienne et vous n’y aurez plus accès.
+      </p>
+      {invitation && (
+        <p className="text-sm text-muted-foreground">
+          Proposée à <span className="break-all text-foreground">{invitation.email}</span> le{' '}
+          {date(invitation.invitedAt)}
+          {invitation.status === 'pending'
+            ? `, valable jusqu’au ${date(invitation.expiresAt)}.`
+            : invitation.decidedAt
+              ? ` · ${COMPANY_TRANSFER_STATUS_LABELS[invitation.status].toLowerCase()} le ${date(invitation.decidedAt)}.`
+              : '.'}
+        </p>
+      )}
+      <p className="text-sm">
+        <Link
+          to={`/workspaces/${encodeURIComponent(workspace.id)}`}
+          className="underline underline-offset-4 hover:text-foreground"
+        >
+          Gérer la proposition dans le workspace
+        </Link>
+      </p>
+    </section>
   )
 }
 
