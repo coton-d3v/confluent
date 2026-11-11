@@ -50,6 +50,9 @@ export const auditActionSchema = z.enum([
   'candidature_created',
   'candidature_submitted',
   'candidature_withdrawn',
+  'dossier_archived',
+  'dossier_unarchived',
+  'candidature_status_changed',
 ]);
 
 export const auditLogSchema = z.object({

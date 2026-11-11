@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import type { Document, Dossier, DossierAnswer } from '@prisma/client'
 import {
   documentTypeOf,
-  isPublished,
+  publicationStatusOf,
   type DocumentType,
   type DossierDocumentSelected,
   type DossierPublicationStatus,
@@ -69,7 +69,7 @@ export class AdminDossiersService {
       tagTechnologique: d.tagTechnologique,
       ownerEmail: d.user.email,
       companyName: d.company.name,
-      publicationStatus: isPublished(d) ? ('published' as const) : ('draft' as const),
+      publicationStatus: publicationStatusOf(d.publicationStatus),
       createdAt: d.createdAt,
       activeShareLinksCount: d.shareLinks.length,
     }))

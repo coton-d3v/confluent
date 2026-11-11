@@ -1,9 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   canReviewCandidatures,
+  financingStatusOf,
+  financingTransition,
   financingTypesOf,
+  isArchived,
   missingRequiredAnswers,
+  publicationStatusOf,
   type CandidatureStatus,
+  type ChangeFinancingStatusInput,
+  type DossierPublicationStatus,
+  type FinancingStatus,
+  type FinancingStatusActor,
   type FinancingType,
 } from '@confluent/shared'
 import {
@@ -11,6 +19,7 @@ import {
   type Candidature,
   type CandidatureAnswer,
   type CandidatureAnswerRevision,
+  type CandidatureStatusChange,
   type Dossier,
   type QuestionnaireField,
   type QuestionnaireSection,
@@ -38,7 +47,7 @@ import { InvalidAnswersException } from '../answers/invalid-answers.exception'
 import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { assertCanOwnCompanies } from '../companies/company-access'
-import { DossiersService } from '../dossiers/dossiers.service'
+import { DossiersService, requestArchived } from '../dossiers/dossiers.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { CandidatureErrors } from './candidature-errors'
@@ -74,8 +83,23 @@ export interface CandidatureSummaryView {
   workspace: { id: string; name: string; programName: string | null }
   status: CandidatureStatus
   submittedAt: Date | null
+  financingStatus: FinancingStatus
+  financingStatusChangedAt: Date
   createdAt: Date
   updatedAt: Date
+}
+
+// @confluent/shared `financingStatusChangeSchema`: which side, never who among the structure.
+export interface FinancingStatusChangeView {
+  from: FinancingStatus
+  to: FinancingStatus
+  by: FinancingStatusActor
+  changedAt: Date
+}
+
+// @confluent/shared `receivedFinancingStatusChangeSchema`.
+export interface ReceivedFinancingStatusChangeView extends FinancingStatusChangeView {
+  actor: { email: string; firstName: string | null; lastName: string | null } | null
 }
 
 interface FormView {
@@ -91,6 +115,7 @@ export interface CandidatureView extends CandidatureSummaryView {
   dossier: { id: string; slug: string; name: string; profileSubmitted: boolean }
   form: FormView
   answers: CandidatureAnswerView[]
+  statusHistory: FinancingStatusChangeView[]
 }
 
 interface ReceivedAnswerView {
@@ -102,6 +127,8 @@ interface ReceivedAnswerView {
 export interface ReceivedCandidatureSummaryView {
   id: string
   submittedAt: Date
+  financingStatus: FinancingStatus
+  financingStatusChangedAt: Date
   company: { name: string }
   dossier: { name: string; amountEur: number | null; financingTypes: FinancingType[] }
 }
@@ -113,10 +140,11 @@ export interface ReceivedCandidatureView extends ReceivedCandidatureSummaryView 
     summary: string | null
     objective: string | null
     description: string | null
-    publicationStatus: 'draft' | 'published'
+    publicationStatus: DossierPublicationStatus
   }
   profile: Omit<FormView, 'name'> & { answers: ReceivedAnswerView[] }
   form: FormView & { answers: ReceivedAnswerView[] }
+  statusHistory: ReceivedFinancingStatusChangeView[]
 }
 
 // A workspace's public identity, field by field: its settings (email domain, logo key…) and any
@@ -189,9 +217,11 @@ export class CandidaturesService {
 
   // A candidature answers the version of the workspace's complementary form published at its
   // creation, kept afterwards (E03.08). At most one per request and workspace. Presenting a request
-  // is diffusing it: refused while a conseiller prepares its company (409, E05.08).
+  // is diffusing it: refused while a conseiller prepares its company (409, E05.08) and while the
+  // request is archived (409, E06.01).
   async create(dossierId: string, userId: string, workspaceId: string): Promise<CandidatureView> {
     const dossier = await this.dossiers.getForDiffusion(dossierId, userId)
+    if (isArchived(dossier)) throw requestArchived()
     let created: Candidature
     try {
       created = await this.prisma.$transaction(async (tx) => {
@@ -268,7 +298,8 @@ export class CandidaturesService {
 
   // The owner sends the candidature: the workspace's conseillers read it from then on. It needs the
   // common profile submitted through this request (E03.10) and every required question of the
-  // complementary form answered. Sending it again changes nothing.
+  // complementary form answered, and the request not archived (E06.01). Sending it again changes
+  // nothing.
   async submit(
     candidatureId: string,
     userId: string,
@@ -290,9 +321,12 @@ export class CandidaturesService {
       )
       if (missing.length > 0) throw CandidatureErrors.incomplete(missing)
       if (current.submittedAt) return { submitted: current, first: false }
+      if (isArchived(request)) throw requestArchived()
+      // The financing status (`preparing`) dates from the sending: the workspace sees it from then on.
+      const now = new Date()
       const updated = await tx.candidature.update({
         where: { id: current.id },
-        data: { submittedAt: new Date() },
+        data: { submittedAt: now, financingStatusChangedAt: now },
       })
       return { submitted: updated, first: true }
     })
@@ -313,13 +347,14 @@ export class CandidaturesService {
     return this.ownerView(submitted, dossier)
   }
 
-  // The owner withdraws the candidature, with its answers: the workspace no longer reads it. The
-  // journal of the request keeps the trace. (Its local workflow — acceptance, refusal, a withdrawal
-  // kept as a status — comes with E08.03.)
+  // The owner withdraws a draft candidature, with its answers; the journal of the request keeps the
+  // trace. Once sent, the workspace follows it and keeps it, with its financing status and their
+  // history (E06.01): its owner abandons it instead (409), which the workspace sees.
   async withdraw(candidatureId: string, userId: string): Promise<void> {
     const { candidature, dossier } = await this.findOwned(candidatureId, userId)
     const removed = await this.prisma.$transaction(async (tx) => {
       const current = await lockCandidature(tx, candidature.id, userId)
+      if (current.submittedAt) throw CandidatureErrors.sent()
       await tx.candidature.delete({ where: { id: current.id } })
       return current
     })
@@ -331,6 +366,66 @@ export class CandidaturesService {
         candidatureId: removed.id,
         workspaceId: removed.workspaceId,
         submittedAt: removed.submittedAt?.toISOString() ?? null,
+      },
+    })
+  }
+
+  // ── The financing status (E06.01, decision D03 to be confirmed) ──────────────────────────────
+
+  // The owner's side of the financing status of a sent candidature: the transitions
+  // `FINANCING_STATUS_TRANSITIONS` gives to `owner` (abandon, reopen their own abandonment).
+  async changeFinancingStatusAsOwner(
+    candidatureId: string,
+    userId: string,
+    change: ChangeFinancingStatusInput,
+  ): Promise<CandidatureView> {
+    const { candidature, dossier } = await this.findOwned(candidatureId, userId)
+    const changed = await this.prisma.$transaction(async (tx) => {
+      const current = await lockCandidature(tx, candidature.id, userId)
+      return applyFinancingStatus(tx, current, change, 'owner', userId)
+    })
+    await this.recordStatusChange(changed, change, 'owner', userId)
+    return this.ownerView(changed, dossier)
+  }
+
+  // The workspace's side: its conseillers and Confluent administrators — whoever reads its
+  // candidatures (`404` outside the workspace, `403` for an investisseur) —, on a sent candidature
+  // of this workspace only (`404` for a draft or another workspace's).
+  async changeFinancingStatusForWorkspace(
+    actor: WorkspaceActor,
+    workspaceId: string,
+    candidatureId: string,
+    change: ChangeFinancingStatusInput,
+  ): Promise<ReceivedCandidatureView> {
+    await this.assertCanReview(actor, workspaceId)
+    const changed = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "candidatures" WHERE "id" = ${candidatureId} FOR UPDATE`
+      const current = await tx.candidature.findFirst({
+        where: { id: candidatureId, workspaceId, submittedAt: { not: null } },
+      })
+      if (!current) throw CandidatureErrors.notFound()
+      return applyFinancingStatus(tx, current, change, 'workspace', actor.id)
+    })
+    await this.recordStatusChange(changed, change, 'workspace', actor.id)
+    return this.getReceived(actor, workspaceId, candidatureId)
+  }
+
+  private async recordStatusChange(
+    candidature: Candidature,
+    change: ChangeFinancingStatusInput,
+    by: FinancingStatusActor,
+    actorId: string,
+  ): Promise<void> {
+    await this.audit.record({
+      actionType: 'candidature_status_changed',
+      actorId,
+      dossierId: candidature.dossierId,
+      metadata: {
+        candidatureId: candidature.id,
+        workspaceId: candidature.workspaceId,
+        from: change.from,
+        to: change.to,
+        by,
       },
     })
   }
@@ -378,14 +473,19 @@ export class CandidaturesService {
     })
     if (!row) throw CandidatureErrors.notFound()
     const dossier = (await this.prisma.dossier.findUnique({ where: { id: row.dossierId } }))!
-    const [company, owner, profile, form, profileAnswers, ownAnswers] = await Promise.all([
+    const [company, owner, profile, form, profileAnswers, ownAnswers, changes] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: dossier.companyId } }),
       this.prisma.user.findUnique({ where: { id: dossier.userId } }),
       this.questionnaires.getVersion(dossier.questionnaireVersionId),
       this.formOf(row.formVersionId),
       this.prisma.dossierAnswer.findMany({ where: { companyId: dossier.companyId } }),
       this.prisma.candidatureAnswer.findMany({ where: { candidatureId: row.id } }),
+      this.statusHistoryOf(row.id),
     ])
+    const actors = await this.prisma.user.findMany({
+      where: { id: { in: changes.flatMap((c) => (c.actorId ? [c.actorId] : [])) } },
+    })
+    const actorById = new Map(actors.map((u) => [u.id, u]))
     // The common profile, attachment questions aside.
     const profileFields = (profile?.fields ?? []).filter((f) => f.fieldType !== 'file')
     const profileFieldIds = new Set(profileFields.map((f) => f.id))
@@ -402,7 +502,7 @@ export class CandidaturesService {
         summary: dossier.summary,
         objective: dossier.objective,
         description: dossier.description,
-        publicationStatus: dossier.publicationStatus === 'published' ? 'published' : 'draft',
+        publicationStatus: publicationStatusOf(dossier.publicationStatus),
       },
       profile: {
         version: profile!.version,
@@ -413,7 +513,24 @@ export class CandidaturesService {
           .map(({ fieldId, value }) => ({ fieldId, value })),
       },
       form: { ...form, answers: ownAnswers.map(({ fieldId, value }) => ({ fieldId, value })) },
+      statusHistory: changes.map((change) => {
+        const actor = change.actorId ? actorById.get(change.actorId) : undefined
+        return {
+          ...changeView(change),
+          actor: actor
+            ? { email: actor.email, firstName: actor.firstName, lastName: actor.lastName }
+            : null,
+        }
+      }),
     }
+  }
+
+  // The changes of a candidature's financing status, the latest first.
+  private statusHistoryOf(candidatureId: string): Promise<CandidatureStatusChange[]> {
+    return this.prisma.candidatureStatusChange.findMany({
+      where: { candidatureId },
+      orderBy: { changedAt: 'desc' },
+    })
   }
 
   // ── Shared ───────────────────────────────────────────────────────────────────────────────────
@@ -465,7 +582,7 @@ export class CandidaturesService {
   }
 
   private async ownerView(candidature: Candidature, dossier: Dossier): Promise<CandidatureView> {
-    const [workspace, form, answers, request] = await Promise.all([
+    const [workspace, form, answers, request, changes] = await Promise.all([
       this.prisma.workspace.findUnique({ where: { id: candidature.workspaceId } }),
       this.formOf(candidature.formVersionId),
       this.prisma.candidatureAnswer.findMany({
@@ -473,6 +590,7 @@ export class CandidaturesService {
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.dossier.findUnique({ where: { id: dossier.id } }),
+      this.statusHistoryOf(candidature.id),
     ])
     return {
       ...summaryView(candidature, workspace!),
@@ -485,6 +603,7 @@ export class CandidaturesService {
       },
       form,
       answers: await this.answerViews(dossier, answers),
+      statusHistory: changes.map(changeView),
     }
   }
 
@@ -531,6 +650,8 @@ function summaryView(
     workspace: { id: workspace.id, name: workspace.name, programName: workspace.programName },
     status: row.submittedAt ? 'submitted' : 'draft',
     submittedAt: row.submittedAt,
+    financingStatus: financingStatusOf(row.financingStatus),
+    financingStatusChangedAt: row.financingStatusChangedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -544,6 +665,8 @@ function receivedSummary(
   return {
     id: row.id,
     submittedAt: row.submittedAt!,
+    financingStatus: financingStatusOf(row.financingStatus),
+    financingStatusChangedAt: row.financingStatusChangedAt,
     company: { name: companyName },
     dossier: {
       name: dossier.name,
@@ -551,6 +674,51 @@ function receivedSummary(
       financingTypes: financingTypesOf(dossier.financingTypes),
     },
   }
+}
+
+function changeView(change: CandidatureStatusChange): FinancingStatusChangeView {
+  return {
+    from: financingStatusOf(change.fromStatus),
+    to: financingStatusOf(change.toStatus),
+    by: change.actorSide === 'owner' ? 'owner' : 'workspace',
+    changedAt: change.changedAt,
+  }
+}
+
+// THE change of a candidature's financing status (D03, E06.01), under its row lock taken by the
+// caller: only once sent (409), only from the status the client saw — a change made meanwhile is
+// refused (409) rather than overwritten —, only along `FINANCING_STATUS_TRANSITIONS` and by the side
+// it names (409 for a transition nobody makes, 403 for the other side's), dated and journaled in
+// `candidature_status_changes` in the same transaction.
+async function applyFinancingStatus(
+  tx: Prisma.TransactionClient,
+  current: Candidature,
+  change: ChangeFinancingStatusInput,
+  by: FinancingStatusActor,
+  actorId: string,
+): Promise<Candidature> {
+  if (!current.submittedAt) throw CandidatureErrors.notSent()
+  const status = financingStatusOf(current.financingStatus)
+  if (status !== change.from) throw CandidatureErrors.statusChanged(status)
+  const verdict = financingTransition(change.from, change.to, by)
+  if (verdict === 'impossible') throw CandidatureErrors.transitionImpossible(change.from, change.to)
+  if (verdict === 'forbidden') throw CandidatureErrors.transitionForbidden(change.to, by)
+  const now = new Date()
+  const updated = await tx.candidature.update({
+    where: { id: current.id },
+    data: { financingStatus: change.to, financingStatusChangedAt: now },
+  })
+  await tx.candidatureStatusChange.create({
+    data: {
+      candidatureId: current.id,
+      fromStatus: change.from,
+      toStatus: change.to,
+      actorSide: by,
+      actorId,
+      changedAt: now,
+    },
+  })
+  return updated
 }
 
 // The candidature's row, held for the rest of the transaction; still its owner's request once the

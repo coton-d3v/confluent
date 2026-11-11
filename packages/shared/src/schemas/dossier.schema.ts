@@ -3,9 +3,9 @@ import { COMPANY_NAME_MAX_LENGTH, companySummarySchema } from './company.schema.
 import {
   dossierNameSchema,
   dossierPresentationShape,
-  dossierPublicationStatusSchema,
   financingTypeSchema,
 } from './financing.schema.js';
+import { dossierPublicationStatusSchema } from './status.schema.js';
 
 export const dossierSchema = z.object({
   id: z.string().uuid(),
@@ -35,6 +35,8 @@ export const dossierSchema = z.object({
   financingTypes: z.array(financingTypeSchema),
   publicationStatus: dossierPublicationStatusSchema,
   publishedAt: z.string().datetime().nullable(),
+  // E06.01: set exactly while the request is archived.
+  archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   ownerEmail: z.string().email().optional(),

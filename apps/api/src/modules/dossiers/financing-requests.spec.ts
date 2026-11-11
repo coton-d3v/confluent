@@ -243,6 +243,106 @@ describe('financing requests', () => {
     })
   })
 
+  // ROADMAP E06.01 (D03 to be confirmed): `archived` closes a request, its owner reopens it as a
+  // draft; every change goes through PUBLICATION_TRANSITIONS.
+  describe('archiving', () => {
+    async function publishedRequest(s: ReturnType<typeof setup>) {
+      const d = await s.dossiers.create({ owner: SOPHIE, name: 'Biosensio' })
+      await s.dossiers.update({ userId: SOPHIE.id, id: d.id, changes: complete })
+      await s.p.dossier.update({ where: { id: d.id }, data: { submittedAt: new Date() } })
+      await s.dossiers.publish(d.id, SOPHIE.id)
+      return d
+    }
+
+    it('archives a published or draft request, closes it, and reopens it as a draft; journaled once each', async () => {
+      const s = setup()
+      const d = await publishedRequest(s)
+      const archived = await s.dossiers.archive(d.id, SOPHIE.id)
+      expect(archived).toMatchObject({ publicationStatus: 'archived', publishedAt: null })
+      expect(archived.archivedAt).toBeInstanceOf(Date)
+      // Archiving again changes nothing.
+      expect((await s.dossiers.archive(d.id, SOPHIE.id)).archivedAt).toEqual(archived.archivedAt)
+
+      // Closed: neither published, nor unpublished, nor edited — nothing written.
+      for (const attempt of [
+        () => s.dossiers.publish(d.id, SOPHIE.id),
+        () => s.dossiers.unpublish(d.id, SOPHIE.id),
+        () => s.dossiers.update({ userId: SOPHIE.id, id: d.id, changes: { summary: 'Autre' } }),
+      ]) {
+        expect(await failure(attempt())).toMatchObject({
+          status: 409,
+          body: { code: 'DOSSIER_ARCHIVED' },
+        })
+      }
+      expect((await s.p.dossier.findUnique({ where: { id: d.id } }))!).toMatchObject({
+        publicationStatus: 'archived',
+        summary: complete.summary,
+      })
+
+      const reopened = await s.dossiers.unarchive(d.id, SOPHIE.id)
+      expect(reopened).toMatchObject({
+        publicationStatus: 'draft',
+        publishedAt: null,
+        archivedAt: null,
+      })
+      // Unarchiving a draft changes nothing; a published request is not unarchived but archived.
+      await s.dossiers.unarchive(d.id, SOPHIE.id)
+      await s.dossiers.publish(d.id, SOPHIE.id)
+      expect(await failure(s.dossiers.unarchive(d.id, SOPHIE.id))).toMatchObject({
+        status: 409,
+        body: { code: 'PUBLICATION_TRANSITION_REFUSED' },
+      })
+      await s.dossiers.unpublish(d.id, SOPHIE.id)
+      // A draft is archived too.
+      expect((await s.dossiers.archive(d.id, SOPHIE.id)).publicationStatus).toBe('archived')
+      expect(s.audit.record.mock.calls.map(([e]) => [e.actionType, e.metadata.from])).toEqual([
+        ['dossier_published', 'draft'],
+        ['dossier_archived', 'published'],
+        ['dossier_unarchived', 'archived'],
+        ['dossier_published', 'draft'],
+        ['dossier_unpublished', 'published'],
+        ['dossier_archived', 'draft'],
+      ])
+    })
+
+    it('lets only the owner archive or unarchive a request', async () => {
+      const s = setup()
+      const d = await publishedRequest(s)
+      expect((await failure(s.dossiers.archive(d.id, MARC.id))).status).toBe(404)
+      await s.dossiers.archive(d.id, SOPHIE.id)
+      expect((await failure(s.dossiers.unarchive(d.id, MARC.id))).status).toBe(404)
+      expect((await failure(s.dossiers.unarchive(d.id, FINANCEUR.id))).status).toBe(404)
+      expect((await s.p.dossier.findUnique({ where: { id: d.id } }))!.publicationStatus).toBe(
+        'archived',
+      )
+    })
+
+    it('hides an archived request’s presentation from share recipients, as a draft', async () => {
+      const s = setup()
+      await s.p.user.create({ data: { ...SOPHIE } })
+      const d = await publishedRequest(s)
+      await s.p.shareLink.create({
+        data: {
+          dossierId: d.id,
+          recipientEmail: FINANCEUR.email,
+          status: 'active',
+          accessLevel: 'complet',
+        },
+      })
+      expect(await s.dossiers.getWithQuestionnaire(d.id, FINANCEUR)).toMatchObject({
+        summary: complete.summary,
+      })
+      await s.dossiers.archive(d.id, SOPHIE.id)
+      expect(await s.dossiers.getWithQuestionnaire(d.id, FINANCEUR)).toMatchObject({
+        publicationStatus: 'archived',
+        summary: null,
+        objective: null,
+        amountEur: null,
+        financingTypes: [],
+      })
+    })
+  })
+
   describe('documents selected by each request', () => {
     async function twoRequests() {
       const ctx = setup()

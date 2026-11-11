@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import {
   financingTypesOf,
+  publicationStatusOf,
   type DossierPublicationStatus,
   type FinancingType,
 } from '@confluent/shared'
@@ -24,6 +25,7 @@ export interface CompanyDossierView {
   financingTypes: FinancingType[]
   publicationStatus: DossierPublicationStatus
   publishedAt: Date | null
+  archivedAt: Date | null
   submittedAt: Date | null
   createdAt: Date
 }
@@ -37,6 +39,7 @@ const DOSSIER_COLUMNS = {
   financingTypes: true,
   publicationStatus: true,
   publishedAt: true,
+  archivedAt: true,
   submittedAt: true,
   createdAt: true,
 } satisfies Prisma.DossierSelect
@@ -166,8 +169,9 @@ function toView(company: CompanyWithDossiers): CompanyView {
       summary: d.summary,
       amountEur: d.amountEur,
       financingTypes: financingTypesOf(d.financingTypes),
-      publicationStatus: d.publicationStatus === 'published' ? 'published' : 'draft',
+      publicationStatus: publicationStatusOf(d.publicationStatus),
       publishedAt: d.publishedAt,
+      archivedAt: d.archivedAt,
       submittedAt: d.submittedAt,
       createdAt: d.createdAt,
     })),

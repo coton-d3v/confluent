@@ -56,3 +56,17 @@ export function financingRequestsDown(): string[] {
     ...sqlStatements(join(CHECKS, '20261113000000_financing_requests.down.sql')),
   ]
 }
+
+// The revert of E06.01 (statuses), as the tests of earlier migrations that touch candidatures run it
+// before their own: it accepts that archived requests and financing statuses are lost (SET LOCAL,
+// test transactions only).
+export function statusesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_statuses_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261117000000_statuses.down.sql')),
+  ]
+}
+
+export function statusesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261117000000_statuses/migration.sql'))
+}

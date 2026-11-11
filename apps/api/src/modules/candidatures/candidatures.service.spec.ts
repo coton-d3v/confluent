@@ -412,24 +412,30 @@ describe('CandidaturesService (E05.09)', () => {
     expect((await failure(s.candidatures.listReceived(FIN, CCI))).status).toBe(404)
   })
 
-  it('lists the owner’s candidatures of a request, and lets the owner withdraw one', async () => {
+  it('lists the owner’s candidatures of a request, and lets the owner withdraw a draft only', async () => {
     const s = await setup()
     const { toCci, toClub } = await twoCandidatures(s)
     await s.submitProfile()
     await s.candidatures.submit(toCci.id, SOPHIE.id)
     const listed = await s.candidatures.listForDossier(s.dossier.id, SOPHIE.id)
-    expect(listed.map((c) => [c.workspace.name, c.status]).sort()).toEqual([
-      ['CCI Touraine', 'submitted'],
-      ['Club deal', 'draft'],
+    expect(listed.map((c) => [c.workspace.name, c.status, c.financingStatus]).sort()).toEqual([
+      ['CCI Touraine', 'submitted', 'preparing'],
+      ['Club deal', 'draft', 'preparing'],
     ])
     expect((await failure(s.candidatures.listForDossier(s.dossier.id, LEA.id))).status).toBe(404)
-    expect((await failure(s.candidatures.withdraw(toCci.id, LEA.id))).status).toBe(404)
+    expect((await failure(s.candidatures.withdraw(toClub.id, LEA.id))).status).toBe(404)
 
-    await s.candidatures.withdraw(toCci.id, SOPHIE.id)
-    expect(await s.candidatures.listReceived(MARIE, CCI)).toEqual([])
-    expect((await failure(s.candidatures.getForOwner(toCci.id, SOPHIE.id))).status).toBe(404)
+    // E06.01: the CCI follows the sent candidature and keeps it; its owner abandons it instead.
+    expect(await failure(s.candidatures.withdraw(toCci.id, SOPHIE.id))).toEqual({
+      status: 409,
+      code: 'CANDIDATURE_SENT',
+    })
+    expect((await s.candidatures.listReceived(MARIE, CCI)).map((c) => c.id)).toEqual([toCci.id])
+
+    await s.candidatures.withdraw(toClub.id, SOPHIE.id)
+    expect((await failure(s.candidatures.getForOwner(toClub.id, SOPHIE.id))).status).toBe(404)
     expect((await s.candidatures.listForDossier(s.dossier.id, SOPHIE.id)).map((c) => c.id)).toEqual(
-      [toClub.id],
+      [toCci.id],
     )
     expect(s.actions()).toContain('candidature_withdrawn')
   })
@@ -482,5 +488,268 @@ describe('CandidaturesService (E05.09)', () => {
         }),
       ]),
     )
+  })
+})
+
+// ROADMAP E06.01 (D03 to be confirmed): the financing status of a request in each workspace, carried
+// by its candidature, changed along FINANCING_STATUS_TRANSITIONS by the side each transition names.
+describe('CandidaturesService — financing status per workspace (E06.01)', () => {
+  // Sophie's request, presented to and sent to both workspaces.
+  async function sent() {
+    const s = await setup()
+    const two = await twoCandidatures(s)
+    await s.submitProfile()
+    await s.candidatures.submit(two.toCci.id, SOPHIE.id)
+    await s.candidatures.submit(two.toClub.id, SOPHIE.id)
+    return { s, ...two }
+  }
+  const history = (s: Setup) => [...s.fake.table('candidatureStatusChange').values()]
+
+  it('starts in preparation once sent, and keeps each workspace’s status apart', async () => {
+    const { s, toCci, toClub } = await sent()
+    // Marie manages the CCI; Jean, conseiller without that right, follows it too.
+    await s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+      from: 'preparing',
+      to: 'in_committee',
+    })
+    const funded = await s.candidatures.changeFinancingStatusForWorkspace(JEAN, CCI, toCci.id, {
+      from: 'in_committee',
+      to: 'funded',
+    })
+    expect(funded.financingStatus).toBe('funded')
+    expect(funded.statusHistory.map((c) => [c.from, c.to, c.by, c.actor?.email])).toEqual([
+      ['in_committee', 'funded', 'workspace', JEAN.email],
+      ['preparing', 'in_committee', 'workspace', MARIE.email],
+    ])
+    await s.candidatures.changeFinancingStatusForWorkspace(PAUL, CLUB, toClub.id, {
+      from: 'preparing',
+      to: 'refused',
+    })
+
+    // The owner sees each workspace's status, and which side decided — never who among them.
+    const listed = await s.candidatures.listForDossier(s.dossier.id, SOPHIE.id)
+    expect(listed.map((c) => [c.workspace.name, c.financingStatus]).sort()).toEqual([
+      ['CCI Touraine', 'funded'],
+      ['Club deal', 'refused'],
+    ])
+    const own = await s.candidatures.getForOwner(toCci.id, SOPHIE.id)
+    expect(own.statusHistory.map((c) => [c.to, c.by])).toEqual([
+      ['funded', 'workspace'],
+      ['in_committee', 'workspace'],
+    ])
+    expect(JSON.stringify(own)).not.toContain(MARIE.email)
+    expect(JSON.stringify(own)).not.toContain(JEAN.id)
+
+    // Each workspace reads its own status only.
+    expect(await s.candidatures.listReceived(PAUL, CLUB)).toEqual([
+      expect.objectContaining({ id: toClub.id, financingStatus: 'refused' }),
+    ])
+    const club = await s.candidatures.getReceived(PAUL, CLUB, toClub.id)
+    expect(JSON.stringify(club)).not.toContain('funded')
+    expect(JSON.stringify(club)).not.toContain('in_committee')
+    expect((await s.candidatures.listReceived(MARIE, CCI))[0].financingStatus).toBe('funded')
+    expect(s.actions().filter((a) => a === 'candidature_status_changed')).toHaveLength(3)
+  })
+
+  it('refuses whoever is not on the side a transition names, and every other account', async () => {
+    const { s, toCci, toClub } = await sent()
+    const toCommittee = { from: 'preparing' as const, to: 'in_committee' as const }
+    // The workspace's investisseur: 403; another workspace's conseiller, an entrepreneur, a share
+    // recipient: 404; the club's conseiller on the CCI's candidature through the club: 404.
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusForWorkspace(CLAIRE, CCI, toCci.id, toCommittee),
+      ),
+    ).toEqual({ status: 403, code: 'CANDIDATURES_FORBIDDEN' })
+    for (const [actor, ws, id] of [
+      [PAUL, CCI, toCci.id],
+      [SOPHIE, CCI, toCci.id],
+      [FIN, CCI, toCci.id],
+      [PAUL, CLUB, toCci.id],
+      [MARIE, CCI, toClub.id],
+    ] as const) {
+      expect(
+        (
+          await failure(
+            s.candidatures.changeFinancingStatusForWorkspace(actor, ws, id, toCommittee),
+          )
+        ).status,
+      ).toBe(404)
+    }
+    // The owner side: another account 404; the owner cannot decide what the structure decides.
+    expect(
+      (await failure(s.candidatures.changeFinancingStatusAsOwner(toCci.id, LEA.id, toCommittee)))
+        .status,
+    ).toBe(404)
+    for (const to of ['in_committee', 'funded', 'refused'] as const) {
+      expect(
+        await failure(
+          s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+            from: 'preparing',
+            to,
+          }),
+        ),
+      ).toEqual({ status: 403, code: 'FINANCING_TRANSITION_FORBIDDEN' })
+    }
+    // Nothing written.
+    expect(history(s)).toEqual([])
+    expect((await s.candidatures.getForOwner(toCci.id, SOPHIE.id)).financingStatus).toBe(
+      'preparing',
+    )
+
+    // A Confluent administrator acts for the workspace without being a member.
+    const done = await s.candidatures.changeFinancingStatusForWorkspace(
+      ADMIN,
+      CCI,
+      toCci.id,
+      toCommittee,
+    )
+    expect(done.statusHistory[0]).toMatchObject({ by: 'workspace', actor: { email: ADMIN.email } })
+  })
+
+  it('lets the owner abandon and resume, the workspace reopen a closed status; refuses the rest', async () => {
+    const { s, toCci } = await sent()
+    const abandoned = await s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+      from: 'preparing',
+      to: 'abandoned',
+    })
+    expect(abandoned.statusHistory[0]).toMatchObject({
+      from: 'preparing',
+      to: 'abandoned',
+      by: 'owner',
+    })
+    // The workspace sees the abandonment, by the owner.
+    expect((await s.candidatures.getReceived(MARIE, CCI, toCci.id)).statusHistory[0]).toMatchObject(
+      {
+        to: 'abandoned',
+        by: 'owner',
+        actor: { email: SOPHIE.email },
+      },
+    )
+    // A closed status leads nowhere but back to preparation.
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+          from: 'abandoned',
+          to: 'funded',
+        }),
+      ),
+    ).toEqual({ status: 409, code: 'FINANCING_TRANSITION_IMPOSSIBLE' })
+    await s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+      from: 'abandoned',
+      to: 'preparing',
+    })
+    await s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+      from: 'preparing',
+      to: 'refused',
+    })
+    // A refusal is reopened by the workspace only.
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+          from: 'refused',
+          to: 'preparing',
+        }),
+      ),
+    ).toEqual({ status: 403, code: 'FINANCING_TRANSITION_FORBIDDEN' })
+    await s.candidatures.changeFinancingStatusForWorkspace(JEAN, CCI, toCci.id, {
+      from: 'refused',
+      to: 'preparing',
+    })
+    expect(history(s).map((c) => `${c.fromStatus}>${c.toStatus}:${c.actorSide}`)).toEqual([
+      'preparing>abandoned:owner',
+      'abandoned>preparing:owner',
+      'preparing>refused:workspace',
+      'refused>preparing:workspace',
+    ])
+  })
+
+  it('refuses a change from a status that changed meanwhile, writing nothing', async () => {
+    const { s, toCci } = await sent()
+    await s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+      from: 'preparing',
+      to: 'in_committee',
+    })
+    // Jean still sees `preparing`: his refusal is not applied over Marie's committee.
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusForWorkspace(JEAN, CCI, toCci.id, {
+          from: 'preparing',
+          to: 'refused',
+        }),
+      ),
+    ).toEqual({ status: 409, code: 'FINANCING_STATUS_CHANGED' })
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+          from: 'preparing',
+          to: 'abandoned',
+        }),
+      ),
+    ).toEqual({ status: 409, code: 'FINANCING_STATUS_CHANGED' })
+    expect(history(s)).toHaveLength(1)
+    expect((await s.candidatures.getReceived(MARIE, CCI, toCci.id)).financingStatus).toBe(
+      'in_committee',
+    )
+  })
+
+  it('changes nothing while a draft: the owner is told to send it, the workspace does not see it', async () => {
+    const s = await setup()
+    const { toCci } = await twoCandidatures(s)
+    expect(
+      await failure(
+        s.candidatures.changeFinancingStatusAsOwner(toCci.id, SOPHIE.id, {
+          from: 'preparing',
+          to: 'abandoned',
+        }),
+      ),
+    ).toEqual({ status: 409, code: 'CANDIDATURE_NOT_SENT' })
+    expect(
+      (
+        await failure(
+          s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+            from: 'preparing',
+            to: 'in_committee',
+          }),
+        )
+      ).status,
+    ).toBe(404)
+  })
+
+  it('keeps an archived request out of new candidatures, and its statuses changing', async () => {
+    const { s, toCci } = await sent()
+    await s.dossiers.archive(s.dossier.id, SOPHIE.id)
+    // Another request of the company, archived before being presented anywhere.
+    const other = await s.dossiers.createForCompany({
+      owner: SOPHIE,
+      companyId: s.dossier.companyId,
+      name: 'Deuxième demande',
+    })
+    await s.dossiers.archive(other.id, SOPHIE.id)
+    expect(await failure(s.candidatures.create(other.id, SOPHIE.id, CCI))).toEqual({
+      status: 409,
+      code: 'DOSSIER_ARCHIVED',
+    })
+    // The candidature already sent keeps being followed by the workspace.
+    const followed = await s.candidatures.changeFinancingStatusForWorkspace(MARIE, CCI, toCci.id, {
+      from: 'preparing',
+      to: 'funded',
+    })
+    expect(followed).toMatchObject({
+      financingStatus: 'funded',
+      dossier: { publicationStatus: 'archived' },
+    })
+  })
+
+  it('refuses to send a draft candidature of an archived request', async () => {
+    const s = await setup()
+    const { toCci } = await twoCandidatures(s)
+    await s.submitProfile()
+    await s.dossiers.archive(s.dossier.id, SOPHIE.id)
+    expect(await failure(s.candidatures.submit(toCci.id, SOPHIE.id))).toEqual({
+      status: 409,
+      code: 'DOSSIER_ARCHIVED',
+    })
+    expect(await s.candidatures.listReceived(MARIE, CCI)).toEqual([])
   })
 })

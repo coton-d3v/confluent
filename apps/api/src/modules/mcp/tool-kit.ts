@@ -1,6 +1,10 @@
 import { HttpException } from '@nestjs/common'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { ANSWER_EXCERPT_MAX_LENGTH, answerOriginSchema } from '@confluent/shared'
+import {
+  ANSWER_EXCERPT_MAX_LENGTH,
+  answerOriginSchema,
+  publicationStatusOf,
+} from '@confluent/shared'
 import { z } from 'zod'
 import type { ActionOrigin } from '../audit/action-origin'
 import { canOwnCompanies } from '../companies/company-access'
@@ -199,4 +203,14 @@ export function answersInput(fieldsFrom: string) {
     )
     .min(1)
     .max(200)
+}
+
+// The publication of a request as the tools name it (D03, E06.01); an unknown value reads as a draft.
+const PUBLICATION_NAMES = {
+  draft: 'brouillon',
+  published: 'publiee',
+  archived: 'archivee',
+} as const
+export function publicationName(dossier: { publicationStatus: string }) {
+  return PUBLICATION_NAMES[publicationStatusOf(dossier.publicationStatus)]
 }

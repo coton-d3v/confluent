@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req } from '@nestjs/common'
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
@@ -102,6 +103,7 @@ export class DossiersController {
   @ApiUnprocessableEntityResponse({
     description: 'Demande publiée : présentation incomplète refusée (la dépublier d’abord).',
   })
+  @ApiConflictResponse({ description: 'Demande archivée (la désarchiver d’abord).' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   update(
     @Req() req: Request,
@@ -121,10 +123,14 @@ export class DossiersController {
       'l’entreprise soumis pour ce dossier (sinon `422` `DOSSIER_NOT_PUBLISHABLE`, `error.details` ' +
       'liste ce qui manque). Distincte de la soumission (contrôle du profil et classification). ' +
       'Les destinataires des partages voient alors la présentation de la demande ; la publication ' +
-      'n’ouvre ni ne ferme aucun partage. Publier une demande déjà publiée ne change rien. Journalisé.',
+      'n’ouvre ni ne ferme aucun partage. Publier une demande déjà publiée ne change rien ; une ' +
+      'demande archivée doit d’abord être désarchivée (`409` `DOSSIER_ARCHIVED`). Journalisé.',
   })
   @ApiOkResponse({ description: 'Demande publiée.' })
   @ApiUnprocessableEntityResponse({ description: 'Informations manquantes pour publier.' })
+  @ApiConflictResponse({
+    description: 'Demande archivée, ou entreprise en préparation par un conseiller.',
+  })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   publish(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
     return this.service.publish(id, currentUser(req).id)
@@ -136,12 +142,48 @@ export class DossiersController {
     summary: 'Dépublier une demande (E05.07)',
     description:
       'Retour au brouillon : les partages restent ouverts mais ne montrent plus la présentation de la ' +
-      'demande. Sans effet sur un brouillon. Propriétaire seul (`404` sinon). Journalisé.',
+      'demande. Sans effet sur un brouillon ; `409` sur une demande archivée. Propriétaire seul ' +
+      '(`404` sinon). Journalisé.',
   })
   @ApiOkResponse({ description: 'Demande en brouillon.' })
+  @ApiConflictResponse({ description: 'Demande archivée.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
   unpublish(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
     return this.service.unpublish(id, currentUser(req).id)
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Archiver une demande (E06.01, D03 à confirmer)',
+    description:
+      'Le propriétaire clôt la demande, publiée ou en brouillon : `publicationStatus` = `archived`, ' +
+      '`archivedAt`. Les partages restent ouverts mais ne montrent plus sa présentation ; sa ' +
+      'présentation n’est plus modifiable, elle ne peut être ni publiée ni présentée à une nouvelle ' +
+      'structure tant qu’elle n’est pas désarchivée. Ses candidatures gardent leur statut de ' +
+      'financement dans chaque structure. Sans effet sur une demande archivée. Propriétaire seul ' +
+      '(`404` sinon). Journalisé (`dossier_archived`).',
+  })
+  @ApiOkResponse({ description: 'Demande archivée.' })
+  @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  archive(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
+    return this.service.archive(id, currentUser(req).id)
+  }
+
+  @Post(':id/unarchive')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Désarchiver une demande (E06.01, D03 à confirmer)',
+    description:
+      'Retour au brouillon (`publicationStatus` = `draft`) : la demande se republie si besoin. ' +
+      'Sans effet sur un brouillon ; `409` sur une demande publiée. Propriétaire seul (`404` ' +
+      'sinon). Journalisé (`dossier_unarchived`).',
+  })
+  @ApiOkResponse({ description: 'Demande en brouillon.' })
+  @ApiConflictResponse({ description: 'Demande publiée.' })
+  @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  unarchive(@Req() req: Request, @Param('id') id: string): Promise<Dossier> {
+    return this.service.unarchive(id, currentUser(req).id)
   }
 
   @Delete(':id')
