@@ -4,7 +4,7 @@ import { AnswerSourcesService } from '../../src/modules/answers/answer-sources.s
 import { AnswersService } from '../../src/modules/answers/answers.service'
 import { ClassificationService } from '../../src/modules/classification/classification.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
-import { companyOf, testDatabase } from './database'
+import { companyOf, testDatabase, documentOf } from './database'
 
 // E04.05: confirming a proposal and replacing it are serialized by the dossier's lock, and the
 // history is kept by the database with the same rules as the answers (CHECK constraints, foreign
@@ -52,14 +52,9 @@ describe('answer history and confirmation (PostgreSQL)', () => {
         questionnaireVersionId: version.id,
       },
     })
-    const document = await prisma.document.create({
-      data: {
-        companyId: dossier.companyId,
-        filename: 'kbis.pdf',
-        mimetype: 'application/pdf',
-        storageKey: `test/${tag}`,
-        size: 10,
-      },
+    const document = await documentOf(prisma, dossier.companyId, {
+      filename: 'kbis.pdf',
+      storageKey: `test/${tag}`,
     })
     const mcp = { userId: user.id, channel: 'mcp', clientName: 'Claude' } as const
     const [proposal] = await answers.saveForDossier(

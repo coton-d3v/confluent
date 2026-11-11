@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
+  ConflictException,
   GoneException,
   HttpException,
   Inject,
@@ -11,15 +12,18 @@ import {
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
-import type { Document } from '@prisma/client'
+import type { Document, LibraryDocument, Prisma } from '@prisma/client'
 import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
   MAX_DOCUMENT_BYTES,
+  documentTypeOf,
   grantsAccess,
   type AccessLevel,
   type DocumentAvailability,
+  type DocumentType,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { AuditService } from '../audit/audit.service'
 import { lockProfile, type DossierRef } from '../dossiers/dossier-profile'
 import { DOCUMENTS_MIN_LEVEL, fieldVisibleAt } from '../dossiers/financeur-access'
 import { detectDocumentType } from './document-types'
@@ -60,15 +64,37 @@ export interface DocumentVersionView {
   mimetype: string
   size: number
   fieldId: string | null
+  // Number of the earlier version this one brought back (E05.06), null for a deposit.
+  restoredFromVersion: number | null
 }
 
+// A document of the company's library (E05.06) as a reader may see it.
 export interface DocumentGroup {
+  id: string
   filename: string
   // The question the document answers (every version answers the same one, R48).
   fieldId: string | null
+  type: DocumentType
   current: DocumentVersionView
   versions: DocumentVersionView[]
 }
+
+// A version as stored, with what its document says about it.
+export type StoredVersion = Document & {
+  fieldId: string | null
+  type: DocumentType
+  restoredFromVersion: number | null
+}
+
+const documentNotFound = () =>
+  new NotFoundException({ code: 'DOCUMENT_NOT_FOUND', message: 'Document introuvable.' })
+
+const storageUnavailable = () =>
+  new ServiceUnavailableException({
+    code: 'STORAGE_UNAVAILABLE',
+    message:
+      'Le stockage des documents est momentanément indisponible. Réessayez dans quelques instants.',
+  })
 
 @Injectable()
 export class DocumentsService {
@@ -77,18 +103,22 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(STORAGE_TOKEN) private readonly storage: StorageAdapter,
+    private readonly audit: AuditService,
   ) {}
 
   // The type announced by the browser is ignored: the stored and served type is the one recognised
   // in the content, and only accepted formats are stored.
-  // The file joins the documents of the dossier's company (E05.05). `fieldId` attaches it to an
+  // The file joins the library of the dossier's company (E05.05, E05.06): a new version of the
+  // document of that name for that question, or a new document of type `type` (default `other`;
+  // ignored for a new version, whose document keeps its type). `fieldId` attaches it to an
   // attachment field of the company-profile form (E03.11); it is checked before anything is stored.
   async upload(params: {
     dossier: DossierRef
     filename: string
     buffer: Buffer
     fieldId?: string | null
-  }): Promise<Document> {
+    type?: DocumentType
+  }): Promise<StoredVersion> {
     // Normally enforced earlier by the multipart limit; kept for callers other than the controller.
     if (params.buffer.byteLength > MAX_UPLOAD_BYTES) {
       throw new PayloadTooLargeException({
@@ -111,28 +141,31 @@ export class DocumentsService {
     const storageKey = `companies/${companyId}/${randomUUID()}`
     await this.store(storageKey, params.buffer, mimetype)
     try {
-      // A document is versioned per question it answers (R48). Numbers are assigned under the
-      // profile's lock, like every write that depends on the profile's state (R40): two uploads
-      // of the same name never get the same version, attached or not (the unique index cannot
-      // protect files without a question, whose field id is NULL).
+      // A document is a name per question it answers (R48). Documents and version numbers are
+      // assigned under the profile's lock, like every write that depends on the profile's state
+      // (R40): two uploads of the same name never make two documents nor get the same version,
+      // attached or not (the unique index cannot protect files without a question, whose field id
+      // is NULL).
       return await this.prisma.$transaction(async (tx) => {
         await lockProfile(tx, params.dossier.id)
-        const previous = await tx.document.findFirst({
-          where: { companyId, fieldId, filename },
-          orderBy: { version: 'desc' },
-          select: { version: true },
-        })
-        return tx.document.create({
+        const document =
+          (await tx.libraryDocument.findFirst({ where: { companyId, fieldId, filename } })) ??
+          (await tx.libraryDocument.create({
+            data: { companyId, fieldId, filename, type: params.type ?? 'other' },
+          }))
+        const version = await this.nextVersion(tx, document.id)
+        const created = await tx.document.create({
           data: {
+            libraryDocumentId: document.id,
             companyId,
             filename,
             mimetype,
             storageKey,
             size: params.buffer.byteLength,
-            version: (previous?.version ?? 0) + 1,
-            fieldId,
+            version,
           },
         })
+        return storedVersion(created, document, null)
       })
     } catch (err) {
       await this.storage.delete(storageKey).catch(() => undefined)
@@ -140,44 +173,51 @@ export class DocumentsService {
     }
   }
 
-  // The versions `level` may read (E03.11): a file attached to a field follows that field's read
-  // level, any other file requires DOCUMENTS_MIN_LEVEL. Hidden versions are neither listed nor
-  // signed; a group whose versions are all hidden is left out. A dossier presents every document of
-  // its company (E05.05) until a dossier selects its own (E05.07).
+  // The documents `level` may read (E03.11), each with all its versions, newest first: a file
+  // attached to a field follows that field's read level, any other file requires
+  // DOCUMENTS_MIN_LEVEL. Hidden documents are neither listed nor signed. A dossier presents every
+  // document of its company (E05.05) until a dossier selects its own (E05.07).
   async listForDossier(dossier: DossierRef, level: AccessLevel): Promise<DocumentGroup[]> {
-    const rows = (
-      await this.prisma.document.findMany({
+    const documents = (
+      await this.prisma.libraryDocument.findMany({
         where: { companyId: dossier.companyId },
-        orderBy: [{ filename: 'asc' }, { version: 'desc' }],
-        include: { field: { select: { minAccessLevel: true } } },
+        orderBy: [{ filename: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          field: { select: { minAccessLevel: true } },
+          versions: { orderBy: { version: 'desc' } },
+        },
       })
-    ).filter((row) => versionVisibleAt(row, level))
+    ).filter((document) => document.versions.length > 0 && documentVisibleAt(document, level))
+    const rows = documents.flatMap((document) => document.versions)
     const downloads = await mapWithConcurrency(rows, LISTING_CONCURRENCY, (row) =>
       this.download(row.storageKey, row.filename),
     )
-    // A document is a file name answering one question (or none): grouped and versioned apart (R48).
-    const byDocument = new Map<string, { filename: string; versions: DocumentVersionView[] }>()
-    rows.forEach((row, i) => {
-      const view: DocumentVersionView = {
-        id: row.id,
-        version: row.version,
-        ...downloads[i],
-        createdAt: row.createdAt,
-        mimetype: row.mimetype,
-        size: row.size,
-        fieldId: row.fieldId,
+    const downloadOf = new Map(rows.map((row, i) => [row.id, downloads[i]]))
+    return documents.map((document) => {
+      const numbers = new Map(document.versions.map((v) => [v.id, v.version]))
+      const versions = document.versions.map(
+        (row): DocumentVersionView => ({
+          id: row.id,
+          version: row.version,
+          ...downloadOf.get(row.id)!,
+          createdAt: row.createdAt,
+          mimetype: row.mimetype,
+          size: row.size,
+          fieldId: document.fieldId,
+          restoredFromVersion: row.restoredFromId
+            ? (numbers.get(row.restoredFromId) ?? null)
+            : null,
+        }),
+      )
+      return {
+        id: document.id,
+        filename: document.filename,
+        fieldId: document.fieldId,
+        type: documentTypeOf(document.type),
+        current: versions[0],
+        versions,
       }
-      const key = `${row.fieldId ?? ''}/${row.filename}`
-      const document = byDocument.get(key) ?? { filename: row.filename, versions: [] }
-      document.versions.push(view)
-      byDocument.set(key, document)
     })
-    return [...byDocument.values()].map(({ filename, versions }) => ({
-      filename,
-      fieldId: versions[0].fieldId,
-      current: versions[0],
-      versions,
-    }))
   }
 
   // The content of one version, if `level` may read it (same rule as the listing): a version that is
@@ -186,16 +226,22 @@ export class DocumentsService {
     dossier: DossierRef,
     level: AccessLevel,
     documentId: string,
-  ): Promise<{ document: Document; content: Buffer }> {
+  ): Promise<{ document: StoredVersion; content: Buffer }> {
     const row = await this.prisma.document.findFirst({
       where: { id: documentId, companyId: dossier.companyId },
-      include: { field: { select: { minAccessLevel: true } } },
+      include: { libraryDocument: { include: { field: { select: { minAccessLevel: true } } } } },
     })
-    if (!row || !versionVisibleAt(row, level)) {
-      throw new NotFoundException({ code: 'DOCUMENT_NOT_FOUND', message: 'Document introuvable.' })
-    }
+    if (!row || !documentVisibleAt(row.libraryDocument, level)) throw documentNotFound()
+    const { libraryDocument, ...version } = row
+    const restoredFrom = version.restoredFromId
+      ? await this.prisma.document.findUnique({
+          where: { id: version.restoredFromId },
+          select: { version: true },
+        })
+      : null
+    const document = storedVersion(version, libraryDocument, restoredFrom?.version ?? null)
     try {
-      return { document: row, content: await this.storage.read(row.storageKey) }
+      return { document, content: await this.storage.read(row.storageKey) }
     } catch (err) {
       if (err instanceof StoredObjectMissingError) {
         this.logger.warn(`document object missing: ${row.storageKey}`)
@@ -207,12 +253,122 @@ export class DocumentsService {
       this.logger.warn(
         `document storage unreachable for ${row.storageKey}: ${(err as Error).message}`,
       )
-      throw new ServiceUnavailableException({
-        code: 'STORAGE_UNAVAILABLE',
-        message:
-          'Le stockage des documents est momentanément indisponible. Réessayez dans quelques instants.',
+      throw storageUnavailable()
+    }
+  }
+
+  // E05.06: the document's type, changed by its owner (the caller checks ownership). Recorded in the
+  // dossier's journal when it changes.
+  async setType(params: {
+    dossier: DossierRef
+    documentId: string
+    type: DocumentType
+    actorId: string
+  }): Promise<LibraryDocument & { type: DocumentType }> {
+    const { dossier, documentId, type } = params
+    const found = await this.prisma.libraryDocument.findFirst({
+      where: { id: documentId, companyId: dossier.companyId },
+    })
+    if (!found) throw documentNotFound()
+    const previous = documentTypeOf(found.type)
+    if (previous === type) return { ...found, type }
+    const updated = await this.prisma.libraryDocument.update({
+      where: { id: found.id },
+      data: { type },
+    })
+    await this.audit.record({
+      actionType: 'document_type_changed',
+      actorId: params.actorId,
+      dossierId: dossier.id,
+      metadata: { documentId: found.id, filename: found.filename, from: previous, to: type },
+    })
+    return { ...updated, type }
+  }
+
+  // E05.06: brings an earlier version of a document back. Nothing is overwritten nor deleted: a new
+  // version is added, newest of the document, pointing at the same stored object and saying which
+  // version it restores; every version stays readable. A version whose file is lost cannot come
+  // back (410), nor can the version in force (409). Numbered under the profile's lock, like a
+  // deposit: a restoration and an upload (or two restorations) never get the same number.
+  async restoreVersion(params: {
+    dossier: DossierRef
+    documentId: string
+    versionId: string
+    actorId: string
+  }): Promise<StoredVersion> {
+    const { dossier, documentId, versionId } = params
+    const source = await this.prisma.document.findFirst({
+      where: { id: versionId, libraryDocumentId: documentId, companyId: dossier.companyId },
+    })
+    if (!source) throw documentNotFound()
+    let present: boolean
+    try {
+      present = await this.storage.exists(source.storageKey)
+    } catch (err) {
+      this.logger.warn(
+        `document storage unreachable for ${source.storageKey}: ${(err as Error).message}`,
+      )
+      throw storageUnavailable()
+    }
+    if (!present) {
+      throw new GoneException({
+        code: 'DOCUMENT_MISSING',
+        message: 'Le fichier de cette version est perdu : elle ne peut pas être restaurée.',
       })
     }
+    const restored = await this.prisma.$transaction(async (tx) => {
+      await lockProfile(tx, dossier.id)
+      const document = await tx.libraryDocument.findFirst({
+        where: { id: documentId, companyId: dossier.companyId },
+      })
+      if (!document) throw documentNotFound()
+      const current = await tx.document.findFirst({
+        where: { libraryDocumentId: document.id },
+        orderBy: { version: 'desc' },
+      })
+      if (current?.storageKey === source.storageKey) {
+        throw new ConflictException({
+          code: 'DOCUMENT_VERSION_CURRENT',
+          message: 'Cette version est déjà la version en vigueur du document.',
+        })
+      }
+      const created = await tx.document.create({
+        data: {
+          libraryDocumentId: document.id,
+          companyId: document.companyId,
+          filename: document.filename,
+          mimetype: source.mimetype,
+          storageKey: source.storageKey,
+          size: source.size,
+          version: (current?.version ?? 0) + 1,
+          restoredFromId: source.id,
+        },
+      })
+      return storedVersion(created, document, source.version)
+    })
+    await this.audit.record({
+      actionType: 'document_version_restored',
+      actorId: params.actorId,
+      dossierId: dossier.id,
+      metadata: {
+        documentId: restored.libraryDocumentId,
+        filename: restored.filename,
+        restoredVersionId: source.id,
+        restoredVersion: source.version,
+        versionId: restored.id,
+        version: restored.version,
+      },
+    })
+    return restored
+  }
+
+  private async nextVersion(tx: Prisma.TransactionClient, libraryDocumentId: string) {
+    const previous = await tx.document.findFirst({
+      where: { libraryDocumentId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    })
+    return (previous?.version ?? 0) + 1
   }
 
   // E04.09: the document version of this dossier whose text — as read_document returns it — contains
@@ -306,10 +462,28 @@ export class DocumentsService {
   }
 }
 
-// A version attached to a field follows that field's read level; any other file requires
-// DOCUMENTS_MIN_LEVEL (E03.11).
-function versionVisibleAt(row: { field: { minAccessLevel: string } | null }, level: AccessLevel) {
-  return row.field ? fieldVisibleAt(row.field, level) : grantsAccess(level, DOCUMENTS_MIN_LEVEL)
+// A document attached to a field follows that field's read level; any other file requires
+// DOCUMENTS_MIN_LEVEL (E03.11). Every version of a document has its document's visibility.
+function documentVisibleAt(
+  document: { field: { minAccessLevel: string } | null },
+  level: AccessLevel,
+) {
+  return document.field
+    ? fieldVisibleAt(document.field, level)
+    : grantsAccess(level, DOCUMENTS_MIN_LEVEL)
+}
+
+function storedVersion(
+  version: Document,
+  document: Pick<LibraryDocument, 'fieldId' | 'type'>,
+  restoredFromVersion: number | null,
+): StoredVersion {
+  return {
+    ...version,
+    fieldId: document.fieldId,
+    type: documentTypeOf(document.type),
+    restoredFromVersion,
+  }
 }
 
 async function mapWithConcurrency<T, R>(

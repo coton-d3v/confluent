@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import type { Document, Dossier, DossierAnswer } from '@prisma/client'
+import { documentTypeOf, type DocumentType } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AnswersService, type AnswerInput } from '../answers/answers.service'
 import {
@@ -70,14 +71,14 @@ export class AdminDossiersService {
   // The dossier with its company profile's own questionnaire version (never the currently published
   // one): answers and edits must target the fields the profile was created with. Answers and
   // documents are the company's (E05.05), listed as the dossier presents them, with its id as
-  // before.
+  // before; each document version with its library document's field and type (E05.06).
   async detail(id: string): Promise<
     Dossier & {
       ownerEmail: string
       company: { id: string; name: string }
       questionnaireVersion: VersionStructure | null
       answers: Array<DossierAnswer & { dossierId: string }>
-      documents: Array<Document & { dossierId: string }>
+      documents: Array<Document & { dossierId: string; fieldId: string | null; type: DocumentType }>
     }
   > {
     const dossier = await this.prisma.dossier.findUnique({
@@ -94,14 +95,22 @@ export class AdminDossiersService {
     const [questionnaireVersion, answers, documents] = await Promise.all([
       this.questionnaires.getVersion(dossier.questionnaireVersionId),
       this.answers.listForDossier(dossier),
-      this.prisma.document.findMany({ where: { companyId: dossier.companyId } }),
+      this.prisma.document.findMany({
+        where: { companyId: dossier.companyId },
+        include: { libraryDocument: { select: { fieldId: true, type: true } } },
+      }),
     ])
     return {
       ...dossier,
       ownerEmail: dossier.user.email,
       questionnaireVersion,
       answers: answers.map((a) => ({ ...a, dossierId: dossier.id })),
-      documents: documents.map((d) => ({ ...d, dossierId: dossier.id })),
+      documents: documents.map(({ libraryDocument, ...d }) => ({
+        ...d,
+        fieldId: libraryDocument.fieldId,
+        type: documentTypeOf(libraryDocument.type),
+        dossierId: dossier.id,
+      })),
     }
   }
 

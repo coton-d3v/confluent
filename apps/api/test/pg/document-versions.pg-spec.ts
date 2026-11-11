@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { AuditService } from '../../src/modules/audit/audit.service'
 import { DocumentsService } from '../../src/modules/documents/documents.service'
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
 import { companyOf, testDatabase } from './database'
@@ -8,7 +9,11 @@ import { companyOf, testDatabase } from './database'
 // version) cannot protect a file without a question (NULL field ids are distinct in PostgreSQL).
 describe('document versions under concurrency (PostgreSQL)', () => {
   const prisma = testDatabase()
-  const documents = new DocumentsService(prisma, new MemoryStorageAdapter())
+  const documents = new DocumentsService(
+    prisma,
+    new MemoryStorageAdapter(),
+    new AuditService(prisma),
+  )
   const PDF = Buffer.from('%PDF-1.4 test')
 
   afterAll(() => prisma.$disconnect())

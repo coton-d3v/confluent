@@ -614,6 +614,7 @@ export class McpToolsFactory {
             document: {
               documentId: created.id,
               filename: created.filename,
+              type: created.type,
               version: created.version,
               mimetype: created.mimetype,
               size: created.size,
@@ -1177,6 +1178,10 @@ export class McpToolsFactory {
       mimetype: document.mimetype,
       size: document.size,
       uploadedAt: document.createdAt,
+      type: document.type,
+      ...(document.restoredFromVersion
+        ? { restoredFromVersion: document.restoredFromVersion }
+        : {}),
       ...(field ? { fieldId: field.id, question: field.label } : {}),
     }
     const extracted = await extractDocumentText(content, document.mimetype, DOCUMENT_TEXT_LIMITS)
@@ -1344,12 +1349,15 @@ function describeDocument(group: DocumentGroup) {
   return {
     documentId: current.id,
     filename: group.filename,
+    // E05.06: what the document is, in the company's library.
+    type: group.type,
     version: current.version,
     mimetype: current.mimetype,
     size: current.size,
     uploadedAt: current.createdAt,
     availability: current.availability,
     reading: readingOf(current.mimetype),
+    ...(current.restoredFromVersion ? { restoredFromVersion: current.restoredFromVersion } : {}),
     ...(group.versions.length > 1
       ? {
           previousVersions: group.versions.slice(1).map((v) => ({
@@ -1357,6 +1365,7 @@ function describeDocument(group: DocumentGroup) {
             version: v.version,
             uploadedAt: v.createdAt,
             availability: v.availability,
+            ...(v.restoredFromVersion ? { restoredFromVersion: v.restoredFromVersion } : {}),
           })),
         }
       : {}),

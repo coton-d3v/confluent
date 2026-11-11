@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -15,8 +17,10 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConflictResponse,
   ApiConsumes,
   ApiCreatedResponse,
+  ApiGoneResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -29,9 +33,23 @@ import {
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger'
 import type { Request } from 'express'
-import { DocumentsService, MAX_UPLOAD_BYTES, type DocumentGroup } from './documents.service'
+import { createZodDto } from 'nestjs-zod'
+import {
+  ACCEPTED_DOCUMENT_FORMATS_LABEL,
+  DOCUMENT_TYPES,
+  documentTypeSchema,
+  updateDocumentSchema,
+  type DocumentType,
+  type LibraryDocument,
+  type UploadedDocument,
+} from '@confluent/shared'
+import {
+  DocumentsService,
+  MAX_UPLOAD_BYTES,
+  type DocumentGroup,
+  type StoredVersion,
+} from './documents.service'
 import { UploadSizeGuard } from './upload-size.guard'
-import { ACCEPTED_DOCUMENT_FORMATS_LABEL } from '@confluent/shared'
 import { DossiersService } from '../dossiers/dossiers.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
@@ -49,8 +67,39 @@ const UPLOAD_OPTIONS = {
   defParamCharset: 'utf8',
 }
 
+class UpdateDocumentDto extends createZodDto(updateDocumentSchema) {}
+
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
+}
+
+// A multipart field is text: an absent or empty `type` means none; any other value must be a known
+// type (closed list, 400 otherwise).
+function documentTypeField(raw: unknown): DocumentType | undefined {
+  if (raw === undefined || raw === '') return undefined
+  const parsed = documentTypeSchema.safeParse(raw)
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: 'INVALID_DOCUMENT_TYPE',
+      message: 'Type de document inconnu.',
+    })
+  }
+  return parsed.data
+}
+
+function versionResponse(created: StoredVersion): UploadedDocument {
+  return {
+    id: created.id,
+    documentId: created.libraryDocumentId,
+    filename: created.filename,
+    type: created.type,
+    version: created.version,
+    restoredFromVersion: created.restoredFromVersion,
+    mimetype: created.mimetype,
+    size: created.size,
+    fieldId: created.fieldId,
+    createdAt: created.createdAt.toISOString(),
+  }
 }
 
 @ApiTags('Documents')
@@ -79,7 +128,9 @@ export class DocumentsController {
       'les versions précédentes sont conservées. Le fichier est stocké dans le bucket S3 ' +
       'privé sous une clé opaque. Champ facultatif `fieldId` : le document répond au champ « pièce jointe » ' +
       'du profil de l’entreprise (`400` si ce n’est pas un champ pièce jointe de sa version) et suit son ' +
-      'niveau de lecture.',
+      'niveau de lecture. Champ facultatif `type` (E05.06) : type du document créé, parmi ' +
+      `${DOCUMENT_TYPES.join(', ')} (other par défaut, 400 si inconnu) ; ` +
+      'ignoré pour une nouvelle version d’un document existant, qui garde son type (le changer par `PATCH`).',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -92,14 +143,22 @@ export class DocumentsController {
           format: 'uuid',
           description: 'Champ « pièce jointe » auquel le document répond (facultatif).',
         },
+        type: {
+          type: 'string',
+          enum: [...DOCUMENT_TYPES],
+          description: 'Type du document créé (facultatif, `other` par défaut).',
+        },
       },
       required: ['file'],
     },
   })
   @ApiCreatedResponse({
-    description: 'Document créé (id, filename, version, mimetype, size, createdAt).',
+    description:
+      'Version créée (id, documentId, filename, type, version, restoredFromVersion, mimetype, size, fieldId, createdAt).',
   })
-  @ApiBadRequestResponse({ description: 'Fichier absent ou `fieldId` invalide pour ce dossier.' })
+  @ApiBadRequestResponse({
+    description: 'Fichier absent, `fieldId` invalide pour ce dossier ou `type` inconnu.',
+  })
   @ApiPayloadTooLargeResponse({ description: 'Fichier > 20 MB.' })
   @ApiUnsupportedMediaTypeResponse({ description: 'Format de fichier non accepté.' })
   @ApiResponse({ status: 507, description: 'Espace de stockage plein : fichier non enregistré.' })
@@ -110,8 +169,8 @@ export class DocumentsController {
     @Req() req: Request,
     @Param('dossierId') dossierId: string,
     @UploadedFile() file: MulterFile | undefined,
-    @Body() body: { fieldId?: unknown },
-  ) {
+    @Body() body: { fieldId?: unknown; type?: unknown },
+  ): Promise<UploadedDocument> {
     if (!file) {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'File is required.' })
     }
@@ -122,23 +181,83 @@ export class DocumentsController {
       filename: file.originalname,
       buffer: file.buffer,
       fieldId,
+      type: documentTypeField(body?.type),
+    })
+    return versionResponse(created)
+  }
+
+  @Patch(':documentId')
+  @ApiParam({ name: 'documentId', description: 'UUID du document (`id` d’un document listé)' })
+  @ApiOperation({
+    summary: 'Changer le type d’un document (E05.06)',
+    description:
+      'Propriétaire du dossier seulement (sinon `404`, comme un dossier inconnu). Le type vaut pour ' +
+      'toutes les versions du document ; le changement est inscrit au journal du dossier.',
+  })
+  @ApiOkResponse({ description: 'Document (id, filename, fieldId, type).' })
+  @ApiBadRequestResponse({ description: 'Type inconnu.' })
+  async update(
+    @Req() req: Request,
+    @Param('dossierId') dossierId: string,
+    @Param('documentId') documentId: string,
+    @Body() body: UpdateDocumentDto,
+  ): Promise<LibraryDocument> {
+    const user = currentUser(req)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, user.id)
+    const updated = await this.documents.setType({
+      dossier,
+      documentId,
+      type: body.type,
+      actorId: user.id,
     })
     return {
-      id: created.id,
-      filename: created.filename,
-      version: created.version,
-      mimetype: created.mimetype,
-      size: created.size,
-      fieldId: created.fieldId,
-      createdAt: created.createdAt,
+      id: updated.id,
+      filename: updated.filename,
+      fieldId: updated.fieldId,
+      type: updated.type,
     }
+  }
+
+  @Post(':documentId/versions/:versionId/restore')
+  @HttpCode(201)
+  @ApiParam({ name: 'documentId', description: 'UUID du document' })
+  @ApiParam({ name: 'versionId', description: 'UUID de la version à restaurer' })
+  @ApiOperation({
+    summary: 'Restaurer une version antérieure (E05.06)',
+    description:
+      'Propriétaire du dossier seulement (sinon `404`). Ajoute une **nouvelle version**, la plus ' +
+      'récente du document, au contenu de la version choisie (même fichier stocké, ' +
+      '`restoredFromVersion` indique laquelle) : aucune version n’est modifiée ni effacée. Inscrit au ' +
+      'journal du dossier.',
+  })
+  @ApiCreatedResponse({ description: 'Version créée, au même format que le dépôt.' })
+  @ApiConflictResponse({ description: 'La version choisie est déjà la version en vigueur.' })
+  @ApiGoneResponse({ description: 'Le fichier de cette version est perdu : rien n’est créé.' })
+  @ApiServiceUnavailableResponse({
+    description: 'Stockage momentanément injoignable : rien n’est créé, réessayer.',
+  })
+  async restore(
+    @Req() req: Request,
+    @Param('dossierId') dossierId: string,
+    @Param('documentId') documentId: string,
+    @Param('versionId') versionId: string,
+  ): Promise<UploadedDocument> {
+    const user = currentUser(req)
+    const dossier = await this.dossiers.getByIdForUser(dossierId, user.id)
+    const restored = await this.documents.restoreVersion({
+      dossier,
+      documentId,
+      versionId,
+      actorId: user.id,
+    })
+    return versionResponse(restored)
   }
 
   @Get()
   @ApiOperation({
     summary: 'Lister les documents (groupés par filename)',
     description:
-      'Retourne un tableau de `{ filename, current, versions[] }` : les documents de l’entreprise du dossier (E05.05). Chaque version a son `id` et indique sa disponibilité ' +
+      'Retourne un tableau de `{ id, filename, fieldId, type, current, versions[] }` : la bibliothèque de l’entreprise du dossier (E05.05, E05.06), un document par nom et par question, avec son type. Chaque version a son `id`, indique la version qu’elle a restaurée (`restoredFromVersion`, null pour un dépôt) et sa disponibilité ' +
       '(`available` avec une URL signée de téléchargement valable 15 min, `missing` si le fichier est perdu ' +
       'et doit être redéposé, `unavailable` si le stockage est momentanément injoignable). Les versions sont triées desc par `version`. ' +
       'Chaque version indique le champ « pièce jointe » auquel elle répond (`fieldId`, null sinon). Financeur : seules les versions ' +

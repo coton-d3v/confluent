@@ -31,6 +31,44 @@ export const ACCEPTED_DOCUMENT_FORMATS_LABEL =
 // be reached for now. Only an `available` version has a download URL.
 export const documentAvailabilitySchema = z.enum(['available', 'missing', 'unavailable'])
 
+// Types of a document of the company's library (ROADMAP E05.06), a closed list kept equal to the
+// `library_documents_type_check` constraint. A document's type says what it is, for its owner and
+// later for choosing the documents of a financing request (E05.07); it grants no access.
+export const DOCUMENT_TYPES = [
+  'business_plan',
+  'pitch_deck',
+  'financial_forecast',
+  'financial_statements',
+  'cap_table',
+  'company_registration',
+  'articles_of_association',
+  'team_resumes',
+  'bank_details',
+  'other',
+] as const
+
+export const documentTypeSchema = z.enum(DOCUMENT_TYPES)
+export type DocumentType = z.infer<typeof documentTypeSchema>
+
+export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  business_plan: 'Business plan',
+  pitch_deck: 'Présentation (pitch deck)',
+  financial_forecast: 'Prévisionnel financier',
+  financial_statements: 'Comptes annuels',
+  cap_table: 'Table de capitalisation',
+  company_registration: 'Extrait Kbis',
+  articles_of_association: 'Statuts',
+  team_resumes: 'CV de l’équipe',
+  bank_details: 'RIB',
+  other: 'Autre document',
+}
+
+// Closed by default: a value this code does not know is read as `other`.
+export function documentTypeOf(raw: string | null | undefined): DocumentType {
+  const parsed = documentTypeSchema.safeParse(raw)
+  return parsed.success ? parsed.data : 'other'
+}
+
 export const documentVersionSchema = z.object({
   // Identifies this version (e.g. to read its content through MCP, E04.03).
   id: z.string().uuid(),
@@ -43,28 +81,50 @@ export const documentVersionSchema = z.object({
   size: z.number().int().nonnegative(),
   // Attachment field of the form this version answers (E03.11); null for the Documents tab.
   fieldId: z.string().uuid().nullable(),
+  // E05.06: number of the earlier version this one brought back (same file), null for a deposit.
+  restoredFromVersion: z.number().int().positive().nullable(),
 })
 
-// A document is a file name answering one attachment question (or none), with its versions: the
-// same name sent for two questions makes two documents (code review R48).
+// A document of the company's library: a file name answering one attachment question (or none),
+// with its type and its versions, newest first; `current` is the newest. The same name sent for two
+// questions makes two documents (code review R48). `id` identifies the document across its versions.
 export const documentGroupSchema = z.object({
+  id: z.string().uuid(),
   filename: z.string(),
   fieldId: z.string().uuid().nullable(),
+  type: documentTypeSchema,
   current: documentVersionSchema,
   versions: z.array(documentVersionSchema),
 })
 
+// A version just created, by a deposit or by bringing back an earlier version (E05.06).
 export const uploadedDocumentSchema = z.object({
   id: z.string().uuid(),
+  // The document this version belongs to (`documentGroupSchema.id`).
+  documentId: z.string().uuid(),
   filename: z.string(),
+  type: documentTypeSchema,
   version: z.number().int().positive(),
+  restoredFromVersion: z.number().int().positive().nullable(),
   mimetype: z.string(),
   size: z.number().int().nonnegative(),
   fieldId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
 })
 
+// PATCH body: the document's new type.
+export const updateDocumentSchema = z.object({ type: documentTypeSchema }).strict()
+
+export const libraryDocumentSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  fieldId: z.string().uuid().nullable(),
+  type: documentTypeSchema,
+})
+
 export type DocumentAvailability = z.infer<typeof documentAvailabilitySchema>
 export type DocumentVersion = z.infer<typeof documentVersionSchema>
 export type DocumentGroup = z.infer<typeof documentGroupSchema>
 export type UploadedDocument = z.infer<typeof uploadedDocumentSchema>
+export type UpdateDocument = z.infer<typeof updateDocumentSchema>
+export type LibraryDocument = z.infer<typeof libraryDocumentSchema>

@@ -74,6 +74,8 @@ enum audit_action {
   workspace_member_updated
   workspace_member_deactivated
   workspace_member_reactivated
+  document_type_changed
+  document_version_restored
 
   @@map("audit_action")
 }
@@ -217,7 +219,7 @@ model QuestionnaireField {
   version   QuestionnaireVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   section   QuestionnaireSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   answers   DossierAnswer[]
-  documents Document[]
+  documents LibraryDocument[]
 
   @@unique([versionId, key])
   @@index([versionId, orderIndex])
@@ -244,6 +246,7 @@ model Company {
   dossiers        Dossier[]            @relation("CompanyDossiers")
   profileDossiers Dossier[]            @relation("CompanyProfileDossiers")
   answers         DossierAnswer[]
+  library         LibraryDocument[]
   documents       Document[]
 
   // Targets of the dossiers' (company, owner) and (company, profile version) foreign keys.
@@ -298,28 +301,61 @@ model Dossier {
   @@map("dossiers")
 }
 
-// A document version of a company (E05.05), shown with the profile of each of its dossiers.
-model Document {
-  id         String   @id @default(uuid())
-  companyId  String   @map("company_id")
-  filename   String
-  mimetype   String
-  storageKey String   @map("storage_key")
-  size       Int
-  version    Int      @default(1)
-  // Attachment field of the company-profile form this file answers (E03.11), null for a document
-  // added from the Documents tab. The field's read level then applies to the file.
-  fieldId    String?  @map("field_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+// A document of the company's library (ROADMAP E05.06): a file name, answering one attachment
+// field of the company-profile form or none (code review R48), with a type and its successive
+// versions (`documents`). A file deposited under the same name for the same field is a new version
+// of it. Unique per (company, field, name) — the index cannot hold for a NULL field, so documents
+// are created under the profile's lock. Type: CHECK constraint `library_documents_type_check`
+// (DOCUMENT_TYPES in @confluent/shared).
+model LibraryDocument {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  fieldId   String?  @map("field_id")
+  filename  String
+  type      String   @default("other")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
+  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // The field's read level applies to every version (E03.11).
+  field    QuestionnaireField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  versions Document[]
+
+  @@unique([companyId, fieldId, filename])
+  // Target of the versions' (document, company, name) foreign key.
+  @@unique([id, companyId, filename])
+  @@index([fieldId])
+  @@map("library_documents")
+}
+
+// One version of a library document (E05.06; before, each row was a version identified by its
+// company, field and name). Versions are never changed nor deleted by the application: bringing an
+// earlier version back adds a new version pointing at the same stored object (`restoredFromId`), so
+// a stored object may be shared by several versions and must not be deleted while one refers to it.
+// `companyId` and `filename` are copies of the document's, kept equal by the composite foreign key.
+model Document {
+  id                String   @id @default(uuid())
+  libraryDocumentId String   @map("library_document_id")
+  companyId         String   @map("company_id")
+  filename          String
+  mimetype          String
+  storageKey        String   @map("storage_key")
+  size              Int
+  version           Int      @default(1)
+  // The earlier version of the same document this one brought back, null for a deposit.
+  restoredFromId    String?  @map("restored_from_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  libraryDocument  LibraryDocument         @relation(fields: [libraryDocumentId, companyId, filename], references: [id, companyId, filename], onDelete: Cascade, onUpdate: Cascade)
   company          Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  field            QuestionnaireField?     @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  restoredFrom     Document?               @relation("DocumentRestorations", fields: [restoredFromId], references: [id], onDelete: SetNull)
+  restorations     Document[]              @relation("DocumentRestorations")
   citedBy          DossierAnswer[]
   citedByRevisions DossierAnswerRevision[]
 
-  @@unique([companyId, fieldId, filename, version])
+  @@unique([libraryDocumentId, version])
   @@index([companyId])
-  @@index([fieldId])
+  @@index([restoredFromId])
   @@map("documents")
 }
 
