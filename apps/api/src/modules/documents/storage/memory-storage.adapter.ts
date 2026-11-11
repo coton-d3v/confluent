@@ -17,6 +17,12 @@ export class MemoryStorageAdapter implements StorageAdapter {
     return Promise.resolve(`memory://${key}`)
   }
 
+  read(key: string): Promise<Buffer> {
+    const stored = this.store.get(key)
+    if (!stored) return Promise.reject(new StoredObjectMissingError(key))
+    return Promise.resolve(Buffer.from(stored.buffer))
+  }
+
   exists(key: string): Promise<boolean> {
     return Promise.resolve(this.store.has(key))
   }

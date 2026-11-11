@@ -137,7 +137,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Lister les documents (groupés par filename)',
     description:
-      'Retourne un tableau de `{ filename, current, versions[] }`. Chaque version indique sa disponibilité ' +
+      'Retourne un tableau de `{ filename, current, versions[] }`. Chaque version a son `id` et indique sa disponibilité ' +
       '(`available` avec une URL signée de téléchargement valable 15 min, `missing` si le fichier est perdu ' +
       'et doit être redéposé, `unavailable` si le stockage est momentanément injoignable). Les versions sont triées desc par `version`. ' +
       'Chaque version indique le champ « pièce jointe » auquel elle répond (`fieldId`, null sinon). Financeur : seules les versions ' +

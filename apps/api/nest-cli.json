@@ -8,7 +8,8 @@
       { "include": "modules/auth/email/templates/**/*.html", "outDir": "dist", "watchAssets": true },
       { "include": "modules/auth/email/templates/**/*.txt", "outDir": "dist", "watchAssets": true },
       { "include": "modules/auth/email/templates/**/*.json", "outDir": "dist", "watchAssets": true },
-      { "include": "modules/auth/email/templates/**/*.md", "outDir": "dist", "watchAssets": true }
+      { "include": "modules/auth/email/templates/**/*.md", "outDir": "dist", "watchAssets": true },
+      { "include": "modules/documents/text/*.worker.mjs", "outDir": "dist", "watchAssets": true }
     ]
   }
 }

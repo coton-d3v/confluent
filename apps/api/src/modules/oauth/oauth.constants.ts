@@ -8,8 +8,9 @@ export const OAUTH_SCOPES = {
 } as const
 export const SUPPORTED_SCOPES: string[] = [OAUTH_SCOPES.read, OAUTH_SCOPES.write]
 export const SCOPE_LABELS: Record<string, string> = {
-  [OAUTH_SCOPES.read]: 'Lire votre profil, vos dossiers, leurs questionnaires et réponses',
-  [OAUTH_SCOPES.write]: 'Modifier les réponses de vos dossiers',
+  [OAUTH_SCOPES.read]:
+    'Lire votre profil, vos dossiers, leurs questionnaires, réponses et documents',
+  [OAUTH_SCOPES.write]: 'Modifier les réponses de vos dossiers et y déposer des documents',
 }
 
 export function expandScopes(scopes: readonly string[]): Set<string> {

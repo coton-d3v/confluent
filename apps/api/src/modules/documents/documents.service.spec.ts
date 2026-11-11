@@ -16,6 +16,7 @@ function fakeStorage(overrides: Partial<Record<keyof StorageAdapter, jest.Mock>>
   return {
     upload: jest.fn().mockResolvedValue(undefined),
     getSignedUrl: jest.fn((key: string) => Promise.resolve(`memory://${key}`)),
+    read: jest.fn((key: string) => Promise.resolve(Buffer.from(`content of ${key}`))),
     exists: jest.fn().mockResolvedValue(true),
     delete: jest.fn().mockResolvedValue(undefined),
     check: jest.fn().mockResolvedValue(undefined),
@@ -333,6 +334,50 @@ describe('DocumentsService.listForDossier — read levels (E03.11)', () => {
     const groups = await svc.listForDossier('d-1', 'public')
     expect(groups.map((g) => g.fieldId)).toEqual(['f-public'])
     expect(storage.getSignedUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DocumentsService.readFile (E04.03)', () => {
+  const readable = async (level: 'public' | 'partiel' | 'complet', found: object | null) => {
+    const storage = fakeStorage()
+    const findFirst = jest.fn().mockResolvedValue(found)
+    const svc = await build(storage, { document: { findFirst } })
+    return { svc, storage, findFirst, read: () => svc.readFile('d-1', level, 'doc-1') }
+  }
+
+  it('reads a version of this dossier the level may read', async () => {
+    const { read, findFirst, storage } = await readable(
+      'public',
+      row('kbis.pdf', 1, 'k-kbis', { id: 'f-public', minAccessLevel: 'public' }),
+    )
+    const { document, content } = await read()
+    expect(document.filename).toBe('kbis.pdf')
+    expect(content.toString()).toBe('content of k-kbis')
+    expect(storage.read).toHaveBeenCalledWith('k-kbis')
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'doc-1', dossierId: 'd-1' } }),
+    )
+  })
+
+  it('answers not found for a version hidden at this level, or of another dossier, without reading it', async () => {
+    const hidden = await readable('partiel', row('annexe.pdf', 1, 'k-annexe'))
+    await expect(hidden.read()).rejects.toMatchObject({ status: 404 })
+    expect(hidden.storage.read).not.toHaveBeenCalled()
+    const odd = await readable(
+      'partiel',
+      row('odd.pdf', 1, 'k-odd', { id: 'f-odd', minAccessLevel: 'unexpected' }),
+    )
+    await expect(odd.read()).rejects.toMatchObject({ status: 404 })
+    await expect((await readable('complet', null)).read()).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('answers 410 for a lost file and 503 when the storage cannot be reached', async () => {
+    const lost = await readable('complet', row('a.pdf', 1, 'k-lost'))
+    lost.storage.read.mockRejectedValue(new StoredObjectMissingError('k-lost'))
+    await expect(lost.read()).rejects.toMatchObject({ status: 410 })
+    const down = await readable('complet', row('a.pdf', 1, 'k-down'))
+    down.storage.read.mockRejectedValue(new Error('ECONNREFUSED'))
+    await expect(down.read()).rejects.toMatchObject({ status: 503 })
   })
 })
 
