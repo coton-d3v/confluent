@@ -72,10 +72,25 @@ export function provenanceColumns(
 
 export type AnswerProvenanceView = Omit<AnswerProvenance, 'recordedAt'> & { recordedAt: Date }
 
+// The provenance columns, shared by an answer and its revisions (E04.05).
+export type StoredProvenance = Pick<
+  DossierAnswer,
+  | 'origin'
+  | 'confirmation'
+  | 'channel'
+  | 'authorId'
+  | 'clientName'
+  | 'sourceDocumentId'
+  | 'sourceLocation'
+  | 'sourceExcerpt'
+>
+
 // The stored provenance, read defensively: an answer saved before it was recorded, or holding an
-// unexpected value, has none (null) rather than a guessed one.
+// unexpected value, has none (null) rather than a guessed one. `recordedAt`: when that state was
+// written.
 export function provenanceView(
-  row: DossierAnswer,
+  row: StoredProvenance,
+  recordedAt: Date,
   documents: ReadonlyMap<string, Pick<Document, 'filename' | 'version'>>,
 ): AnswerProvenanceView | null {
   const { origin, confirmation, channel } = row
@@ -94,7 +109,7 @@ export function provenanceView(
     channel,
     authorId: row.authorId,
     clientName: row.clientName,
-    recordedAt: row.updatedAt,
+    recordedAt,
     source: cited
       ? {
           documentId: document ? row.sourceDocumentId : null,
@@ -104,5 +119,41 @@ export function provenanceView(
           excerpt: row.sourceExcerpt,
         }
       : null,
+  }
+}
+
+type AnswerState = StoredProvenance & Pick<DossierAnswer, 'value'>
+
+// Whether replacing `previous` by `next` keeps `previous` in the answer's history (E04.05): only when
+// an AI assistant is involved — a proposal that gives way (corrected, replaced, confirmed), or a
+// value that gives way to a proposal. The person's own successive edits (autosave) are not kept,
+// nor an empty value, nor a write that changes nothing.
+export function keepsRevision(previous: AnswerState, next: AnswerState): boolean {
+  const changed =
+    previous.value !== next.value ||
+    previous.origin !== next.origin ||
+    previous.confirmation !== next.confirmation ||
+    previous.clientName !== next.clientName ||
+    previous.sourceDocumentId !== next.sourceDocumentId ||
+    previous.sourceExcerpt !== next.sourceExcerpt
+  if (!changed) return false
+  if (previous.origin === 'ai') return true
+  return next.origin === 'ai' && previous.value !== ''
+}
+
+// The revision row keeping `previous`, a state that gives way.
+export function revisionOf(previous: DossierAnswer) {
+  return {
+    answerId: previous.id,
+    value: previous.value,
+    origin: previous.origin,
+    confirmation: previous.confirmation,
+    channel: previous.channel,
+    authorId: previous.authorId,
+    clientName: previous.clientName,
+    sourceDocumentId: previous.sourceDocumentId,
+    sourceLocation: previous.sourceLocation,
+    sourceExcerpt: previous.sourceExcerpt,
+    recordedAt: previous.updatedAt,
   }
 }

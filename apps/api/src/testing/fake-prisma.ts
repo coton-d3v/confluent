@@ -270,6 +270,7 @@ export function createFakePrisma() {
       minAccessLevel: 'complet',
     })),
     dossierAnswer: model('dossierAnswer'),
+    dossierAnswerRevision: model('dossierAnswerRevision', () => ({ replacedAt: new Date() })),
     classificationRule: model('classificationRule', () => ({
       choiceKey: '',
       value: '',

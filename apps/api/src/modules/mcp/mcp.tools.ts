@@ -693,7 +693,7 @@ export class McpToolsFactory {
     const isOwner = dossier.userId === caller.user.id
     const [answerRows, documents, attached, form] = await Promise.all([
       // Provenance (E04.04) for the owner only, like in the site.
-      this.answers.listViews(dossier.id, isOwner),
+      this.answers.listViews(dossier.id, isOwner ? 'provenance' : 'value'),
       this.documents.listForDossier(dossier.id, accessLevel),
       attachedFieldIds(this.prisma, dossier.id),
       structure ? this.describeFormOf(structure.version) : null,
