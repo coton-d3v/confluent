@@ -11,11 +11,11 @@ import { AdminUsersService } from './admin-users.service'
 import { AdminAnalyticsController } from './admin-analytics.controller'
 import { AdminAnalyticsService } from './admin-analytics.service'
 import { AdminSharesController } from './admin-shares.controller'
-import { AdminSharesService } from './admin-shares.service'
 import { AnswersModule } from '../answers/answers.module'
 import { DossiersModule } from '../dossiers/dossiers.module'
 import { AuthModule } from '../auth/auth.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
+import { ShareLinksModule } from '../share-links/share-links.module'
 import { AdminWorkspacesController } from './admin-workspaces.controller'
 import { AdminWorkspaceMembersController } from './admin-workspace-members.controller'
 
@@ -28,6 +28,7 @@ import { AdminWorkspaceMembersController } from './admin-workspace-members.contr
     ClassificationModule,
     OAuthModule,
     WorkspacesModule,
+    ShareLinksModule,
   ],
   controllers: [
     AdminDossiersController,
@@ -40,7 +41,7 @@ import { AdminWorkspaceMembersController } from './admin-workspace-members.contr
     AdminWorkspacesController,
     AdminWorkspaceMembersController,
   ],
-  providers: [AdminDossiersService, AdminUsersService, AdminAnalyticsService, AdminSharesService],
-  exports: [AdminDossiersService, AdminUsersService, AdminAnalyticsService, AdminSharesService],
+  providers: [AdminDossiersService, AdminUsersService, AdminAnalyticsService],
+  exports: [AdminDossiersService, AdminUsersService, AdminAnalyticsService],
 })
 export class AdminModule {}

@@ -5,14 +5,18 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import {
   ApiAcceptedResponse,
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -22,18 +26,31 @@ import {
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger'
 import type { Request } from 'express'
 import type { ShareLink } from '@prisma/client'
-import { createShareLinkSchema, shareAccessRequestSchema } from '@confluent/shared'
+import {
+  createShareLinkSchema,
+  shareAccessRequestSchema,
+  sharePreviewQuerySchema,
+  updateShareLinkSchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { Public } from '../../common/decorators/public.decorator'
 import { ShareLinkGuard, type AugmentedRequest } from '../auth/guards/share-link.guard'
-import { ShareLinksService, type FinanceurShareResponse } from './share-links.service'
+import {
+  ShareLinksService,
+  type FinanceurShareResponse,
+  type ShareAccess,
+  type SharePreview,
+} from './share-links.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
 class CreateShareLinkDto extends createZodDto(createShareLinkSchema) {}
 class ShareAccessRequestDto extends createZodDto(shareAccessRequestSchema) {}
+class UpdateShareLinkDto extends createZodDto(updateShareLinkSchema) {}
+class SharePreviewQueryDto extends createZodDto(sharePreviewQuerySchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
@@ -104,11 +121,16 @@ export class ShareLinksController {
   @HttpCode(201)
   @ApiBearerAuth('jwt')
   @ApiOperation({
-    summary: 'Créer un lien de partage vers un financeur',
+    summary: 'Inviter un destinataire (lien nominatif)',
     description:
-      'Génère un `share_link` avec un token UUIDv4 (`crypto.randomUUID()`), status `active`, ' +
-      'envoie un mail d’invitation au `recipientEmail` avec l’URL `${FRONTEND_URL}/share/<token>`. ' +
-      'Audit : `share_link_created`. L’échec d’envoi du mail n’annule pas la création (best-effort).',
+      'Propriétaire de la demande seulement. Crée un partage `active` au niveau choisi ' +
+      '(`accessLevel` obligatoire : `public`, `partiel` ou `complet`), avec un token UUIDv4, et ' +
+      'envoie l’invitation à `recipientEmail` avec l’URL `${FRONTEND_URL}/share/<token>` ; un ' +
+      'compte est créé pour une adresse inconnue. Le destinataire ne lira le dossier qu’une fois ' +
+      'connecté avec cette adresse (E02.08). Refus : demande archivée ou entreprise en préparation ' +
+      '(`409`), adresse ayant déjà un accès actif à cette demande (`409`, `details.shareLinkId` : ' +
+      'changer son niveau), sa propre adresse (`422`). Journal ' +
+      '`share_link_created` (niveau compris). L’échec d’envoi du mail n’annule pas la création.',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiCreatedResponse({
@@ -116,34 +138,95 @@ export class ShareLinksController {
   })
   @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  @ApiConflictResponse({
+    description: 'Demande archivée, entreprise en préparation ou accès déjà actif.',
+  })
+  @ApiUnprocessableEntityResponse({ description: 'Invitation à sa propre adresse.' })
   create(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() body: CreateShareLinkDto,
   ): Promise<ShareLink & { shareUrl: string }> {
-    const { accessLevel } = body as { recipientEmail: string; accessLevel?: string }
     return this.service.create({
       dossierId: id,
-      userId: currentUser(req).id,
+      user: currentUser(req),
       recipientEmail: body.recipientEmail,
-      accessLevel,
+      accessLevel: body.accessLevel,
     })
   }
 
   @Get('dossiers/:id/shares')
   @ApiBearerAuth('jwt')
   @ApiOperation({
-    summary: 'Lister les partages d’un dossier',
+    summary: 'Liste des accès d’un dossier',
     description:
-      'Retourne **tous** les share links (pending, active, revoked, expired) triés par date desc. ' +
-      'Utilisé par le frontend entrepreneur pour afficher la liste des accès avec leur statut.',
+      'Propriétaire seulement. **Tous** les partages (actifs et révoqués), le plus récent ' +
+      'd’abord, avec leur niveau et, pour un partage révoqué, `revokedBy` : `owner` (le ' +
+      'propriétaire) ou `admin` (un administrateur).',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
-  @ApiOkResponse({ description: 'Liste complète des share links.' })
+  @ApiOkResponse({ description: 'Liste des accès.' })
   @ApiUnauthorizedResponse({ description: 'JWT manquant.' })
   @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
-  list(@Req() req: Request, @Param('id') id: string): Promise<ShareLink[]> {
-    return this.service.listForDossier(id, currentUser(req).id)
+  list(@Req() req: Request, @Param('id') id: string): Promise<ShareAccess[]> {
+    return this.service.listForOwner(id, currentUser(req).id)
+  }
+
+  @Patch('dossiers/:id/shares/:linkId')
+  @ApiBearerAuth('jwt')
+  @ApiOperation({
+    summary: 'Changer le niveau d’un accès',
+    description:
+      'Propriétaire seulement. Le destinataire garde le même lien et lit le nouveau niveau dès sa ' +
+      'requête suivante. Élargir l’accès est refusé sur une demande archivée (`409`) ; le ' +
+      'restreindre reste possible. Accès révoqué, ou modifié/révoqué entre-temps : `409`. ' +
+      'Journal `share_link_level_changed` ' +
+      '(`from`, `to`) ; demander le niveau actuel ne change rien.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du dossier' })
+  @ApiParam({ name: 'linkId', description: 'UUID du share link' })
+  @ApiOkResponse({ description: 'L’accès, à son nouveau niveau.' })
+  @ApiBadRequestResponse({ description: 'Niveau inconnu.' })
+  @ApiNotFoundResponse({
+    description: 'Dossier ou partage inexistant, ou d’un autre propriétaire.',
+  })
+  @ApiConflictResponse({ description: 'Accès révoqué, modifié entre-temps ou demande archivée.' })
+  changeLevel(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('linkId') linkId: string,
+    @Body() body: UpdateShareLinkDto,
+  ): Promise<ShareAccess> {
+    return this.service.changeLevel({
+      dossierId: id,
+      linkId,
+      userId: currentUser(req).id,
+      accessLevel: body.accessLevel,
+    })
+  }
+
+  @Get('dossiers/:id/share-preview')
+  @ApiBearerAuth('jwt')
+  @ApiOperation({
+    summary: 'Voir comme le destinataire',
+    description:
+      'Propriétaire seulement. Exactement ce que lirait un destinataire au niveau `level` ' +
+      '(même projection que `GET /v1/shares/:token` : questions, réponses, classification, ' +
+      'documents sélectionnés à leur version, présentation selon la publication), sans créer de ' +
+      'lien ni compter de consultation. Aucun fichier n’est délivré (`url` nulle). `preview` : ' +
+      'le niveau et ce que la demande pourrait montrer au total (questions de sa version, ' +
+      'documents sélectionnés).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du dossier' })
+  @ApiOkResponse({ description: 'Vue du destinataire au niveau demandé.' })
+  @ApiBadRequestResponse({ description: 'Niveau absent ou inconnu.' })
+  @ApiNotFoundResponse({ description: 'Dossier inexistant ou possédé par un autre user.' })
+  preview(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query() query: SharePreviewQueryDto,
+  ): Promise<SharePreview> {
+    return this.service.previewForOwner(id, currentUser(req).id, query.level)
   }
 
   @Delete('dossiers/:id/shares/:linkId')
@@ -151,8 +234,9 @@ export class ShareLinksController {
   @ApiOperation({
     summary: 'Révoquer un partage',
     description:
-      'Passe `status → revoked` + stamp `revokedAt`. Effet **immédiat** sur la prochaine requête financeur ' +
-      '(pas de cache côté guard — NFR4 : ≤5s). Audit : `share_link_revoked`.',
+      'Propriétaire seulement. Passe `status → revoked` + `revokedAt`. Effet **immédiat** sur la ' +
+      'prochaine requête du destinataire (pas de cache côté guard). Un partage déjà révoqué reste ' +
+      'tel quel, sans nouvelle entrée de journal. Journal : `share_link_revoked`.',
   })
   @ApiParam({ name: 'id', description: 'UUID du dossier' })
   @ApiParam({ name: 'linkId', description: 'UUID du share link à révoquer' })
@@ -166,7 +250,7 @@ export class ShareLinksController {
     @Req() req: Request,
     @Param('id') id: string,
     @Param('linkId') linkId: string,
-  ): Promise<ShareLink> {
-    return this.service.revoke(id, linkId, currentUser(req).id)
+  ): Promise<ShareAccess> {
+    return this.service.revokeAsOwner(id, linkId, currentUser(req).id)
   }
 }

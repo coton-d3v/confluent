@@ -153,7 +153,10 @@ describe('Companies prepared for an entrepreneur (e2e)', () => {
     })
     // …but diffuses nothing.
     for (const res of [
-      await marie.post(`/v1/dossiers/${dossierId}/shares`, { recipientEmail: BOB.email }),
+      await marie.post(`/v1/dossiers/${dossierId}/shares`, {
+        recipientEmail: BOB.email,
+        accessLevel: 'complet',
+      }),
       await marie.post(`/v1/dossiers/${dossierId}/publish`),
     ]) {
       expect(res.status).toBe(409)
@@ -188,7 +191,10 @@ describe('Companies prepared for an entrepreneur (e2e)', () => {
       preparation: null,
     })
     await as(SOPHIE)
-      .post(`/v1/dossiers/${dossierId}/shares`, { recipientEmail: BOB.email })
+      .post(`/v1/dossiers/${dossierId}/shares`, {
+        recipientEmail: BOB.email,
+        accessLevel: 'complet',
+      })
       .expect(201)
     await marie.get(`/v1/dossiers/${dossierId}`).expect(404)
     await marie.get(`/v1/companies/${companyId}`).expect(404)
