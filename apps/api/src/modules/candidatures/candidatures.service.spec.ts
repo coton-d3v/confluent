@@ -1,4 +1,5 @@
 import { HttpException } from '@nestjs/common'
+import type { CandidatureStatusChange } from '@prisma/client'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { SITE_ORIGIN } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
@@ -503,7 +504,9 @@ describe('CandidaturesService — financing status per workspace (E06.01)', () =
     await s.candidatures.submit(two.toClub.id, SOPHIE.id)
     return { s, ...two }
   }
-  const history = (s: Setup) => [...s.fake.table('candidatureStatusChange').values()]
+  // Typed as the rows they stand for (R59: the fake's rows are untyped).
+  const history = (s: Setup) =>
+    [...s.fake.table('candidatureStatusChange').values()] as CandidatureStatusChange[]
 
   it('starts in preparation once sent, and keeps each workspace’s status apart', async () => {
     const { s, toCci, toClub } = await sent()

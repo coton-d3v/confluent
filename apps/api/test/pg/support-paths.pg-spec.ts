@@ -11,6 +11,7 @@ import type { DocumentsService } from '../../src/modules/documents/documents.ser
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { PortfolioService } from '../../src/modules/support-paths/portfolio.service'
 import { SupportPathsService } from '../../src/modules/support-paths/support-paths.service'
 import { SupportStepsService } from '../../src/modules/support-paths/support-steps.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
@@ -69,7 +70,8 @@ async function fingerprint(tx: Tx): Promise<string> {
 // explicitly, survives an interrupted deployment and can be undone (refusing, unless accepted, to
 // lose a validation or a configuration); the constraints keep explanations plain, changes closed and
 // a validation inside its candidature's workspace; conseillers acting at the same moment never both
-// change a step from the same version, and managers never take the same label twice.
+// change a step from the same version, and managers never take the same label twice. E06.07: the
+// portfolio computes each candidature's phase from its own workspace's rows only.
 describe('support paths (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
@@ -91,6 +93,7 @@ describe('support paths (PostgreSQL)', () => {
     audit,
   )
   const paths = new SupportPathsService(prisma, candidatures, audit)
+  const portfolio = new PortfolioService(prisma, candidatures)
   const steps = new SupportStepsService(prisma, access, audit)
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
@@ -521,6 +524,58 @@ describe('support paths (PostgreSQL)', () => {
         expect(new Set(list.map((s) => s.position)).size).toBe(list.length)
         expect(list).toHaveLength(DEFAULT_SUPPORT_STEPS.length + 2)
       }
+    })
+  })
+
+  describe('portfolio (E06.07)', () => {
+    it('computes the phases from the active steps and the standing validations of the workspace’s own candidatures', async () => {
+      const a = await sentCandidature()
+      const b = await sentCandidature()
+      const [marie] = a.conseillers
+      const set = (stepId: string, validated: boolean, version: number) =>
+        paths.setValidation(marie, a.workspaceId, a.candidatureId, stepId, { validated, version })
+      const diagnostic = await a.step('diagnostic')
+      const pitch = await a.step('pitch')
+      // A validation withdrawn leaves its row behind (validatedAt null): it no longer counts.
+      await set(diagnostic.id, true, 0)
+      await set(diagnostic.id, false, 1)
+      await set(pitch.id, true, 0)
+      // The other workspace's candidature, every step validated, stays out of this portfolio.
+      for (const key of ['diagnostic', 'business_plan', 'pitch']) {
+        const step = await b.step(key)
+        await paths.setValidation(b.conseillers[0], b.workspaceId, b.candidatureId, step.id, {
+          validated: true,
+          version: 0,
+        })
+      }
+      let view = await portfolio.get(marie, a.workspaceId)
+      expect(view.counts.total).toBe(1)
+      expect(view.counts.phases).toEqual({ in_progress: 1, ready: 0, no_path: 0 })
+      expect(view.items.map((i) => [i.id, i.progress])).toEqual([
+        [
+          a.candidatureId,
+          {
+            phase: 'in_progress',
+            validatedSteps: 1,
+            totalSteps: 3,
+            currentStep: { id: diagnostic.id, label: 'Diagnostic' },
+          },
+        ],
+      ])
+      // Revalidated, and the business plan deactivated: ready.
+      await set(diagnostic.id, true, 2)
+      await prisma.supportStep.update({
+        where: { id: (await a.step('business_plan')).id },
+        data: { active: false },
+      })
+      view = await portfolio.get(marie, a.workspaceId, { phase: 'ready' })
+      expect(
+        view.items.map((i) => [i.id, i.progress.validatedSteps, i.progress.totalSteps]),
+      ).toEqual([[a.candidatureId, 2, 2]])
+      const other = await portfolio.get(b.conseillers[0], b.workspaceId)
+      expect(other.items.map((i) => [i.id, i.progress.phase])).toEqual([[b.candidatureId, 'ready']])
+      // Neither workspace's conseiller reads the other's portfolio.
+      await expect(portfolio.get(marie, b.workspaceId)).rejects.toThrow(HttpException)
     })
   })
 })

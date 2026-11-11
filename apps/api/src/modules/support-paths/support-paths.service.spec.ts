@@ -341,4 +341,50 @@ describe('SupportPathsService', () => {
     expect(s.fake.table('candidatureStepValidationChange').size).toBe(0)
     expect(s.journal()).toHaveLength(0)
   })
+
+  it('states the candidature’s phase to both sides, from the active steps and their validations (E06.07)', async () => {
+    const diagnostic = await s.step(CCI, 'diagnostic')
+    const businessPlan = await s.step(CCI, 'business_plan')
+    const pitch = await s.step(CCI, 'pitch')
+    // A draft is in preparation from the start, at the first step.
+    expect((await s.paths.getForOwner(SOPHIE.id, s.toCci.id)).progress).toEqual({
+      phase: 'in_progress',
+      validatedSteps: 0,
+      totalSteps: 3,
+      currentStep: { id: diagnostic.id, label: 'Diagnostic' },
+    })
+    await s.send()
+    await s.validate(MARIE, diagnostic.id, 0)
+    const atBusinessPlan = {
+      phase: 'in_progress',
+      validatedSteps: 1,
+      totalSteps: 3,
+      currentStep: { id: businessPlan.id, label: 'Business plan' },
+    }
+    expect((await s.paths.getReceived(JEAN, CCI, s.toCci.id)).progress).toEqual(atBusinessPlan)
+    expect((await s.paths.getForOwner(SOPHIE.id, s.toCci.id)).progress).toEqual(atBusinessPlan)
+    await s.validate(MARIE, businessPlan.id, 0)
+    const ready = await s.validate(MARIE, pitch.id, 0)
+    expect(ready.progress).toEqual({
+      phase: 'ready',
+      validatedSteps: 3,
+      totalSteps: 3,
+      currentStep: null,
+    })
+    // Reopened, the pitch is current again; once it is deactivated, the candidature is ready
+    // without it.
+    expect((await s.validate(MARIE, pitch.id, 1, false)).progress.currentStep).toEqual({
+      id: pitch.id,
+      label: 'Pitch',
+    })
+    await s.p.supportStep.update({ where: { id: pitch.id }, data: { active: false } })
+    expect((await s.paths.getForOwner(SOPHIE.id, s.toCci.id)).progress).toEqual({
+      phase: 'ready',
+      validatedSteps: 2,
+      totalSteps: 2,
+      currentStep: null,
+    })
+    // The club's own path, with nothing validated, is unaffected.
+    expect((await s.paths.getReceived(PAUL, CLUB, s.toClub.id)).progress.validatedSteps).toBe(0)
+  })
 })
