@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { LoaderCircleIcon } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -22,6 +23,9 @@ import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { useMyWorkspaceMemberships } from '@/features/workspaces/useMyWorkspaceMemberships'
 import { WorkspaceMembershipsContext } from '@/features/workspaces/memberships-context'
 import { WorkspaceSwitcher } from '@/features/workspaces/components/WorkspaceSwitcher'
+import { NotificationBell } from '@/features/notifications/NotificationBell'
+import { UnreadNotificationsContext } from '@/features/notifications/unread-context'
+import { useUnreadCount } from '@/features/notifications/useUnreadCount'
 import {
   ADMIN_NAV_ITEMS,
   MY_WORKSPACES_NAV_ITEM,
@@ -142,8 +146,9 @@ function DesktopSidebar({
 }) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col bg-sidebar lg:flex">
-      <div className="px-4 py-6 text-lg font-heading font-medium text-sidebar-foreground">
-        Confluent
+      <div className="flex items-center justify-between py-3 pr-2 pl-4">
+        <div className="text-lg font-heading font-medium text-sidebar-foreground">Confluent</div>
+        <NotificationBell />
       </div>
       <WorkspaceSwitcher className="px-4 pb-4" />
       <Separator />
@@ -190,6 +195,7 @@ function TabletRail({ user, navItems }: { user: CurrentUser; navItems: NavItemSp
       >
         C
       </div>
+      <NotificationBell className="mb-2" />
       <Separator />
       <nav aria-label="Navigation principale" className="flex-1 py-4">
         <ul className="flex flex-col items-center gap-1">
@@ -247,6 +253,12 @@ export function AppShell() {
     () => ({ memberships: memberships.data ?? [], refresh: memberships.refetch }),
     [memberships.data, memberships.refetch],
   )
+  // E10.03: the bell's count, kept here for every page.
+  const unread = useUnreadCount(user ? user.id : null)
+  const unreadNotifications = useMemo(
+    () => ({ count: unread.count, refresh: unread.refresh }),
+    [unread.count, unread.refresh],
+  )
 
   if (loading) {
     return (
@@ -288,33 +300,43 @@ export function AppShell() {
 
   return (
     <WorkspaceMembershipsContext value={workspaceMemberships}>
-      <div className="flex min-h-screen bg-background">
-        <SkipLink />
-        <DesktopSidebar
-          user={user}
-          navItems={navItems}
-          onLogout={handleLogout}
-          onEditProfile={() => setEditingProfile(true)}
-        />
-        <TabletRail user={user} navItems={navItems} />
-        <ProfileSheet
-          open={needsOnboarding || editingProfile}
-          onOpenChange={setEditingProfile}
-          required={needsOnboarding}
-          currentFirstName={currentFirstName}
-          currentLastName={currentLastName}
-        />
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="min-w-0 flex-1 px-6 py-8 pb-16 md:pb-0 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]"
-        >
-          <WorkspaceSwitcher className="mb-6 max-w-sm lg:hidden" />
-          <Breadcrumbs />
-          <Outlet />
-        </main>
-        <MobileBottomNav navItems={navItems} />
-      </div>
+      <UnreadNotificationsContext value={unreadNotifications}>
+        <div className="flex min-h-screen bg-background">
+          <SkipLink />
+          <DesktopSidebar
+            user={user}
+            navItems={navItems}
+            onLogout={handleLogout}
+            onEditProfile={() => setEditingProfile(true)}
+          />
+          <TabletRail user={user} navItems={navItems} />
+          <ProfileSheet
+            open={needsOnboarding || editingProfile}
+            onOpenChange={setEditingProfile}
+            required={needsOnboarding}
+            currentFirstName={currentFirstName}
+            currentLastName={currentLastName}
+          />
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="min-w-0 flex-1 px-6 py-8 pb-16 md:pb-0 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]"
+          >
+            <div
+              className={cn(
+                'mb-6 flex items-start justify-between gap-3',
+                memberships.data?.length ? 'lg:hidden' : 'md:hidden',
+              )}
+            >
+              <WorkspaceSwitcher className="max-w-sm min-w-0 flex-1" />
+              <NotificationBell className="-mt-1 ml-auto shrink-0 md:hidden" />
+            </div>
+            <Breadcrumbs />
+            <Outlet />
+          </main>
+          <MobileBottomNav navItems={navItems} />
+        </div>
+      </UnreadNotificationsContext>
     </WorkspaceMembershipsContext>
   )
 }
