@@ -29,6 +29,7 @@ import {
   CommitteesTrail,
   CommitteesUnavailable,
 } from '@/features/committees/components/CommitteesTrail'
+import { ParticipationRequestsSection } from '@/features/participation/components/ParticipationRequestsSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
@@ -43,8 +44,9 @@ const STATUS_DONE: Record<CommitteeStatus, string> = {
 // status, its internal notes beside the information shared with its candidates and investors (and a
 // preview of what they read), for the workspace's conseillers and Confluent's administrators; its
 // managers edit it, cancel it, mark it held or put it back to planned, from the version shown;
-// E08.03: the requests attached to it, which its conseillers follow. The API decides, at each
-// request.
+// E08.03: the requests attached to it, which its conseillers follow; E08.04: whether it is offered
+// on the public participation form, and the pending requests for it, to its managers. The API
+// decides, at each request.
 export default function CommitteeRoute() {
   const { workspaceId = '', committeeId = '' } = useParams()
   return (
@@ -144,6 +146,9 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
             <CommitteeTexts committee={committee} />
             <SharedCommitteePreview committee={committee} />
             <CommitteeApplicationsSection workspaceId={workspace.id} committee={committee} />
+            {canManageWorkspace && (
+              <ParticipationRequestsSection workspace={workspace} committee={committee} now={now} />
+            )}
           </>
         )}
 
@@ -266,6 +271,14 @@ function CommitteeDetails({ committee }: { committee: Committee }) {
           </dd>
         </div>
       )}
+      <div className="flex flex-col gap-1">
+        <dt className="text-sm font-medium text-muted-foreground">Demandes de participation</dt>
+        <dd className="text-sm text-foreground">
+          {committee.participationRequestsOpen
+            ? 'Ouvert aux demandes (formulaire public)'
+            : 'Fermé aux demandes'}
+        </dd>
+      </div>
     </dl>
   )
 }
