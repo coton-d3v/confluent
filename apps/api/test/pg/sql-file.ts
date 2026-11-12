@@ -301,3 +301,17 @@ export function participationDecisionsDown(): string[] {
 export function participationDecisionsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261205000000_participation_decisions/migration.sql'))
 }
+
+// The revert of E08.06 (committee notices), as the tests of earlier migrations that drop what its
+// table references (committees, entries, participation requests) run it before their own: it accepts
+// that the notices are lost (SET LOCAL, test transactions only).
+export function committeeNoticesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_committee_notices_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261206000000_committee_notices.down.sql')),
+  ]
+}
+
+export function committeeNoticesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261206000000_committee_notices/migration.sql'))
+}

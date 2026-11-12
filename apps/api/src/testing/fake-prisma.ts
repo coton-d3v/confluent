@@ -603,6 +603,10 @@ export function createFakePrisma() {
       statusActorId: null,
       version: 1,
     })),
+    committeeNotice: model('committeeNotice', () => ({
+      applicationId: null,
+      participationRequestId: null,
+    })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,

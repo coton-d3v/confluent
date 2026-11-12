@@ -14,12 +14,18 @@ import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
-import { testDatabase } from './database'
-import { committeeApplicationsDown, committeeApplicationsUp } from './sql-file'
+import { quietNotices, testDatabase } from './database'
+import {
+  committeeApplicationsDown,
+  committeeApplicationsUp,
+  committeeNoticesDown,
+} from './sql-file'
 
 const UP = committeeApplicationsUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = committeeApplicationsDown().slice(1)
+// E08.06's notices reference the entries: undone first.
+const LATER_DOWN = committeeNoticesDown()
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_committee_applications_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_committee_applications_loss = 'off'"
@@ -89,7 +95,7 @@ describe('committee applications (PostgreSQL)', () => {
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
   )
-  const committees = new CommitteesService(prisma, access, audit)
+  const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
   const applications = new CommitteeApplicationsService(prisma, candidatures, committees, audit)
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
@@ -213,7 +219,7 @@ describe('committee applications (PostgreSQL)', () => {
     it('adds the entries and nothing else; undone (refusing to lose an entry or its journal unless accepted), then applied again', async () => {
       const s = await setting()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(await rows(tx, `SELECT to_regclass('committee_applications')::text AS t`)).toEqual([
           { t: null },
         ])
@@ -256,7 +262,7 @@ describe('committee applications (PostgreSQL)', () => {
           await tx.$executeRawUnsafe('SAVEPOINT before_down')
           await expect(run(tx, DOWN)).rejects.toThrow(/would be lost/)
           await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT before_down')
-          await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+          await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
           expect(await rows(tx, `SELECT to_regclass('committee_applications')::text AS t`)).toEqual(
             [{ t: null }],
           )
@@ -275,7 +281,7 @@ describe('committee applications (PostgreSQL)', () => {
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await setting()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
@@ -300,7 +306,7 @@ describe('committee applications (PostgreSQL)', () => {
         workspace_id: `'${s.workspaceId}'`,
       }
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
         const attempt = async (sql: string) => {
           await tx.$executeRawUnsafe('SAVEPOINT attempt')
           try {

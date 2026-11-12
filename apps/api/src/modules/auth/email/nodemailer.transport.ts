@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config'
 import { createTransport, type Transporter } from 'nodemailer'
 import type { AppConfig } from '../../../config/config.schema'
 import type {
+  CommitteeMoment,
   EmailTransport,
+  SendCommitteeChangedInput,
   SendCompanyTransferInviteInput,
   SendMagicLinkInput,
   SendParticipationAcceptedInput,
@@ -90,6 +92,30 @@ export class NodemailerTransport implements EmailTransport {
     await this.send({ to: input.to, subject, html, text })
   }
 
+  async sendCommitteeChanged(input: SendCommitteeChangedInput): Promise<void> {
+    const key = COMMITTEE_KIND_KEYS[input.kind]
+    const line = (name: string) => templateString('committee-changed', input.locale, name)
+    const when = [`${line(`when${key}`)} ${committeeMomentLine(input.committee)}`]
+    if (input.previous) when.push(`${line('whenPrevious')} ${committeeMomentLine(input.previous)}`)
+    const rendered = render('committee-changed', input.locale, {
+      title: line(`title${key}`),
+      body: line(`body${key}`),
+      workspaceName: input.workspaceName,
+      committeeName: input.committee.name,
+      when: when.join('\n'),
+      audienceLine: line(
+        input.audience === 'entrepreneur' ? 'entrepreneurLine' : 'participantLine',
+      ),
+      signInUrl: input.signInUrl,
+    })
+    await this.send({
+      to: input.to,
+      subject: line(`subject${key}`),
+      html: rendered.html,
+      text: rendered.text,
+    })
+  }
+
   private async send(payload: {
     to: string
     subject: string
@@ -128,4 +154,16 @@ export function participationSessionLines(
         (SESSION_STATUS_SUFFIX[s.status] ?? ''),
     )
     .join('\n')
+}
+
+const COMMITTEE_KIND_KEYS = {
+  rescheduled: 'Rescheduled',
+  cancelled: 'Cancelled',
+  restored: 'Restored',
+} as const
+
+// « mercredi 10 juin 2099 à 14:00 (Europe/Paris) »: the wall-clock time of the committee's own zone.
+export function committeeMomentLine(moment: CommitteeMoment): string {
+  const day = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeZone: 'UTC' })
+  return `${day.format(new Date(`${moment.date}T00:00:00Z`))} à ${moment.time} (${moment.timeZone})`
 }

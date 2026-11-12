@@ -226,6 +226,14 @@ describe('workspace isolation (e2e)', () => {
         // E08.03: the requests presented at one of its committees.
         { method: 'get', path: '/workspaces/:workspaceId/committees/:committeeId/applications' },
         { method: 'post', path: '/workspaces/:workspaceId/committees/:committeeId/applications' },
+        // E08.06: its committees' progress, participants and notices; a participant's sessions.
+        { method: 'get', path: '/workspaces/:workspaceId/committees/progress' },
+        { method: 'get', path: '/workspaces/:workspaceId/committee-sessions' },
+        {
+          method: 'get',
+          path: '/admin/workspaces/:workspaceId/committees/:committeeId/participants',
+        },
+        { method: 'get', path: '/admin/workspaces/:workspaceId/committees/:committeeId/notices' },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

@@ -4,7 +4,8 @@
 -- and the journal entries of the decisions; pending requests stay as E08.04 knows them; the value
 -- added to `audit_action` stays (PostgreSQL cannot remove it; unused). What an acceptance created
 -- stays too: the accounts and workspace memberships are ordinary ones (E05.02), managed from the
--- workspace's members. To be run FIRST, before the reverts of E08.04, E08.03, E08.02 and E08.01.
+-- workspace's members. To be run after the revert of E08.06 (its notices reference the requests),
+-- before the reverts of E08.04, E08.03, E08.02 and E08.01.
 --
 -- Without any decision nor journal entry of one, nothing is lost. One would be — the trace of who
 -- admitted a person to the workspace, or a refusal the structure would have to make again —, so the

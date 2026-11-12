@@ -2,8 +2,9 @@
 -- rolled back to E08.02. Lost on the way back: every request's entry on a committee (applications,
 -- proposals, acceptances, refusals and withdrawals) and the journal entries of their changes; the
 -- committees, candidatures and their journals stay; the value added to `audit_action` stays
--- (PostgreSQL cannot remove it; unused). To be run after the reverts of E08.05 and E08.04 (which
--- drop nothing it needs, but come later) and before the reverts of E08.02, E08.01 and of the
+-- (PostgreSQL cannot remove it; unused). To be run after the revert of E08.06 (its notices reference
+-- the entries) and those of E08.05 and E08.04 (which drop nothing it needs, but come later), and
+-- before the reverts of E08.02, E08.01 and of the
 -- candidatures' migrations (E06.03 and earlier): the entries reference
 -- `committees (id, workspace_id)` and `candidatures (id, workspace_id)`.
 --

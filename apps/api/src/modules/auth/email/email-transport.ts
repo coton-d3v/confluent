@@ -54,10 +54,33 @@ export interface SendParticipationAcceptedInput {
   locale: Locale
 }
 
+// ROADMAP E08.06: a committee someone is concerned by changed date, was cancelled or restored — told
+// to the owners of the requests it brings and to its accepted participants. Only its name and when
+// (and when it was before, for a new date): never its place, link, shared information nor internal
+// notes, read in the site once signed in.
+export interface SendCommitteeChangedInput {
+  to: string
+  kind: 'rescheduled' | 'cancelled' | 'restored'
+  audience: 'entrepreneur' | 'participant'
+  workspaceName: string
+  committee: CommitteeMoment & { name: string }
+  // A new date only: the schedule before the change.
+  previous: CommitteeMoment | null
+  signInUrl: string
+  locale: Locale
+}
+
+export interface CommitteeMoment {
+  date: string
+  time: string
+  timeZone: string
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
   sendWorkspaceInvite(input: SendWorkspaceInviteInput): Promise<void>
   sendCompanyTransferInvite(input: SendCompanyTransferInviteInput): Promise<void>
   sendParticipationAccepted(input: SendParticipationAcceptedInput): Promise<void>
+  sendCommitteeChanged(input: SendCommitteeChangedInput): Promise<void>
 }

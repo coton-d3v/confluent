@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import type { Committee, Prisma } from '@prisma/client'
+import type { Committee, Prisma, Workspace } from '@prisma/client'
 import {
   COMMITTEE_LIMITS,
   canChangeCommitteeStatus,
   canReadCommittees,
+  committeeNoticeKind,
   committeeStatusOf,
   resolveZonedTime,
   zonedTimeIssue,
@@ -14,6 +15,7 @@ import { AuditService } from '../audit/audit.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { lockWorkspaceRow } from '../workspaces/workspaces.service'
 import { CommitteeErrors } from './committee-errors'
+import { CommitteeNoticesService, type NoticeBatch } from './committee-notices.service'
 import { scheduleOf, toView, type CommitteeView } from './committee-views'
 
 export type { CommitteeView } from './committee-views'
@@ -61,17 +63,23 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // by the entrepreneurs who may apply to it or whose request has an entry on it (E08.03,
 // `CommitteeApplicationsService`, the link once accepted); by the public, its name and when only,
 // once a manager offers it on the workspace's participation form (E08.04,
-// `participationRequestsOpen`, `ParticipationRequestsService`); its participants come with
-// E08.05–E08.06.
+// `participationRequestsOpen`, `ParticipationRequestsService`); by its participants, the accounts a
+// manager accepted for it (E08.05–E08.06, `CommitteeFollowUpService`).
 //
-// Extension point: E08.06 notifies a change of schedule or a cancellation — `update` and
-// `changeStatus` already tell which fields changed.
+// E08.06: a change of schedule, a cancellation or a restoration tells the people concerned
+// (`CommitteeNoticesService`): recorded in the change's transaction once the committee's row is
+// written — that write waits for any entry being changed on it (E08.03 holds the committee FOR SHARE
+// until its commit, without the workspace's lock), and the recipients are read by the next
+// statements, so an entry committed meanwhile is told and none starts before this change commits —,
+// emailed after the commit, never blocking the change. The only wait after the workspace's lock is
+// that one, during which no right can change (membership writes take the workspace's lock first).
 @Injectable()
 export class CommitteesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: WorkspaceAccessService,
     private readonly audit: AuditService,
+    private readonly notices: CommitteeNoticesService,
   ) {}
 
   // Every committee of the workspace — cancelled and held ones included —, earliest first.
@@ -137,8 +145,14 @@ export class CommitteesService {
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
     const data = scheduled(input)
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockCommittee(tx, actor, workspaceId, committeeId, input.version)
+    const { updated, batch } = await this.prisma.$transaction(async (tx) => {
+      const { current, workspace } = await this.lockCommittee(
+        tx,
+        actor,
+        workspaceId,
+        committeeId,
+        input.version,
+      )
       const status = committeeStatusOf(current.status)
       if (status !== 'planned') throw CommitteeErrors.notEditable(status)
       const next = {
@@ -148,7 +162,7 @@ export class CommitteesService {
           input.participationRequestsOpen ?? current.participationRequestsOpen,
       }
       const changed = changedFields(current, next)
-      if (changed.length === 0) return current
+      if (changed.length === 0) return { updated: current, batch: null }
       const committee = await tx.committee.update({
         where: { id: current.id },
         data: { ...next, version: current.version + 1 },
@@ -177,8 +191,13 @@ export class CommitteesService {
             : {}),
         },
       })
-      return committee
+      const kind = committeeNoticeKind({ fields: changed })
+      const batch = kind
+        ? await this.notices.recordIn(tx, { workspace, before: current, after: committee, kind })
+        : null
+      return { updated: committee, batch }
     })
+    await this.deliver(batch)
     return toView(updated)
   }
 
@@ -191,8 +210,14 @@ export class CommitteesService {
     input: { status: CommitteeStatus; version: number },
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockCommittee(tx, actor, workspaceId, committeeId, input.version)
+    const { updated, batch } = await this.prisma.$transaction(async (tx) => {
+      const { current, workspace } = await this.lockCommittee(
+        tx,
+        actor,
+        workspaceId,
+        committeeId,
+        input.version,
+      )
       const from = committeeStatusOf(current.status)
       if (!canChangeCommitteeStatus(current.status, input.status)) {
         throw CommitteeErrors.transition(from, input.status)
@@ -215,9 +240,19 @@ export class CommitteesService {
           to: input.status,
         },
       })
-      return committee
+      const kind = committeeNoticeKind({ from, to: input.status })
+      const batch = kind
+        ? await this.notices.recordIn(tx, { workspace, before: current, after: committee, kind })
+        : null
+      return { updated: committee, batch }
     })
+    await this.deliver(batch)
     return toView(updated)
+  }
+
+  // After the commit; never throws (the change stands whatever the emails do).
+  private async deliver(batch: NoticeBatch | null): Promise<void> {
+    if (batch) await this.notices.deliver(batch)
   }
 
   private async assertCanRead(actor: WorkspaceActor, workspaceId: string): Promise<void> {
@@ -231,9 +266,9 @@ export class CommitteesService {
     tx: Prisma.TransactionClient,
     actor: WorkspaceActor,
     workspaceId: string,
-  ): Promise<void> {
+  ): Promise<Workspace> {
     await lockWorkspaceRow(tx, workspaceId)
-    await this.access.assertCanManage(actor, workspaceId, tx)
+    return (await this.access.assertCanManage(actor, workspaceId, tx)).workspace
   }
 
   // The committee of this workspace, read after the lock, at the version the client saw.
@@ -243,12 +278,12 @@ export class CommitteesService {
     workspaceId: string,
     committeeId: string,
     version: number,
-  ): Promise<Committee> {
-    await this.lockForManager(tx, actor, workspaceId)
+  ): Promise<{ current: Committee; workspace: Workspace }> {
+    const workspace = await this.lockForManager(tx, actor, workspaceId)
     const current = await tx.committee.findFirst({ where: { id: committeeId, workspaceId } })
     if (!current) throw CommitteeErrors.notFound()
     if (current.version !== version) throw CommitteeErrors.changed(current.version)
-    return current
+    return { current, workspace }
   }
 }
 

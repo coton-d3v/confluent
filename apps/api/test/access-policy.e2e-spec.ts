@@ -154,6 +154,7 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         sendMagicLink: jest.fn(),
         sendShareInvite: jest.fn().mockResolvedValue(undefined),
         sendWorkspaceInvite: jest.fn().mockResolvedValue(undefined),
+        sendCommitteeChanged: jest.fn().mockResolvedValue(undefined),
       })
       .compile()
     app = moduleFixture.createNestApplication()
@@ -1058,6 +1059,10 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       // E08.04: the queue of participation requests — theirs included; E08.05: decided ones too.
       `/v1/admin/workspaces/${cci}/participation-requests`,
       `/v1/admin/workspaces/${cci}/participation-requests?status=decided`,
+      // E08.06: the committees' progress, participants and notices.
+      `/v1/workspaces/${cci}/committees/progress`,
+      `/v1/admin/workspaces/${cci}/committees/${committee.id}/participants`,
+      `/v1/admin/workspaces/${cci}/committees/${committee.id}/notices`,
     ]
     for (const reader of [BOB, IVY, EVE]) {
       for (const url of refused) {
@@ -1095,6 +1100,25 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     expect(
       fake.table('committeeApplication').get([...fake.table('committeeApplication').keys()][0]),
     ).toMatchObject({ status: 'accepted', version: 2 })
+    // E08.06: a refused participation request makes no participant — no session to read (an empty
+    // list inside the workspace, 404 outside) — and the committee's cancellation tells its retained
+    // request's owner only, never a reader.
+    for (const reader of [BOB, IVY, EVE]) {
+      const sessions = await as(reader).get(`/v1/workspaces/${cci}/committee-sessions`)
+      expect([reader.email, sessions.status === 404 || sessions.body.length === 0]).toEqual([
+        reader.email,
+        true,
+      ])
+    }
+    await as(ADMIN)
+      .post(`/v1/admin/workspaces/${cci}/committees/${committee.id}/status`, {
+        status: 'cancelled',
+        version: committee.version,
+      })
+      .expect(200)
+    expect([...fake.table('committeeNotice').values()].map((n) => n.recipientId)).toEqual([
+      SOPHIE.id,
+    ])
     // A pool's investors read it as an opportunity only (MCP: E07.10), never as a shared request.
     for (const reader of [IVY, EVE]) {
       for (const url of ['', '/answers', '/documents']) {
