@@ -66,6 +66,8 @@ export const auditActionSchema = z.enum([
   'opportunity_viewed',
   'investor_interest_marked',
   'investor_interest_withdrawn',
+  'investor_pledge_set',
+  'investor_pledge_withdrawn',
 ]);
 
 export const auditLogSchema = z.object({

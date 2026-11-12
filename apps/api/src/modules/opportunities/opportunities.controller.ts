@@ -21,21 +21,29 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
-import { markInterestSchema, opportunitiesQuerySchema } from '@confluent/shared'
+import {
+  PLEDGE_NON_COMMITMENT,
+  markInterestSchema,
+  opportunitiesQuerySchema,
+  pledgeInputSchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
 import { InterestsService } from './interests.service'
+import { PledgesService } from './pledges.service'
 import {
   OpportunitiesService,
   type OpportunitiesView,
   type OpportunityInterestView,
+  type OpportunityPledgeView,
   type OpportunityView,
 } from './opportunities.service'
 
 class OpportunitiesQueryDto extends createZodDto(opportunitiesQuerySchema) {}
 class MarkInterestDto extends createZodDto(markInterestSchema) {}
+class PledgeDto extends createZodDto(pledgeInputSchema) {}
 
 const uuid = new ParseUUIDPipe()
 
@@ -62,6 +70,21 @@ export const INTEREST_SCOPE =
   'investisseur qui ne lit plus la demande (partage révoqué, publication retirée ou en pause, ' +
   'adhésion ou compte désactivés) n’est ni comptée ni nommée tant que cela dure.'
 
+// What a pledge is and who sees what of it (E07.06), said once for every route.
+export const PLEDGE_SCOPE =
+  PLEDGE_NON_COMMITMENT +
+  ' Une promesse par investisseur et demande, distincte de la marque d’intérêt, faite sur une ' +
+  'opportunité que le compte connecté lit maintenant (même règle que ' +
+  '`GET /v1/opportunities/:dossierId`) : intention (`exploring` à l’étude, `likely` probable, ' +
+  '`strong` forte), montant en euros entiers (1 € à 1 Md€), commentaire facultatif (texte simple, ' +
+  '1 000 caractères au plus), et deux choix sans valeur par défaut : montrer son nom ' +
+  '(`showName`) et montrer son montant (`showAmount`) au porteur. Modifiable et retirable jusqu’à ' +
+  'la clôture de la demande (son archivage par le porteur) ; masquer son nom ou son montant reste ' +
+  'toujours possible. Le porteur voit toujours le nombre et le total des promesses des ' +
+  'investisseurs qui lisent encore la demande, et pour chacune le nom et le montant que ' +
+  'l’investisseur a choisi de montrer — jamais l’intention, le commentaire ni une date. Personne ' +
+  'd’autre ne lit les promesses (ni conseillers, ni autres investisseurs).'
+
 // ROADMAP E07.03: the signed-in investor's opportunities (« inbox »), read from their account only.
 @ApiTags('Opportunités')
 @ApiBearerAuth('jwt')
@@ -71,6 +94,7 @@ export class OpportunitiesController {
   constructor(
     private readonly opportunities: OpportunitiesService,
     private readonly interests: InterestsService,
+    private readonly pledges: PledgesService,
   ) {}
 
   @Get()
@@ -165,5 +189,58 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     return this.interests.withdraw(user, dossierId)
+  }
+
+  @Put(':dossierId/pledge')
+  @ApiOperation({
+    summary: 'Faire ou modifier ma promesse sur une opportunité',
+    description:
+      PLEDGE_SCOPE +
+      '\n\nCorps : la promesse entière `{ intention, amountEur, comment?, showName, showAmount, ' +
+      'version }` ; `version` est celle de la promesse lue (`null` pour une première promesse) : une ' +
+      'promesse changée entre-temps n’est jamais écrasée (`409`). La promesse déjà ' +
+      'enregistrée ne change rien. Journalisé (`investor_pledge_set`, sans le texte du commentaire, ' +
+      'invisible du porteur). Ne compte pas comme une lecture de l’opportunité.',
+  })
+  @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
+  @ApiOkResponse({
+    description:
+      'La promesse : `intention`, `amountEur`, `comment`, `showName`, `showAmount`, `version`, ' +
+      '`pledgedAt` (première promesse), `updatedAt`.',
+  })
+  @ApiBadRequestResponse({ description: 'Champ absent, inconnu ou invalide.' })
+  @ApiNotFoundResponse({ description: 'Demande que le compte ne lit pas comme opportunité.' })
+  @ApiConflictResponse({
+    description:
+      'La promesse a changé depuis la version lue ; ou demande archivée : ni nouvelle promesse ni ' +
+      'modification (masquer son nom ou son montant reste possible).',
+  })
+  setPledge(
+    @Param('dossierId', uuid) dossierId: string,
+    @Body() body: PledgeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OpportunityPledgeView> {
+    return this.pledges.set(user, dossierId, body)
+  }
+
+  @Delete(':dossierId/pledge')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Retirer ma promesse',
+    description:
+      PLEDGE_SCOPE +
+      '\n\nRetire la promesse du compte connecté, qu’il lise encore la demande ou non ; même ' +
+      'réponse sans promesse. Journalisé (`investor_pledge_withdrawn`, invisible du porteur).',
+  })
+  @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
+  @ApiNoContentResponse({ description: 'Plus aucune promesse de ce compte sur cette demande.' })
+  @ApiConflictResponse({
+    description: 'Demande archivée : la promesse est conservée telle quelle.',
+  })
+  withdrawPledge(
+    @Param('dossierId', uuid) dossierId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.pledges.withdraw(user, dossierId)
   }
 }

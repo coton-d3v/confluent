@@ -107,6 +107,10 @@ enum audit_action {
   investor_interest_marked
   // E07.05: an investor withdrew their mark of interest.
   investor_interest_withdrawn
+  // E07.06: an investor made or changed their pledge (or hid their name or amount on it).
+  investor_pledge_set
+  // E07.06: an investor withdrew their pledge.
+  investor_pledge_withdrawn
 
   @@map("audit_action")
 }
@@ -148,6 +152,7 @@ model User {
   poolPublicationsConsented   PoolPublication[]                 @relation("PoolPublicationConsenter")
   poolPublicationsWithdrawn   PoolPublication[]                 @relation("PoolPublicationWithdrawer")
   interestsMarked             InvestorInterest[]
+  pledgesMade                 InvestorPledge[]
 
   @@map("users")
 }
@@ -411,6 +416,7 @@ model Dossier {
   documentSelection    DossierDocument[]
   candidatures         Candidature[]
   investorInterests    InvestorInterest[]
+  investorPledges      InvestorPledge[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -1125,6 +1131,38 @@ model InvestorInterest {
   // E07.07 lists an investor's marks.
   @@index([investorId])
   @@map("investor_interests")
+}
+
+// An investor's pledge on a request (ROADMAP E07.06, rules in @confluent/shared `pledge.schema.ts`):
+// a declarative intention, never a commitment. At most one per investor and request (unique),
+// separate from the mark of interest; made and changed while the investor reads the request as an
+// opportunity (E07.03) and the request is not archived (its closure), from the `version` read;
+// withdrawn by deleting it (the journal keeps both). `show_name` / `show_amount`: the investor's
+// consent to show their name / their amount to the owner, with no default. Who still counts is read
+// at each request, never stored. Removed with the request or the account.
+model InvestorPledge {
+  id         String   @id @default(uuid())
+  dossierId  String   @map("dossier_id")
+  investorId String   @map("investor_id")
+  // `exploring` | `likely` | `strong` (CHECK).
+  intention  String
+  // Whole euros, 1 € to 1 billion (CHECK).
+  amountEur  Int      @map("amount_eur")
+  // Plain text in paragraphs, at most 1 000 characters (CHECK).
+  comment    String?
+  showName   Boolean  @map("show_name")
+  showAmount Boolean  @map("show_amount")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  dossier  Dossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  investor User    @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  @@unique([dossierId, investorId])
+  // E07.07 lists an investor's pledges.
+  @@index([investorId])
+  @@map("investor_pledges")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

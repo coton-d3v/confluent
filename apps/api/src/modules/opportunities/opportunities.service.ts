@@ -7,8 +7,10 @@ import {
   type FinancingType,
   type OpportunitySort,
   type OpportunitySourceKind,
+  type PledgeIntention,
+  pledgeIntentionOf,
 } from '@confluent/shared'
-import type { Dossier, InvestorInterest, Prisma, User } from '@prisma/client'
+import type { Dossier, InvestorInterest, InvestorPledge, Prisma, User } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -59,17 +61,30 @@ export interface InterestIdentityView {
   organizations: string[]
 }
 
+// @confluent/shared `opportunityPledgeSchema` (E07.06): the reader's own pledge.
+export interface OpportunityPledgeView {
+  intention: PledgeIntention
+  amountEur: number
+  comment: string | null
+  showName: boolean
+  showAmount: boolean
+  version: number
+  pledgedAt: Date
+  updatedAt: Date
+}
+
 // @confluent/shared `opportunityAccessSchema`.
 export interface OpportunityAccessView {
   accessLevel: AccessLevel
   sources: OpportunitySourceView[]
   receivedAt: Date
   interest: OpportunityInterestView | null
+  pledge: OpportunityPledgeView | null
 }
 
 // One request the reader reaches, before its projection; the share ids are for the journal only,
 // the organizations (the reader's, in the workspaces whose pools bring it) for their name (E07.05).
-export interface ReachedOpportunity extends Omit<OpportunityAccessView, 'interest'> {
+export interface ReachedOpportunity extends Omit<OpportunityAccessView, 'interest' | 'pledge'> {
   dossier: Dossier
   shareLinkIds: string[]
   organizations: string[]
@@ -110,6 +125,21 @@ export type OpportunityView = RecipientView & {
 
 export const opportunityNotFound = () =>
   new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunité introuvable.' })
+
+// The request's row, held for the rest of the transaction: who reads it changes under the same lock
+// (shares E07.01, pool publications E07.02, archiving E06.01), so a mark of interest (E07.05) or a
+// pledge (E07.06) is decided on who reads it once those changes are committed, and two writes of the
+// same investor — a double click, two tabs — follow one another. No owner check: the reader is no
+// owner (`OpportunitiesService.reachOne` decides).
+export async function lockRequest(tx: Prisma.TransactionClient, dossierId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossierId} FOR UPDATE`
+}
+
+// An investor who reads a request as an opportunity now, and how (`OpportunitiesService.readersNow`).
+export interface CurrentReader {
+  investor: User
+  reached: ReachedOpportunity
+}
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -152,10 +182,11 @@ export class OpportunitiesService {
     const projected = await this.dossiers.projectEachForLevel(
       reached.map((r) => ({ dossier: r.dossier, level: r.accessLevel })),
     )
-    const interests = await this.interestsOf(
-      reader,
-      reached.map((r) => r.dossier.id),
-    )
+    const ids = reached.map((r) => r.dossier.id)
+    const [interests, pledges] = await Promise.all([
+      this.interestsOf(reader, ids),
+      this.pledgesOf(reader, ids),
+    ])
     const rows = reached.map((r, i) => ({
       access: r,
       dossier: listedDossier(presentationForShare(projected[i])),
@@ -199,6 +230,7 @@ export class OpportunitiesService {
         sources: access.sources,
         receivedAt: access.receivedAt,
         interest: interests.get(access.dossier.id) ?? null,
+        pledge: pledges.get(access.dossier.id) ?? null,
         dossier,
       })),
     }
@@ -213,8 +245,9 @@ export class OpportunitiesService {
     const found = await this.reachOne(reader, dossierId)
     if (!found) throw opportunityNotFound()
     const view = await this.shareLinks.recipientView(found.dossier, found.accessLevel)
-    const [interests, account] = await Promise.all([
+    const [interests, pledges, account] = await Promise.all([
       this.interestsOf(reader, [found.dossier.id]),
+      this.pledgesOf(reader, [found.dossier.id]),
       this.prisma.user.findUnique({ where: { id: reader.id } }),
     ])
     await this.audit.record({
@@ -236,13 +269,15 @@ export class OpportunitiesService {
         sources,
         receivedAt,
         interest: interests.get(found.dossier.id) ?? null,
+        pledge: pledges.get(found.dossier.id) ?? null,
         shownAs: interestIdentity(account ?? {}, found.organizations),
       },
     }
   }
 
   // THE rule of who reads one request as an opportunity, and how, as `get` applies it: also what a
-  // mark of interest requires and what makes it count (E07.05). `db`: the caller's transaction.
+  // mark of interest (E07.05) or a pledge (E07.06) requires and what makes it count. `db`: the
+  // caller's transaction.
   async reachOne(
     reader: OpportunityReader,
     dossierId: string,
@@ -250,6 +285,22 @@ export class OpportunitiesService {
   ): Promise<ReachedOpportunity | null> {
     const [found] = (await this.reach(reader, dossierId, db)).reached
     return found ?? null
+  }
+
+  // Those of these investors who read the request as an opportunity now — an active, verified
+  // account reaching it by THE rule (`reachOne`) —, each with how: the only ones whose marks of
+  // interest (E07.05) and pledges (E07.06) its owner sees.
+  async readersNow(dossierId: string, investorIds: string[]): Promise<Map<string, CurrentReader>> {
+    const ids = new Set(investorIds)
+    const readers = new Map<string, CurrentReader>()
+    if (ids.size === 0) return readers
+    const investors = await this.prisma.user.findMany({ where: { id: { in: [...ids] } } })
+    for (const investor of investors) {
+      if (!ids.has(investor.id) || !investor.isActive || investor.emailVerifiedAt === null) continue
+      const reached = await this.reachOne(investor, dossierId)
+      if (reached) readers.set(investor.id, { investor, reached })
+    }
+    return readers
   }
 
   // The reader's own marks of interest on these requests (E07.05).
@@ -265,6 +316,22 @@ export class OpportunitiesService {
       marks
         .filter((m) => m.investorId === reader.id)
         .map((m) => [m.dossierId, interestView(m)] as const),
+    )
+  }
+
+  // The reader's own pledges on these requests (E07.06).
+  private async pledgesOf(
+    reader: OpportunityReader,
+    dossierIds: string[],
+  ): Promise<Map<string, OpportunityPledgeView>> {
+    if (dossierIds.length === 0) return new Map()
+    const pledges = await this.prisma.investorPledge.findMany({
+      where: { investorId: reader.id, dossierId: { in: dossierIds } },
+    })
+    return new Map(
+      pledges
+        .filter((p) => p.investorId === reader.id)
+        .map((p) => [p.dossierId, pledgeView(p)] as const),
     )
   }
 
@@ -372,6 +439,19 @@ export class OpportunitiesService {
 
 export function interestView(mark: InvestorInterest): OpportunityInterestView {
   return { markedAt: mark.createdAt, nameVisible: mark.nameVisible }
+}
+
+export function pledgeView(pledge: InvestorPledge): OpportunityPledgeView {
+  return {
+    intention: pledgeIntentionOf(pledge.intention),
+    amountEur: pledge.amountEur,
+    comment: pledge.comment,
+    showName: pledge.showName,
+    showAmount: pledge.showAmount,
+    version: pledge.version,
+    pledgedAt: pledge.createdAt,
+    updatedAt: pledge.updatedAt,
+  }
 }
 
 // Who an investor is to the owner when they show their name (E07.05, D05): their account's name,
