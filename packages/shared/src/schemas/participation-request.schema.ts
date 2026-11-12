@@ -317,3 +317,46 @@ export const participationDecisionResultSchema = z.object({
   invitationEmailSent: z.boolean().nullable(),
 })
 export type ParticipationDecisionResult = z.infer<typeof participationDecisionResultSchema>
+
+// What a manager is told once a decision is answered (E08.05). From what this call did — and, for
+// an acceptance already recorded that this call only repeated (`invitationEmailSent: null`), from
+// the email's recorded state: never an email announced that did not leave (code review R68).
+export function participationDecisionNotice(
+  name: string,
+  decision: ParticipationDecision,
+  result: Pick<ParticipationDecisionResult, 'invitationEmailSent'> & {
+    request: Pick<ParticipationRequest, 'invitationEmail'>
+  },
+): { tone: 'success' | 'warning' | 'info'; text: string } {
+  if (decision === 'refused') return { tone: 'success', text: `Demande de ${name} refusée.` }
+  const cannotLeave = 'la personne peut se connecter avec son adresse depuis la page de connexion.'
+  if (result.invitationEmailSent === true) {
+    return {
+      tone: 'success',
+      text: `Demande de ${name} acceptée : la personne est prévenue par email.`,
+    }
+  }
+  if (result.invitationEmailSent === false) {
+    return {
+      tone: 'warning',
+      text: `Demande de ${name} acceptée, mais l’email n’a pas pu partir : ${cannotLeave}`,
+    }
+  }
+  switch (result.request.invitationEmail) {
+    case 'sent':
+      return {
+        tone: 'info',
+        text: `La demande de ${name} était déjà acceptée ; la personne a été prévenue par email.`,
+      }
+    case 'failed':
+      return {
+        tone: 'warning',
+        text: `La demande de ${name} était déjà acceptée, mais l’email n’a pas pu partir : ${cannotLeave}`,
+      }
+    default:
+      return {
+        tone: 'info',
+        text: `La demande de ${name} était déjà acceptée ; l’envoi de l’email n’est pas confirmé.`,
+      }
+  }
+}
