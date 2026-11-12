@@ -39,7 +39,9 @@ export function SegmentSwatch({ kind }: { kind: FundingPlanSegmentKind }) {
       aria-hidden="true"
       className={
         'inline-block h-3 w-5 shrink-0 rounded-sm border ' +
-        (kind === 'uncovered' ? 'border-dashed border-muted-foreground' : 'border-border')
+        (kind === 'uncovered' || kind === 'promised'
+          ? 'border-dashed border-muted-foreground'
+          : 'border-border')
       }
       style={SEGMENT_STYLE[kind]}
     />
@@ -47,8 +49,8 @@ export function SegmentSwatch({ kind }: { kind: FundingPlanSegmentKind }) {
 }
 
 // The sentence a screen reader hears for the bar; the same figures are also written out next to it.
-function describeBar(totals: FundingPlanTotals): string {
-  const { segments, objectiveAt } = fundingPlanBar(totals)
+function describeBar(totals: FundingPlanTotals, promisedEur: number): string {
+  const { segments, objectiveAt } = fundingPlanBar(totals, promisedEur)
   const parts = segments.map(
     (s) => `${FUNDING_PLAN_SEGMENT_LABELS[s.kind].toLowerCase()} ${formatAmount(s.amountEur)}`,
   )
@@ -62,19 +64,26 @@ function describeBar(totals: FundingPlanTotals): string {
 
 // ROADMAP E06.03: the segmented bar of a plan — obtained, in progress, envisaged, without source —
 // on the scale `fundingPlanBar` (@confluent/shared) computes: the objective, or the sources
-// identified when they exceed it, the objective then marked by a line.
-export function FundingPlanBar({ totals }: { totals: FundingPlanTotals }) {
-  const { segments, objectiveAt } = fundingPlanBar(totals)
+// identified when they exceed it, the objective then marked by a line. E06.04: `promisedEur`, the
+// pledges no line confirms, hatched inside what no source covers — never a source.
+export function FundingPlanBar({
+  totals,
+  promisedEur = 0,
+}: {
+  totals: FundingPlanTotals
+  promisedEur?: number
+}) {
+  const { segments, objectiveAt } = fundingPlanBar(totals, promisedEur)
   if (segments.length === 0) return null
   return (
-    <div role="img" aria-label={describeBar(totals)} className="relative py-1">
+    <div role="img" aria-label={describeBar(totals, promisedEur)} className="relative py-1">
       <div className="flex h-5 w-full overflow-hidden rounded-md border border-border bg-background">
         {segments.map((s) => (
           <div
             key={s.kind}
             data-segment={s.kind}
             className={
-              s.kind === 'uncovered'
+              s.kind === 'uncovered' || s.kind === 'promised'
                 ? 'border border-dashed border-muted-foreground/60 first:rounded-l-md last:rounded-r-md'
                 : 'border-r border-background last:border-r-0'
             }

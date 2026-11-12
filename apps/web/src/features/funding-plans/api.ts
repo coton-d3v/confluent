@@ -1,5 +1,6 @@
 import type {
-  CreateFundingPlanLineInput,
+  ConfirmFundingPlanPledgeInput,
+  CreateOwnerFundingPlanLineInput,
   FundingPlan,
   UpdateFundingPlanLineInput,
 } from '@confluent/shared'
@@ -20,7 +21,11 @@ const planPath = (scope: FundingPlanScope) =>
 
 export const getFundingPlan = (scope: FundingPlanScope) => apiRequest<FundingPlan>(planPath(scope))
 
-export const addFundingPlanLine = (scope: FundingPlanScope, input: CreateFundingPlanLineInput) =>
+// `pledge` (E06.04): the owner's routes only — the structure's refuse it.
+export const addFundingPlanLine = (
+  scope: FundingPlanScope,
+  input: CreateOwnerFundingPlanLineInput,
+) =>
   apiRequest<FundingPlan>(`${planPath(scope)}/lines`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -39,5 +44,24 @@ export const updateFundingPlanLine = (
 
 export const deleteFundingPlanLine = (scope: FundingPlanScope, lineId: string, version: number) =>
   apiRequest<FundingPlan>(`${planPath(scope)}/lines/${id(lineId)}?version=${version}`, {
+    method: 'DELETE',
+  })
+
+type OwnerScope = Extract<FundingPlanScope, { side: 'owner' }>
+
+// E06.04, the owner only: this line, at the version seen, confirms this pledge at the revision read.
+export const confirmFundingPlanPledge = (
+  scope: OwnerScope,
+  lineId: string,
+  input: ConfirmFundingPlanPledgeInput,
+) =>
+  apiRequest<FundingPlan>(`${planPath(scope)}/lines/${id(lineId)}/pledge`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+
+// E06.04, the owner only: the line stays, the pledge counts as promised again.
+export const releaseFundingPlanPledge = (scope: OwnerScope, lineId: string, version: number) =>
+  apiRequest<FundingPlan>(`${planPath(scope)}/lines/${id(lineId)}/pledge?version=${version}`, {
     method: 'DELETE',
   })
