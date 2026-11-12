@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { AnswerSourcesService } from '../answers/answer-sources.service'
 import { AuditLogService } from '../audit/audit-log.service'
+import { actionsFor, ownerRule } from '../owner-history/owner-history.rules'
 import { AuditService } from '../audit/audit.service'
 import { CandidaturesService } from '../candidatures/candidatures.service'
 import type { ClassificationService } from '../classification/classification.service'
@@ -306,13 +307,12 @@ describe('CandidatureNotesService', () => {
     })
   })
 
-  it('keeps the notes’ journal entries out of the owner’s audit log, not out of the administrators’', async () => {
+  it('keeps the notes’ journal entries out of the owner’s history, not out of the administrators’', async () => {
     await s.send()
     await s.write(MARIE, 'Confidentiel.')
-    const logs = new AuditLogService(s.p as never)
-    const owner = await logs.listForEntrepreneur(s.dossier.id)
-    expect(owner.map((e) => e.actionType)).not.toContain('candidature_note_updated')
-    const admin = await logs.listForAdmin(s.dossier.id)
+    expect(ownerRule('candidature_note_updated')).toBeNull()
+    expect(actionsFor('all')).not.toContain('candidature_note_updated')
+    const admin = await new AuditLogService(s.p as never).listForAdmin(s.dossier.id)
     expect(admin.map((e) => e.actionType)).toContain('candidature_note_updated')
   })
 })

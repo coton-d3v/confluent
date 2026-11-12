@@ -167,6 +167,32 @@ export const reclassificationPreviewSchema = z.object({
 
 export const applyReclassificationSchema = z.object({ rulesRevision: z.string().min(1).max(64) })
 
+// A dossier's classification columns as people read them — the reclassification preview, and what
+// the owner reads of a reclassification in their request's history (E07.09).
+export const CLASSIFICATION_COLUMN_LABELS: Record<keyof ClassificationResult, string> = {
+  sector: CLASSIFICATION_DIMENSIONS.sector.label,
+  maturityStage: CLASSIFICATION_DIMENSIONS.maturity_stage.label,
+  ancrageCvl: CLASSIFICATION_DIMENSIONS.ancrage_cvl.label,
+  tagTechnologique: 'Étiquette technologique',
+  axe1Projet: CLASSIFICATION_DIMENSIONS.axe1_projet.label,
+  axe2Financier: CLASSIFICATION_DIMENSIONS.axe2_financier.label,
+  axe3Origine: CLASSIFICATION_DIMENSIONS.axe3_origine.label,
+  deeptechScore: 'Score deeptech',
+  preCreation: CLASSIFICATION_DIMENSIONS.pre_creation.label,
+}
+
+// The value of a classification column as people read it; « — » for none.
+export function classificationValueText(column: string, value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (column === 'ancrageCvl') {
+    const values: readonly ClassificationValue[] = CLASSIFICATION_DIMENSIONS.ancrage_cvl.values
+    return values.find((v) => v.value === String(value))?.label ?? String(value)
+  }
+  if (column === 'tagTechnologique') return TECH_TAG_LABELS[String(value)] ?? String(value)
+  if (column === 'preCreation') return value ? 'Oui' : 'Non'
+  return String(value)
+}
+
 export type ClassificationRule = z.infer<typeof classificationRuleSchema>
 export type CreateClassificationRuleInput = z.infer<typeof createClassificationRuleSchema>
 export type UpdateClassificationRuleInput = z.infer<typeof updateClassificationRuleSchema>

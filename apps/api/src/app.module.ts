@@ -26,6 +26,7 @@ import { SupportPathsModule } from './modules/support-paths/support-paths.module
 import { InterventionsModule } from './modules/interventions/interventions.module'
 import { PoolPublicationsModule } from './modules/pool-publications/pool-publications.module'
 import { OpportunitiesModule } from './modules/opportunities/opportunities.module'
+import { OwnerHistoryModule } from './modules/owner-history/owner-history.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -59,6 +60,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     InterventionsModule,
     PoolPublicationsModule,
     OpportunitiesModule,
+    OwnerHistoryModule,
   ],
   controllers: [AppController],
   providers: [

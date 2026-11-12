@@ -2155,23 +2155,22 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       })
 
       // The site reads the same submitted dossier, with nothing left to validate, and the owner's
-      // journal says the application submitted it.
+      // history says the application asked for it (E07.09) — its name, never what it was asked.
       const jwt = await ownerJwt()
       const site = await fetch(`${base}/v1/dossiers/${DOSSIER}`, {
         headers: { Authorization: `Bearer ${jwt}` },
       })
       expect(site.status).toBe(200)
       expect((await site.json()).submittedAt).toEqual(expect.any(String))
-      const ownJournal = (await (
-        await fetch(`${base}/v1/dossiers/${DOSSIER}/audit-log`, {
+      const ownHistory = (await (
+        await fetch(`${base}/v1/dossiers/${DOSSIER}/history?filter=request`, {
           headers: { Authorization: `Bearer ${jwt}` },
         })
-      ).json()) as Array<{ actionType: string; metadata: Record<string, unknown> }>
-      expect(ownJournal.find((e) => e.actionType === 'dossier_submitted')?.metadata).toMatchObject({
-        channel: 'mcp',
-        clientName: 'Claude',
-        instruction: ASKED,
-      })
+      ).json()) as { items: Array<{ kind: string; details: unknown[] }> }
+      expect(ownHistory.items.find((e) => e.kind === 'request_submitted')?.details).toEqual([
+        { label: 'Demandé via', value: 'l’application Claude' },
+      ])
+      expect(JSON.stringify(ownHistory)).not.toContain(ASKED)
 
       // Asking again changes nothing: already submitted, said so.
       const first = submittedAt()

@@ -160,6 +160,20 @@ export class ReadingSessionsService {
     })
   }
 
+  // The latest `take` of the same sessions, the latest first (ties: by id), and how many there are:
+  // the consultations of the owner's history (E07.09), the readings through pools alone never.
+  latestShareSessions(dossierId: string, take: number): Promise<ReadingSession[]> {
+    return this.prisma.readingSession.findMany({
+      where: { dossierId, shareLinkId: { not: null } },
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+      take,
+    })
+  }
+
+  countShareSessions(dossierId: string): Promise<number> {
+    return this.prisma.readingSession.count({ where: { dossierId, shareLinkId: { not: null } } })
+  }
+
   // The platform's views through shares since `since` (administrators' dashboard).
   countShareViewsSince(since: Date): Promise<number> {
     return this.prisma.readingSession.count({

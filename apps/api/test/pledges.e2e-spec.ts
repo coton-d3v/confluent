@@ -331,11 +331,9 @@ describe('Pledges (e2e)', () => {
     // The comment's text stays out of the journal.
     expect(JSON.stringify(journal())).not.toContain('lead')
     expect(journal()[0].metadata).toMatchObject({ amountEur: 25_000, hasComment: true, version: 1 })
-    // Out of the owner's journal, in the administrators'.
-    const ownerJournal = (await sophie.get(`/v1/dossiers/${bio.id}/audit-log`).expect(200)).body
-    expect(
-      ownerJournal.filter((e: { actionType: string }) => e.actionType.startsWith('investor_')),
-    ).toEqual([])
+    // Out of the owner's history (E07.09), in the administrators'.
+    const ownerHistory = (await sophie.get(`/v1/dossiers/${bio.id}/history`).expect(200)).body
+    expect(JSON.stringify(ownerHistory)).not.toMatch(/investor_|pledge|25000|25 000/i)
     const adminJournal = (await as(ADMIN).get(`/v1/admin/dossiers/${bio.id}/audit-log`).expect(200))
       .body
     expect(

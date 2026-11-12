@@ -623,11 +623,19 @@ describe('MCP: financing and support follow-up of candidatures (e2e, E06.09)', (
       instruction: 'Passe Biosensio en comité.',
       result: 'ok',
     })
-    const ownerLog = JSON.stringify(
-      (await as(SOPHIE).get(`/v1/dossiers/${dossierId}/audit-log`).expect(200)).body,
+    // E07.09: the owner's history shows none of it (a candidature's follow-up is read in its own
+    // view); the request's raw journal keeps the owner's words, never the structure's.
+    const ownerHistory = JSON.stringify(
+      (await as(SOPHIE).get(`/v1/dossiers/${dossierId}/history`).expect(200)).body,
     )
-    expect(ownerLog).not.toMatch(/Passe Biosensio|Valide le diagnostic|JEIR comme vérifié/)
-    expect(ownerLog).toContain('J’abandonne la candidature à la CCI.')
+    expect(ownerHistory).not.toMatch(
+      /Passe Biosensio|Valide le diagnostic|JEIR comme vérifié|J’abandonne la candidature/,
+    )
+    const dossierLog = JSON.stringify(
+      (await as(ADMIN).get(`/v1/admin/dossiers/${dossierId}/audit-log`).expect(200)).body,
+    )
+    expect(dossierLog).not.toMatch(/Passe Biosensio|Valide le diagnostic|JEIR comme vérifié/)
+    expect(dossierLog).toContain('J’abandonne la candidature à la CCI.')
   })
 
   // Code review R62: without « candidatures:decide », a conseiller never removes an eligibility the
@@ -960,12 +968,17 @@ describe('MCP: financing and support follow-up of candidatures (e2e, E06.09)', (
     ).toContain('Candidature introuvable dans ce workspace')
     await paul.close()
 
-    // Nothing of the notes in the request's journal, which its owner reads; the calls are kept
-    // with the workspace.
-    const ownerLog = (await as(SOPHIE).get(`/v1/dossiers/${dossierId}/audit-log`).expect(200)).body
-    expect(leaks(ownerLog)).toBeNull()
+    // Nothing of the notes in the request's journal nor in the history its owner reads (E07.09); the
+    // calls are kept with the workspace.
+    const ownerHistory = (await as(SOPHIE).get(`/v1/dossiers/${dossierId}/history`).expect(200))
+      .body
+    expect(leaks(ownerHistory)).toBeNull()
+    const dossierLog = (
+      await as(ADMIN).get(`/v1/admin/dossiers/${dossierId}/audit-log`).expect(200)
+    ).body
+    expect(leaks(dossierLog)).toBeNull()
     expect(
-      (ownerLog as Array<{ actionType: string; actorId: string }>).filter(
+      (dossierLog as Array<{ actionType: string; actorId: string }>).filter(
         (e) => e.actionType === 'mcp_tool_called' && e.actorId !== SOPHIE.id,
       ),
     ).toEqual([])

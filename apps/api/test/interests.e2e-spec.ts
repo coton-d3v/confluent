@@ -285,11 +285,14 @@ describe('Marks of interest (e2e)', () => {
       [BOB.id, 'investor_interest_marked', 'name_hidden'],
     ])
     expect(journal().every((e) => e.dossierId === bio.id)).toBe(true)
-    // Out of the owner's journal, which would name every investor; in the administrators'.
-    const ownerJournal = (await sophie.get(`/v1/dossiers/${bio.id}/audit-log`).expect(200)).body
-    expect(
-      ownerJournal.filter((e: { actionType: string }) => e.actionType.startsWith('investor_')),
-    ).toEqual([])
+    // Out of the owner's history (E07.09), which would name every investor; in the administrators'.
+    const ownerHistory = (await sophie.get(`/v1/dossiers/${bio.id}/history`).expect(200)).body
+    expect(JSON.stringify(ownerHistory)).not.toMatch(/investor_|interest/i)
+    expect(ownerHistory.items.map((e: { kind: string }) => e.kind).sort()).toEqual([
+      'request_published',
+      'share_created',
+      'share_created',
+    ])
     const adminJournal = (await as(ADMIN).get(`/v1/admin/dossiers/${bio.id}/audit-log`).expect(200))
       .body
     expect(
