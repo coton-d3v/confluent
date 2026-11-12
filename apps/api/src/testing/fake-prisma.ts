@@ -77,6 +77,7 @@ const UPDATED_AT = new Set([
   'candidatureNote',
   'poolPublication',
   'investorInterest',
+  'investorPledge',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -430,11 +431,15 @@ export function createFakePrisma() {
     }
   }
 
+  let sequence = 0
   const self: { prisma?: unknown } = {}
   const prisma = {
     onModuleInit: () => Promise.resolve(),
     // Row locks (`SELECT … FOR UPDATE`) have no effect in memory: concurrency is tested on PostgreSQL.
-    $queryRaw: jest.fn(() => Promise.resolve([])),
+    // A sequence (`nextval`) gives the next value of one counter, never reused.
+    $queryRaw: jest.fn((sql?: TemplateStringsArray) =>
+      Promise.resolve(sql?.join?.('').includes('nextval(') ? [{ revision: (sequence += 1) }] : []),
+    ),
     // Table locks (`LOCK TABLE …`) likewise.
     $executeRaw: jest.fn(() => Promise.resolve(0)),
     onModuleDestroy: () => Promise.resolve(),
@@ -558,6 +563,7 @@ export function createFakePrisma() {
       withdrawalReason: null,
     })),
     investorInterest: model('investorInterest', () => ({ nameVisible: false })),
+    investorPledge: model('investorPledge', () => ({ comment: null, version: 1 })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,

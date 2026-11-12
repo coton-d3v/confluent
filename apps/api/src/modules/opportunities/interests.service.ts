@@ -1,6 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common'
 import { isArchived, type MarkInterestInput } from '@confluent/shared'
-import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -8,6 +7,7 @@ import {
   OpportunitiesService,
   interestIdentity,
   interestView,
+  lockRequest,
   opportunityNotFound,
   type InterestIdentityView,
   type OpportunityInterestView,
@@ -26,14 +26,6 @@ const interestArchived = () =>
     message:
       'Cette demande est archivée par son porteur : vous ne pouvez plus y marquer votre intérêt ni y montrer votre nom.',
   })
-
-// The request's row, held for the rest of the transaction: who reads it changes under the same lock
-// (shares E07.01, pool publications E07.02, archiving E06.01), so a mark is decided on who reads it
-// once those changes are committed, and two marks of the same investor — a double click, two tabs —
-// follow one another. No owner check: the reader is no owner (`OpportunitiesService.reachOne` decides).
-async function lockRequest(tx: Prisma.TransactionClient, dossierId: string): Promise<void> {
-  await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossierId} FOR UPDATE`
-}
 
 // ROADMAP E07.05 — marks of interest (rules in @confluent/shared `interest.schema.ts`). An investor
 // marks a request they read as an opportunity right now — THE rule of `GET /v1/opportunities/:id`
@@ -114,26 +106,21 @@ export class InterestsService {
       where: { dossierId },
       orderBy: { createdAt: 'desc' },
     })
-    const investors =
-      marks.length === 0
-        ? []
-        : await this.prisma.user.findMany({
-            where: { id: { in: marks.map((m) => m.investorId) } },
-          })
-    const investorById = new Map(investors.map((u) => [u.id, u]))
+    const readers = await this.opportunities.readersNow(
+      dossierId,
+      marks.map((m) => m.investorId),
+    )
 
     let count = 0
     const named: DossierInterestsView['named'] = []
     for (const mark of marks) {
       if (mark.dossierId !== dossierId) continue
-      const investor = investorById.get(mark.investorId)
-      if (!investor || !investor.isActive || investor.emailVerifiedAt === null) continue
-      const reached = await this.opportunities.reachOne(investor, dossierId)
-      if (!reached) continue
+      const reader = readers.get(mark.investorId)
+      if (!reader) continue
       count += 1
       if (mark.nameVisible) {
         named.push({
-          ...interestIdentity(investor, reached.organizations),
+          ...interestIdentity(reader.investor, reader.reached.organizations),
           markedAt: mark.createdAt,
         })
       }

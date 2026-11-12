@@ -12,11 +12,15 @@ const INVESTOR_READINGS = ['opportunity_viewed']
 // Who marked their interest, and whether they show their name (ROADMAP E07.05): the owner reads the
 // count and the names shown (`InterestsService.forOwner`), never the entries, which name everyone.
 const INVESTOR_INTERESTS = ['investor_interest_marked', 'investor_interest_withdrawn']
+// Who pledged what (ROADMAP E07.06): the owner reads the count, the total and what each investor
+// chose to show (`PledgesService.forOwner`), never the entries, which name everyone with an amount.
+const INVESTOR_PLEDGES = ['investor_pledge_set', 'investor_pledge_withdrawn']
 const HIDDEN_FROM_OWNER = [
   ...OPS_ONLY_ACTIONS,
   ...WORKSPACE_INTERNAL_ACTIONS,
   ...INVESTOR_READINGS,
   ...INVESTOR_INTERESTS,
+  ...INVESTOR_PLEDGES,
 ]
 
 @Injectable()

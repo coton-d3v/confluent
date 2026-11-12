@@ -180,3 +180,16 @@ export function investorInterestsDown(): string[] {
 export function investorInterestsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261126000000_investor_interests/migration.sql'))
 }
+
+// The revert of E07.06 (pledges): it accepts that the pledges and their journal are lost (SET LOCAL,
+// test transactions only).
+export function investorPledgesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_investor_pledges_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261127000000_investor_pledges.down.sql')),
+  ]
+}
+
+export function investorPledgesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261127000000_investor_pledges/migration.sql'))
+}
