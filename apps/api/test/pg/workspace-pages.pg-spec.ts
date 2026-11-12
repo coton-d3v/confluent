@@ -2,8 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { HttpException } from '@nestjs/common'
 import { Prisma as PrismaNamespace, type Prisma } from '@prisma/client'
 import { WORKSPACE_PAGE_LIMITS } from '@confluent/shared'
+import { AnswerSourcesService } from '../../src/modules/answers/answer-sources.service'
 import { AuditService } from '../../src/modules/audit/audit.service'
+import { CandidaturesService } from '../../src/modules/candidatures/candidatures.service'
+import type { ClassificationService } from '../../src/modules/classification/classification.service'
+import { CompaniesService } from '../../src/modules/companies/companies.service'
+import type { DocumentsService } from '../../src/modules/documents/documents.service'
 import { MemoryStorageAdapter } from '../../src/modules/documents/storage/memory-storage.adapter'
+import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
+import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { ShowcaseCardsService } from '../../src/modules/showcase-cards/showcase-cards.service'
 import { WORKSPACE_COLUMN_AUDIENCE } from '../../src/modules/workspace-pages/workspace-page-views'
 import { WorkspacePagesService } from '../../src/modules/workspace-pages/workspace-pages.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
@@ -59,7 +67,29 @@ describe('workspace public page (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
   const access = new WorkspaceAccessService(prisma)
-  const pages = new WorkspacePagesService(prisma, access, audit, new MemoryStorageAdapter())
+  const questionnaires = new QuestionnairesService(prisma)
+  const dossiers = new DossiersService(
+    prisma,
+    questionnaires,
+    { evaluate: () => Promise.resolve(null) } as unknown as ClassificationService,
+    audit,
+    new CompaniesService(prisma),
+  )
+  const candidatures = new CandidaturesService(
+    prisma,
+    dossiers,
+    access,
+    questionnaires,
+    new AnswerSourcesService(prisma, {} as DocumentsService),
+    audit,
+  )
+  const pages = new WorkspacePagesService(
+    prisma,
+    access,
+    audit,
+    new MemoryStorageAdapter(),
+    new ShowcaseCardsService(prisma, candidatures, dossiers, audit),
+  )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   const users: string[] = []

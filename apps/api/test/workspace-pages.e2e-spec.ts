@@ -225,6 +225,8 @@ describe('workspace public page (e2e)', () => {
         },
       ],
       receivesCandidatures: false,
+      // E09.02: no owner consented to a card (test/showcase-cards.e2e-spec.ts).
+      cards: [],
     })
     expect(Object.keys(res.body.workspace)).toEqual([...PUBLIC_WORKSPACE_FIELDS])
     const text = JSON.stringify(res.body)

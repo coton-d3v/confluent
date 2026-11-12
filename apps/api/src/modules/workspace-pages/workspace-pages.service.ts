@@ -5,6 +5,7 @@ import {
   WORKSPACE_PAGE_LIMITS,
   toPublicCommittee,
   workspaceSlugSchema,
+  type PublicCard,
   type PublicWorkspace,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -17,6 +18,7 @@ import {
   type StorageAdapter,
 } from '../documents/storage/storage.adapter'
 import { offeredCommittees } from '../participation-requests/participation-requests.service'
+import { ShowcaseCardsService } from '../showcase-cards/showcase-cards.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { detectLogoType } from '../workspaces/workspace-logo'
 import { lockWorkspaceRow } from '../workspaces/workspaces.service'
@@ -36,6 +38,7 @@ export interface PublicWorkspacePageView {
   workspace: PublicWorkspace
   committees: Array<Pick<CommitteeView, 'id' | 'name' | 'date' | 'time' | 'timeZone' | 'startsAt'>>
   receivesCandidatures: boolean
+  cards: PublicCard[]
 }
 
 // @confluent/shared `workspacePageSettingsSchema`.
@@ -60,7 +63,8 @@ const PAGE_FIELDS = {
 // next sessions offered on its participation form (E08.04, `toPublicCommittee`: name and when) and
 // whether it receives candidatures (E05.09); its logo through a route of its own, never a bucket
 // address. An unknown slug and an unpublished page answer the same `404` (R66). Nothing of its
-// members, its internal settings or its committees' place, link, information or notes.
+// members, its internal settings or its committees' place, link, information or notes. E09.02: the
+// anonymous cards its candidates consented to show there (`ShowcaseCardsService.publicCards`).
 //
 // Its managers (`canManageWorkspace`) read and write the page's settings — published or not,
 // criteria, contact — under the workspace's lock, the right read again after it (R53), from the
@@ -76,6 +80,7 @@ export class WorkspacePagesService {
     private readonly access: WorkspaceAccessService,
     private readonly audit: AuditService,
     @Inject(STORAGE_TOKEN) private readonly storage: StorageAdapter,
+    private readonly cards: ShowcaseCardsService,
   ) {}
 
   // ── The public ───────────────────────────────────────────────────────────────────────────────
@@ -167,9 +172,10 @@ export class WorkspacePagesService {
   }
 
   private async pageOf(workspace: Workspace, now: number): Promise<PublicWorkspacePageView> {
-    const [committees, candidatureForm] = await Promise.all([
+    const [committees, candidatureForm, cards] = await Promise.all([
       offeredCommittees(this.prisma, workspace.id, now),
       openCandidatureFormVersion(this.prisma, workspace.id),
+      this.cards.publicCards(workspace, now),
     ])
     return {
       workspace: toPublicWorkspace(workspace),
@@ -177,6 +183,7 @@ export class WorkspacePagesService {
         .slice(0, WORKSPACE_PAGE_LIMITS.committees)
         .map((c) => toPublicCommittee(toView(c))),
       receivesCandidatures: candidatureForm !== null,
+      cards,
     }
   }
 

@@ -315,3 +315,17 @@ export function committeeNoticesDown(): string[] {
 export function committeeNoticesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261206000000_committee_notices/migration.sql'))
 }
+
+// The revert of E09.02 (showcase cards), as the tests of earlier migrations that drop what its table
+// references (E06.03's unique index on candidatures, candidatures) run it before their own: it
+// accepts that the cards and their journal are lost (SET LOCAL, test transactions only).
+export function showcaseCardsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_showcase_cards_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261208000000_showcase_cards.down.sql')),
+  ]
+}
+
+export function showcaseCardsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261208000000_showcase_cards/migration.sql'))
+}

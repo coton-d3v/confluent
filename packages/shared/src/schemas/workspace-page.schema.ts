@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { publicCommitteeSchema } from './participation-request.schema.js'
+import { publicCardSchema } from './showcase-card.schema.js'
 import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 
 // ROADMAP E09.01: a workspace's public page (`/w/<slug>`) — the programme's identity, its
@@ -10,7 +11,7 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 // unknown slug answer alike (`404`). The public reads a closed list of fields
 // (`PUBLIC_WORKSPACE_FIELDS`), never the workspace's id, members, contact email for its members,
 // email domain or anything internal. Not indexed by search engines (E09.06 decides indexing).
-// Blocks, their order and a richer preview come with E09.04.
+// Blocks, their order and a richer preview come with E09.04; the requests' cards are E09.02's.
 
 export const WORKSPACE_PAGE_LIMITS = {
   criteria: 3000,
@@ -92,6 +93,10 @@ export const publicWorkspacePageSchema = z
     // Whether it receives candidatures (a published candidature form, E05.09): presented from a
     // Confluent account, never through a sign-up opened by this page.
     receivesCandidatures: z.boolean(),
+    // E09.02: the anonymous cards of the requests whose owners consented to show them here, under
+    // their pseudonym (`toPublicCard`, showcase-card.schema.ts), the latest consents first, at most
+    // `SHOWCASE_CARD_LIMITS.cardsPerPage`.
+    cards: z.array(publicCardSchema),
   })
   .strict()
 export type PublicWorkspacePage = z.infer<typeof publicWorkspacePageSchema>

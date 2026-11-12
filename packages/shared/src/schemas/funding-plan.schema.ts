@@ -7,7 +7,8 @@ import { FINANCING_STATUS_ACTORS, type FinancingStatusActor } from './status.sch
 // ROADMAP E06.03: the financing plan of a request in one workspace. It belongs to the candidature
 // (one request × one workspace, E05.09/E06.01), like the financing status: its lines use the source
 // categories of that workspace (E06.02), its owner and that workspace's conseillers keep it, and no
-// other workspace, investor or share recipient reads it. Its target is the request's amount sought
+// other workspace, investor or share recipient reads it — but, once its owner consents to a public
+// card (E09.02, showcase-card.schema.ts), its obtained, in progress and remaining totals. Its target is the request's amount sought
 // (`dossiers.amount_eur`, E05.07) — the « objectif » of a plan is that amount, not the request's
 // `objective` text, which states what the money is for.
 //

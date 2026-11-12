@@ -127,6 +127,10 @@ export const OWNER_HISTORY_RULES = {
   participation_request_discarded: SECURITY,
   // E08.05: a manager's decision on such a request (and the account it admitted).
   participation_request_decided: PLATFORM,
+  // E09.02: a request's card on a workspace's public page, read by its owner on the candidature like
+  // its pool publication.
+  showcase_card_published: CANDIDATURE,
+  showcase_card_withdrawn: CANDIDATURE,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a

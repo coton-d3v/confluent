@@ -58,7 +58,8 @@ const PLAN =
   'nouvelle ligne et les totaux (`totals`) : objectif = montant recherché de la demande, obtenu, ' +
   'en cours, envisagé, reste à financer (objectif − obtenu), sans source, dépassement. Lu et ' +
   'modifié par le porteur de projet et par les conseillers du workspace ; aucune autre structure, ' +
-  'aucun investisseur, aucun partage. À part (E06.04), `pledges` : les promesses d’investisseurs ' +
+  'aucun investisseur, aucun partage (E09.02 : seuls les totaux obtenu, en cours et reste à ' +
+  'financer paraissent sur la carte publique, si le porteur y consent). À part (E06.04), `pledges` : les promesses d’investisseurs ' +
   'que cette partie peut lire (le porteur : celles des investisseurs qui lisent la demande ; la ' +
   'structure : celles qu’un investisseur a consenti à lui montrer) et qu’aucune ligne ne confirme ' +
   '— nombre et total « promis, non engageant », jamais comptés dans les totaux —, et pour le ' +

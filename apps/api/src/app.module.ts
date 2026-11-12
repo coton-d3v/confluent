@@ -29,6 +29,7 @@ import { OpportunitiesModule } from './modules/opportunities/opportunities.modul
 import { OwnerHistoryModule } from './modules/owner-history/owner-history.module'
 import { CommitteesModule } from './modules/committees/committees.module'
 import { ParticipationRequestsModule } from './modules/participation-requests/participation-requests.module'
+import { ShowcaseCardsModule } from './modules/showcase-cards/showcase-cards.module'
 import { WorkspacePagesModule } from './modules/workspace-pages/workspace-pages.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
@@ -67,6 +68,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     CommitteesModule,
     ParticipationRequestsModule,
     WorkspacePagesModule,
+    ShowcaseCardsModule,
   ],
   controllers: [AppController],
   providers: [

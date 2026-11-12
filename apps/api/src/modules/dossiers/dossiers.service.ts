@@ -31,6 +31,10 @@ import {
 } from '../classification/classification.service'
 import { lockProfile } from './dossier-profile'
 import { withdrawFromEveryPool, withdrawalEntry } from '../pool-publications/pool-publication'
+import {
+  showcaseWithdrawalEntry,
+  withdrawEveryShowcaseCard,
+} from '../showcase-cards/showcase-cards'
 import { isPendingProposal } from '../answers/answer-provenance'
 import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
@@ -524,6 +528,15 @@ export class DossiersService {
       })
       const withdrawn =
         action === 'archive' ? await withdrawFromEveryPool(tx, dossierId, userId, now) : []
+      // E09.02: nor on any public page — journaled with the archiving's change.
+      if (action === 'archive') {
+        for (const card of await withdrawEveryShowcaseCard(tx, dossierId, userId, now)) {
+          await this.audit.recordIn(
+            tx,
+            showcaseWithdrawalEntry(card, dossierId, userId, 'archived'),
+          )
+        }
+      }
       return { dossier: updated, previous: current, withdrawn }
     })
     if (previous) {

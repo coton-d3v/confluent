@@ -132,6 +132,11 @@ enum audit_action {
   participation_request_discarded
   // E08.05: a manager accepted or refused a participation request.
   participation_request_decided
+  // E09.02: a request's owner consented to show its anonymous card on a workspace's public page (a
+  // first consent, a new one after a withdrawal, or a change of pseudonym or region).
+  showcase_card_published
+  // E09.02: that consent withdrawn (by the owner, or with the archiving of the request).
+  showcase_card_withdrawn
 
   @@map("audit_action")
 }
@@ -181,6 +186,8 @@ model User {
   participationDecisions      ParticipationRequest[]            @relation("ParticipationDecider")
   participationAdmissions     ParticipationRequest[]            @relation("ParticipationMember")
   committeeNotices            CommitteeNotice[]
+  showcaseCardsConsented      ShowcaseCard[]                    @relation("ShowcaseCardConsenter")
+  showcaseCardsWithdrawn      ShowcaseCard[]                    @relation("ShowcaseCardWithdrawer")
 
   @@map("users")
 }
@@ -642,6 +649,8 @@ model Candidature {
   pledgeLinks           FundingPlanPledgeLink[]
   // E08.03: its entries on the committees of its workspace.
   committeeApplications CommitteeApplication[]
+  // E09.02: at most one — `showcase_cards.candidature_id` is unique.
+  showcaseCards         ShowcaseCard[]
 
   @@unique([dossierId, workspaceId])
   // Target of the (candidature, workspace) foreign keys of plan lines, eligibilities, step
@@ -1191,6 +1200,40 @@ model PoolPublication {
   @@index([consentedById])
   @@index([withdrawnById])
   @@map("pool_publications")
+}
+
+// ROADMAP E09.02: the owner's consent to show an anonymous card of the request on the public page of
+// the candidature's workspace (`/w/<slug>`, E09.01), under the pseudonym they chose, with the region
+// they chose or none. One per candidature, kept and reused: a new consent after a withdrawal writes
+// on it, its version only grows (R63). The foreign key carries `workspace_id`: a card never shows on
+// another workspace's page. Rules: @confluent/shared `showcase-card.schema.ts`; what the public reads
+// of each column: `SHOWCASE_CARD_COLUMN_AUDIENCE` (showcase-cards/showcase-card-views.ts). CHECK:
+// pseudonym one trimmed line of 2 to 60 characters without markup, address or link, closed regions,
+// coherent withdrawal, version ≥ 1 (migration 20261208000000_showcase_cards).
+model ShowcaseCard {
+  id               String    @id @default(uuid())
+  candidatureId    String    @unique @map("candidature_id")
+  workspaceId      String    @map("workspace_id")
+  pseudonym        String
+  region           String?
+  consentedAt      DateTime  @map("consented_at")
+  consentedById    String?   @map("consented_by_id")
+  withdrawnAt      DateTime? @map("withdrawn_at")
+  withdrawnById    String?   @map("withdrawn_by_id")
+  withdrawalReason String?   @map("withdrawal_reason")
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  candidature Candidature @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  consentedBy User?       @relation("ShowcaseCardConsenter", fields: [consentedById], references: [id], onDelete: SetNull)
+  withdrawnBy User?       @relation("ShowcaseCardWithdrawer", fields: [withdrawnById], references: [id], onDelete: SetNull)
+
+  // The cards of a workspace's public page.
+  @@index([workspaceId, withdrawnAt])
+  @@index([consentedById])
+  @@index([withdrawnById])
+  @@map("showcase_cards")
 }
 
 // An investor's mark of interest in a request (ROADMAP E07.05, rules in @confluent/shared

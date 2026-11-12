@@ -24,6 +24,7 @@ import {
   fundingPlansDown,
   fundingPlansUp,
   poolPublicationsDown,
+  showcaseCardsDown,
   sqlStatements,
   statusesDown,
   statusesUp,
@@ -35,8 +36,9 @@ const DOWN = sqlStatements(join(CHECKS, '20261115000000_workspace_forms.down.sql
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_workspace_forms_loss = 'on'"
 // E06.01 builds on the candidatures: undone first, applied again last.
 const LATER_DOWN = [
-  // E08.06's notices reference E08.03's entries, which reference the candidatures through E06.03's
-  // unique index.
+  // E09.02's cards, E08.06's notices and E08.03's entries reference the candidatures through
+  // E06.03's unique index.
+  ...showcaseCardsDown(),
   ...committeeNoticesDown(),
   ...committeeApplicationsDown(),
   ...fundingPlanPledgesDown(),
