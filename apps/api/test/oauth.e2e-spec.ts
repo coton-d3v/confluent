@@ -260,6 +260,9 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'opportunities:write',
       'sharing:read',
       'sharing:write',
+      // E09.07: a request's cards on public pages; a workspace's page is its managers'.
+      'showcase:read',
+      'showcase:write',
     ])
     await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:write']).expect(400)
     await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:publish']).expect(400)
@@ -282,6 +285,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'opportunities:write',
       'sharing:read',
       'sharing:write',
+      'showcase:read',
+      'showcase:write',
     ])
     await decide(forAdmin, adminJwt, ['dossiers:read', 'forms:write', 'forms:publish']).expect(200)
     expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'forms:write', 'forms:publish']])
@@ -381,8 +386,10 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       // A manager designs the forms of their workspace: offered; presenting and sharing requests
       // are not (a financeur owns no company); reading and taking positions on opportunities are.
       // E08.07: reading committees and changing a request's entry (a conseiller), deciding
-      // participation requests (a manager).
+      // participation requests (a manager). E09.07: the workspace's public page and its access
+      // requests (a manager); no card (a financeur owns no request).
       expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
+        'access-requests:decide',
         'candidatures:decide',
         'candidatures:support',
         'committees:read',
@@ -395,6 +402,9 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'opportunities:read',
         'opportunities:write',
         'participation-requests:decide',
+        'public-page:publish',
+        'public-page:read',
+        'public-page:write',
       ])
 
       // A deactivated membership, a workspace one is not in, an unknown one: refused, nothing kept,
@@ -509,6 +519,12 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'committees:read',
         'committees:write',
         'participation-requests:decide',
+        'public-page:read',
+        'public-page:write',
+        'public-page:publish',
+        'access-requests:decide',
+        'showcase:read',
+        'showcase:write',
       ],
     })
   })
@@ -649,6 +665,47 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'committees:write',
       'participation-requests:decide',
       'committees:read committees:write participation-requests:decide',
+    ]) {
+      const widened = await refresh(
+        tokens.body.refresh_token,
+        `dossiers:read dossiers:write ${extra}`,
+      ).expect(400)
+      expect([extra, widened.body.error]).toEqual([extra, 'invalid_scope'])
+    }
+    const refreshed = await refresh(tokens.body.refresh_token).expect(200)
+    expect(refreshed.body.scope).toBe('dossiers:read dossiers:write')
+    const info = await app
+      .get(ConfluentOAuthProvider)
+      .verifyAccessToken(refreshed.body.access_token)
+    expect(info.scopes).toEqual(['dossiers:read', 'dossiers:write'])
+  })
+
+  // E09.07 (R52): the public page's and the cards' permissions are of their own. A connection
+  // authorized without them never obtains them by refreshing, alone or together.
+  it('a connection authorized before the E09.07 permissions cannot gain them by refreshing', async () => {
+    const clientId = await registerClient()
+    const { code, verifier } = await authorize(clientId)
+    const tokens = await exchange(clientId, code, verifier).expect(200)
+    expect(tokens.body.scope).toBe('dossiers:read dossiers:write')
+    const refresh = (refreshToken: string, scope?: string) =>
+      http()
+        .post('/token')
+        .type('form')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: refreshToken,
+          ...(scope ? { scope } : {}),
+        })
+    for (const extra of [
+      'public-page:read',
+      'public-page:write',
+      'public-page:publish',
+      'access-requests:decide',
+      'showcase:read',
+      'showcase:write',
+      'public-page:read public-page:write public-page:publish access-requests:decide ' +
+        'showcase:read showcase:write',
     ]) {
       const widened = await refresh(
         tokens.body.refresh_token,

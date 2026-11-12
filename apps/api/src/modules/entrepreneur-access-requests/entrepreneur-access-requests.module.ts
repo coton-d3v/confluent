@@ -19,5 +19,7 @@ import { EntrepreneurAccessRequestsService } from './entrepreneur-access-request
     EntrepreneurAccessDecisionsService,
     EntrepreneurAccessFormTokens,
   ],
+  // E09.07: the MCP tools of the workspace's managers.
+  exports: [EntrepreneurAccessRequestsService, EntrepreneurAccessDecisionsService],
 })
 export class EntrepreneurAccessRequestsModule {}

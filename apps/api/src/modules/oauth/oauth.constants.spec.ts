@@ -3,9 +3,16 @@ import { SUPPORTED_SCOPES, expandScopes, grantableScopes } from './oauth.constan
 const OPPORTUNITIES = ['opportunities:read', 'opportunities:write']
 const SHARING = ['sharing:read', 'sharing:write']
 const COMMITTEES = ['committees:read', 'committees:write']
+const PUBLIC_PAGE = [
+  'public-page:read',
+  'public-page:write',
+  'public-page:publish',
+  'access-requests:decide',
+]
+const SHOWCASE = ['showcase:read', 'showcase:write']
 
 // What an account may grant an application, whatever the client asks (E04.06, E05.10, E06.09,
-// E07.10, E08.07).
+// E07.10, E08.07, E09.07).
 describe('grantableScopes', () => {
   const all = SUPPORTED_SCOPES
 
@@ -19,14 +26,20 @@ describe('grantableScopes', () => {
       ...OPPORTUNITIES,
       ...SHARING,
       ...COMMITTEES,
+      ...SHOWCASE,
     ])
   })
 
   it('gives the form permissions to an administrator, or to whoever manages a workspace', () => {
-    // Deciding participation requests: managers only (an administrator member of no workspace
-    // manages none).
+    // Deciding participation requests, a public page: managers only (an administrator member of
+    // no workspace manages none).
     expect(grantableScopes(all, { role: 'admin' })).toEqual(
-      all.filter((s) => s !== 'candidatures:support' && s !== 'participation-requests:decide'),
+      all.filter(
+        (s) =>
+          s !== 'candidatures:support' &&
+          s !== 'participation-requests:decide' &&
+          !PUBLIC_PAGE.includes(s),
+      ),
     )
     expect(
       grantableScopes(
@@ -43,6 +56,7 @@ describe('grantableScopes', () => {
       ...OPPORTUNITIES,
       'committees:read',
       'participation-requests:decide',
+      ...PUBLIC_PAGE,
     ])
   })
 
@@ -89,6 +103,25 @@ describe('grantableScopes', () => {
     ])
   })
 
+  // E09.07: a workspace's public page to its managers only; a request's cards to whoever may own one.
+  it('gives the public page to managers only and the cards to whoever may own companies', () => {
+    for (const context of [
+      { managesWorkspace: false, reviewsCandidatures: true, memberOfWorkspace: true },
+      { managesWorkspace: false, memberOfWorkspace: true },
+    ]) {
+      const granted = grantableScopes(all, { role: 'financeur' }, context)
+      expect(granted.filter((s) => PUBLIC_PAGE.includes(s) || SHOWCASE.includes(s))).toEqual([])
+    }
+    expect(
+      grantableScopes(all, { role: 'financeur' }, { managesWorkspace: true }).filter((s) =>
+        SHOWCASE.includes(s),
+      ),
+    ).toEqual([])
+    expect(
+      grantableScopes(all, { role: 'entrepreneur' }).filter((s) => PUBLIC_PAGE.includes(s)),
+    ).toEqual([])
+  })
+
   it('never gives presenting, sharing, following, deciding, designing or committees to an account that may do none', () => {
     for (const role of ['financeur', 'unknown']) {
       expect(grantableScopes(all, { role })).toEqual([
@@ -117,6 +150,18 @@ describe('expandScopes', () => {
     expect([...expandScopes(['participation-requests:decide'])]).toEqual([
       'participation-requests:decide',
     ])
+    // E09.07: changing a page or a card reads it; publishing a page and deciding an access request
+    // read nothing by themselves, and nothing crosses between the managers' and the owner's side.
+    expect([...expandScopes(['public-page:write'])].sort()).toEqual([
+      'public-page:read',
+      'public-page:write',
+    ])
+    expect([...expandScopes(['showcase:write'])].sort()).toEqual([
+      'showcase:read',
+      'showcase:write',
+    ])
+    expect([...expandScopes(['public-page:publish'])]).toEqual(['public-page:publish'])
+    expect([...expandScopes(['access-requests:decide'])]).toEqual(['access-requests:decide'])
     expect([...expandScopes(['dossiers:write'])].sort()).toEqual([
       'dossiers:read',
       'dossiers:write',

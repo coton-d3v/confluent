@@ -44,7 +44,8 @@ export function workspaceInstructions(caller: McpCaller): string {
     'candidatures reçues (conseillers). Aucun outil n’invite, ne désactive un membre ni ne change ' +
     'des droits : cela se fait dans le site — seule l’acceptation d’une demande de participation ' +
     'par un gestionnaire (decide_participation_request), sur demande explicite, ajoute un ' +
-    'investisseur.'
+    'investisseur, et seule celle d’une demande d’accès (decide_entrepreneur_access_request) ' +
+    'crée un compte de porteur de projet.'
   )
 }
 
@@ -57,7 +58,8 @@ const workspaceRef = z
 // person allowed this connection to reach only, and by their role there (McpAccess then the
 // services' own rules: managing it, preparing companies, reviewing candidatures). Read only: no
 // tool invites or deactivates a member, nor changes anyone's rights (E04.09) — E08.07's acceptance
-// of a participation request (committee.tools.ts) is the one tool that adds an investor.
+// of a participation request (committee.tools.ts) is the one tool that adds an investor, E09.07's of
+// an access request (public-page.tools.ts) the one that creates an entrepreneur's account.
 @Injectable()
 export class WorkspaceTools {
   constructor(
