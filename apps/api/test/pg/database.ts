@@ -14,7 +14,18 @@ export function testDatabase(): PrismaService {
   if (!url) throw new Error('TEST_DATABASE_URL must point to a disposable, migrated database.')
   if (url === process.env.DATABASE_URL)
     throw new Error('TEST_DATABASE_URL must not be DATABASE_URL.')
-  return new PrismaClient({ datasources: { db: { url } } }) as unknown as PrismaService
+  return new PrismaClient({
+    datasources: { db: { url: withPool(url) } },
+  }) as unknown as PrismaService
+}
+
+// Prisma sizes its pool from the machine (2 × CPUs + 1 connections): the concurrency tests hold
+// more connections at once (a lock, the requests waiting for it, the query watching them) than a
+// 2-CPU CI runner allows. The same size everywhere, unless the URL sets one.
+const TEST_POOL_SIZE = 20
+function withPool(url: string): string {
+  if (/[?&]connection_limit=/.test(url)) return url
+  return `${url}${url.includes('?') ? '&' : '?'}connection_limit=${TEST_POOL_SIZE}`
 }
 
 // E08.06: the notices of committees' changes, their emails going nowhere — for the tests of other

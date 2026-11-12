@@ -5,7 +5,9 @@ import type { FieldType } from './questionnaire.schema.js'
 // Input limits of a field (ROADMAP E03.05), stored in `questionnaire_fields.constraints`. Which
 // limits apply depends on the field type; every limit is optional.
 
-const isoDate = z.string().refine(isCalendarDate, 'Date attendue au format AAAA-MM-JJ (date réelle).')
+const isoDate = z
+  .string()
+  .refine(isCalendarDate, 'Date attendue au format AAAA-MM-JJ (date réelle).')
 
 export const textConstraintsSchema = z
   .object({
@@ -51,7 +53,10 @@ const SCHEMA_BY_TYPE: Partial<Record<FieldType, z.ZodType>> = {
 }
 
 // Why `constraints` cannot apply to a field of `fieldType`, in French; null when they can.
-export function constraintsProblem(fieldType: FieldType, constraints: FieldConstraints): string | null {
+export function constraintsProblem(
+  fieldType: FieldType,
+  constraints: FieldConstraints,
+): string | null {
   const keys = Object.keys(constraints)
   if (keys.length === 0) return null
   const schema = SCHEMA_BY_TYPE[fieldType]

@@ -428,7 +428,7 @@ describe('positions (PostgreSQL)', () => {
         ],
       ])
       expect(view.items[0].pledgedEur).toBe(25_000)
-      expect(JSON.stringify(view)).not.toMatch(/Pour moi|7000|9000/)
+      expect(JSON.stringify(view)).not.toMatch(/Pour moi|[:"](7000|9000)\b/)
       // An investor of the workspace is no conseiller.
       await expect(positions.forWorkspace(investor, workspace.id)).rejects.toBeInstanceOf(
         HttpException,

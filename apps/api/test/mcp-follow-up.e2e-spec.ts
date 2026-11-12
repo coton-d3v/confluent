@@ -39,7 +39,7 @@ const VERSION = '7d3c1b0e-0000-4000-8000-0000000016f1'
 const CONFLUENT_FORM = '7d3c1b0e-0000-4000-8000-0000000016f2'
 const STRUCTURE = ['dossiers:read', 'candidatures:support', 'candidatures:decide']
 // What only the structure may ever read.
-const SECRET = 'Associés fragiles, à revoir — 8842'
+const SECRET = 'Associés fragiles, à revoir — QX8842'
 
 // ROADMAP E06.09 with the official MCP client on the stateful fake Prisma: the financing and
 // support follow-up of candidatures — financing status, plan, eligibilities, support path,
@@ -932,7 +932,7 @@ describe('MCP: financing and support follow-up of candidatures (e2e, E06.09)', (
     await call(jean, 'add_internal_note', { workspace: cci, candidature: toCci, body: SECRET })
     await jean.close()
 
-    const leaks = (value: unknown) => JSON.stringify(value).match(/8842|fragiles|internal_note/)
+    const leaks = (value: unknown) => JSON.stringify(value).match(/QX8842|fragiles|internal_note/)
     // The owner, with every permission and every tool of the candidature.
     const s = await client(
       await connect(SOPHIE, ['dossiers:write', 'dossiers:present', 'candidatures:decide']),
@@ -988,7 +988,7 @@ describe('MCP: financing and support follow-up of candidatures (e2e, E06.09)', (
       ),
     ).toEqual([])
     // The text of a note is journaled nowhere, not even with the call that wrote it.
-    expect(JSON.stringify([...fake.table('auditLog').values()])).not.toMatch(/8842|fragiles/)
+    expect(JSON.stringify([...fake.table('auditLog').values()])).not.toMatch(/QX8842|fragiles/)
   })
 
   it('refuses a decision whose request was copied from what the other party wrote, and journals it', async () => {

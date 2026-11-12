@@ -105,7 +105,7 @@ function substitute(raw: string, vars: Record<string, string>, htmlEscape: boole
     if (!(key in vars)) {
       throw new Error(`Missing email template variable: {{${key}}}`)
     }
-    const value = vars[key]!
+    const value = vars[key]
     return htmlEscape ? escapeHtml(value) : value
   })
 }

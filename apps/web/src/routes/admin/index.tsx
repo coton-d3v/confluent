@@ -7,7 +7,11 @@ import { useAsync } from '@/lib/useAsync'
 export default function AdminRoute() {
   const user = useCurrentUser()
   if (user.role !== 'admin') return <Navigate to="/dashboard" replace />
+  return <AdminPipeline />
+}
 
+// Its own component: the analytics are requested for an admin only, hooks in the same order.
+function AdminPipeline() {
   const { data, isLoading, error } = useAsync(() => getPlatformAnalytics(), [])
 
   return (

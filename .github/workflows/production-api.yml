@@ -13,7 +13,14 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # ROADMAP E10.01: no tag, release or image unless the commit passes the CI checks.
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release-and-publish:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write

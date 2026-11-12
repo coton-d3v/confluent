@@ -182,8 +182,7 @@ describe('template-renderer', () => {
         'magic-link',
         'fr',
         // intentionally missing magicLinkUrl
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        {} as any,
+        {} as { magicLinkUrl: string },
       )
     }
     expect(renderWithMissingVar).toThrow(/Missing email template variable: \{\{magicLinkUrl\}\}/)

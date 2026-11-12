@@ -32,7 +32,7 @@ const PEOPLE = [MARIE, JEAN, CLAIRE, PAUL, SOPHIE, MARC, BOB, ADMIN]
 const VERSION = '7d3c1b0e-0000-4000-8000-0000000014f1'
 const CONFLUENT_FORM = '7d3c1b0e-0000-4000-8000-0000000014f2'
 // What only the structure may ever read.
-const SECRET = 'Fondateur fragile, à revoir — 7319'
+const SECRET = 'Fondateur fragile, à revoir — QX7319'
 
 const valid = (v: unknown) =>
   expect(interventionJournalSchema.safeParse(v).error?.issues ?? []).toEqual([])
@@ -373,13 +373,13 @@ describe('Internal notes and journal of interventions (e2e)', () => {
     ]
     for (const read of reads) {
       const res = await read().expect(200)
-      expect(JSON.stringify(res.body)).not.toMatch(/7319|Fondateur fragile|candidature_note/)
+      expect(JSON.stringify(res.body)).not.toMatch(/QX7319|Fondateur fragile|candidature_note/)
     }
     // Confluent's administrators keep the trace — without the text.
     const adminLog = (await as(ADMIN).get(`/v1/admin/dossiers/${dossierId}/audit-log`).expect(200))
       .body as Array<{ actionType: string }>
     expect(adminLog.map((e) => e.actionType)).toContain('candidature_note_updated')
-    expect(JSON.stringify(adminLog)).not.toMatch(/7319|Fondateur fragile/)
+    expect(JSON.stringify(adminLog)).not.toMatch(/QX7319|Fondateur fragile/)
     // Nothing was written by the refused calls.
     expect([...fake.table('candidatureNote').values()]).toEqual([
       expect.objectContaining({ body: SECRET, version: 1 }),

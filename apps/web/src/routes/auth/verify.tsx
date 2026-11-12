@@ -11,7 +11,8 @@ type Status = 'pending' | 'error'
 export default function AuthVerifyRoute() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [status, setStatus] = useState<Status>('pending')
+  // A link without token is invalid from the first render.
+  const [status, setStatus] = useState<Status>(() => (params.get('token') ? 'pending' : 'error'))
   const started = useRef(false)
 
   useEffect(() => {
@@ -20,10 +21,7 @@ export default function AuthVerifyRoute() {
     started.current = true
 
     const token = params.get('token')
-    if (!token) {
-      setStatus('error')
-      return
-    }
+    if (!token) return
     void (async () => {
       try {
         const user = await verifyMagicLink(token)
