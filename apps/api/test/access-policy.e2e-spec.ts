@@ -956,6 +956,30 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     await recipientPage(link.token)
     const candidature = `/v1/candidatures/${dossier.candidatureId}`
     const received = `/v1/workspaces/${cci}/candidatures/${dossier.candidatureId}`
+    // E08.03: the request applied to a committee of the CCI, which retained it.
+    const committee = (
+      await as(ADMIN)
+        .post(`/v1/admin/workspaces/${cci}/committees`, {
+          name: 'COMITE-JUIN',
+          date: '2099-06-10',
+          time: '14:00',
+          timeZone: 'Europe/Paris',
+          meetingUrl: 'https://visio.example.org/COMITE-LIEN',
+          internalNotes: 'COMITE-NOTE-INTERNE',
+          sharedInfo: 'COMITE-INFO-DIFFUSEE',
+        })
+        .expect(201)
+    ).body
+    await sophie
+      .post(`${candidature}/committees/${committee.id}/application`, {
+        to: 'applied',
+        version: null,
+      })
+      .expect(200)
+    const applications = `/v1/workspaces/${cci}/committees/${committee.id}/applications`
+    await as(ADMIN)
+      .post(applications, { candidatureId: dossier.candidatureId, to: 'accepted', version: 1 })
+      .expect(200)
     const refused = [
       `/v1/dossiers/${dossier.id}/analytics`,
       `/v1/dossiers/${dossier.id}/audit-log`,
@@ -988,6 +1012,11 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       `${received}/support-path`,
       `${received}/interventions`,
       `/v1/workspaces/${cci}/portfolio`,
+      // E08.03: the committees, their requests, and the request's entries on them.
+      `${candidature}/committees`,
+      `/v1/workspaces/${cci}/committees`,
+      `/v1/workspaces/${cci}/committees/${committee.id}`,
+      applications,
     ]
     for (const reader of [BOB, IVY, EVE]) {
       for (const url of refused) {
@@ -995,6 +1024,36 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         expect([reader.email, url, [403, 404].includes(status)]).toEqual([reader.email, url, true])
       }
     }
+    // Nor change them; and nothing of the committee reaches what they read of the request (E07: « en
+    // comité » is not shared with investors).
+    for (const reader of [BOB, IVY, EVE]) {
+      const own = await as(reader).post(`${candidature}/committees/${committee.id}/application`, {
+        to: 'withdrawn',
+        version: 2,
+      })
+      const structure = await as(reader).post(applications, {
+        candidatureId: dossier.candidatureId,
+        to: 'withdrawn',
+        version: 2,
+      })
+      expect([reader.email, own.status, [403, 404].includes(structure.status)]).toEqual([
+        reader.email,
+        404,
+        true,
+      ])
+    }
+    for (const reader of [BOB, IVY]) {
+      const read = JSON.stringify([
+        (await as(reader).get(`/v1/opportunities/${dossier.id}`).expect(200)).body,
+        (await as(reader).get('/v1/opportunities').expect(200)).body,
+      ])
+      for (const trace of ['COMITE-', committee.id]) {
+        expect([reader.email, trace, read.includes(trace)]).toEqual([reader.email, trace, false])
+      }
+    }
+    expect(
+      fake.table('committeeApplication').get([...fake.table('committeeApplication').keys()][0]),
+    ).toMatchObject({ status: 'accepted', version: 2 })
     // A pool's investors read it as an opportunity only (MCP: E07.10), never as a shared request.
     for (const reader of [IVY, EVE]) {
       for (const url of ['', '/answers', '/documents']) {

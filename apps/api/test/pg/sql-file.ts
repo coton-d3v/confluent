@@ -259,3 +259,17 @@ export function committeeSharedInfoDown(): string[] {
 export function committeeSharedInfoUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261202000000_committee_shared_info/migration.sql'))
 }
+
+// The revert of E08.03 (requests' entries on committees), as the tests of earlier migrations that
+// drop what its table references (committees, candidatures, E06.03's unique index on candidatures)
+// run it before their own: it accepts that the entries are lost (SET LOCAL, test transactions only).
+export function committeeApplicationsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_committee_applications_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261203000000_committee_applications.down.sql')),
+  ]
+}
+
+export function committeeApplicationsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261203000000_committee_applications/migration.sql'))
+}

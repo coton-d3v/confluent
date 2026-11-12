@@ -49,7 +49,9 @@ const VIEW =
   'facultatifs ; `status` `planned` (programmé), `held` (tenu) ou `cancelled` (annulé) ; ' +
   '`internalNotes` : notes internes, lues par les seuls conseillers du workspace et jamais ' +
   'diffusées ; `sharedInfo` : informations destinées aux candidats et aux investisseurs du comité ' +
-  '(aucun d’eux ne lit encore les comités) ; `version` : à renvoyer pour modifier le comité.'
+  '(les porteurs les lisent depuis leur candidature, avec le lien une fois leur participation ' +
+  'retenue ; aucun investisseur ne lit encore les comités) ; `version` : à renvoyer pour modifier ' +
+  'le comité.'
 
 // The committees a workspace organises (ROADMAP E08.01), as those who follow its candidatures read
 // them. The workspace is checked before anything else (guard, `404` outside it), then the service

@@ -20,6 +20,7 @@ import { NO_PLEDGES } from '../../src/testing/no-pledges'
 import { testDatabase } from './database'
 import {
   candidatureNotesDown,
+  committeeApplicationsDown,
   eligibilitiesDown,
   fundingPlanPledgesDown,
   fundingPlansDown,
@@ -35,6 +36,8 @@ const DOWN = fundingPlansDown().slice(1)
 // E06.06's validations and E06.05's eligibilities use E06.03's unique index on candidatures: undone
 // first.
 const LATER_DOWN = [
+  // E08.03's entries reference the candidatures through E06.03's unique index.
+  ...committeeApplicationsDown(),
   ...fundingPlanPledgesDown(),
   ...poolPublicationsDown(),
   ...candidatureNotesDown(),

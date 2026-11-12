@@ -8,7 +8,7 @@ import {
 } from '../../src/modules/committees/committees.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { committeesDown, committeesUp } from './sql-file'
+import { committeeApplicationsDown, committeesDown, committeesUp } from './sql-file'
 
 const UP = committeesUp()
 // Without the acceptance: what an operator runs first.
@@ -16,6 +16,8 @@ const DOWN = committeesDown().slice(1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_committees_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_committees_loss = 'off'"
+// E08.03's entries reference the committees: undone first.
+const LATER_DOWN = committeeApplicationsDown()
 
 class RolledBack extends Error {}
 
@@ -53,7 +55,8 @@ async function fingerprint(tx: Tx): Promise<string> {
        'indexes', (SELECT json_agg(indexdef ORDER BY indexdef) FROM pg_indexes
          WHERE schemaname = current_schema() AND tablename = 'committees'),
        'actions', (SELECT json_agg(enumlabel ORDER BY enumsortorder) FROM pg_enum
-         WHERE enumtypid = 'audit_action'::regtype AND enumlabel LIKE 'committee_%'),
+         WHERE enumtypid = 'audit_action'::regtype
+         AND enumlabel IN ('committee_created', 'committee_updated', 'committee_status_changed')),
        'committees', (SELECT json_agg(to_jsonb(c) ORDER BY id) FROM committees c)
      )::text AS f`,
   )
@@ -132,7 +135,7 @@ describe('committees (PostgreSQL)', () => {
     it('adds the committees and nothing else; undone (refusing to lose a committee or its journal unless accepted), then applied again', async () => {
       const { workspaceId, managers } = await managedWorkspace()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(await rows(tx, `SELECT to_regclass('committees')::text AS t`)).toEqual([{ t: null }])
         const counts = `SELECT (SELECT count(*)::int FROM workspaces) AS workspaces,
                   (SELECT count(*)::int FROM workspace_memberships) AS memberships,
@@ -185,7 +188,7 @@ describe('committees (PostgreSQL)', () => {
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await managedWorkspace()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
