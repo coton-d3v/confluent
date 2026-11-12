@@ -26,7 +26,11 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import type { Response } from 'express'
-import { WORKSPACE_PAGE_LIMITS, updateWorkspacePageSchema } from '@confluent/shared'
+import {
+  PUBLIC_PAGE_BLOCKS,
+  WORKSPACE_PAGE_LIMITS,
+  updateWorkspacePageSchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Public } from '../../common/decorators/public.decorator'
@@ -64,14 +68,19 @@ export class PublicWorkspacePagesController {
   @ApiOperation({
     summary: 'Page publique d’un workspace',
     description:
-      'Seulement si ses gestionnaires l’ont publiée. `workspace` : slug, nom, programme, couleur, ' +
-      'présentation, critères, contact (textes simples, jamais du HTML) et `logoVersion` (`null` sans ' +
-      'logo ; l’image : `GET …/logo`) — jamais l’identifiant, les membres, l’email de contact des ' +
-      'membres ni aucun réglage interne. `committees` : les prochaines sessions ouvertes aux ' +
-      `demandes de participation (au plus ${WORKSPACE_PAGE_LIMITS.committees}), par nom, date, ` +
-      'heure et fuseau (`toPublicCommittee` : ni lieu, ni lien, ni informations diffusées, ni notes ' +
-      'internes). `receivesCandidatures` : un formulaire de candidature est publié (candidature ' +
-      'depuis un compte Confluent). `cards` : les cartes anonymes des demandes (E09.02). Jamais ' +
+      'Seulement si ses gestionnaires l’ont publiée. `blocks` : les blocs affichés, dans l’ordre ' +
+      'choisi par les gestionnaires (E09.04), parmi un catalogue fermé ' +
+      `(${PUBLIC_PAGE_BLOCKS.map((b) => `\`${b}\``).join(', ')}) et seulement s’ils ont quelque ` +
+      'chose à montrer ; un bloc non affiché ne transmet rien (texte `null`, liste vide, `false`). ' +
+      '`workspace` : slug, nom, programme, couleur, présentation, critères, contact (textes simples, ' +
+      'jamais du HTML) et `logoVersion` (`null` sans logo ; l’image : `GET …/logo`) — jamais ' +
+      'l’identifiant, les membres, l’email de contact des membres ni aucun réglage interne. ' +
+      '`committees` : les prochaines sessions ouvertes aux demandes de participation (au plus ' +
+      `${WORKSPACE_PAGE_LIMITS.committees}), par nom, date, heure et fuseau (\`toPublicCommittee\` : ` +
+      'ni lieu, ni lien, ni informations diffusées, ni notes internes). `receivesCandidatures` : un ' +
+      'formulaire de candidature est publié (candidature depuis un compte Confluent). ' +
+      '`receivesParticipationRequests` : des sessions sont ouvertes aux demandes de participation. ' +
+      '`cards` : les cartes anonymes des demandes (E09.02). Jamais ' +
       'mise en cache (`Cache-Control: no-store`, comme toute route `/v1/public`) : un retrait, une ' +
       `pause ou un masquage vaut dès la lecture suivante. Rate-limit ${WORKSPACE_PAGE_RATE_LIMITS.page} ` +
       'req/min/IP.',
@@ -128,8 +137,10 @@ export class WorkspacePageController {
   @ApiOperation({
     summary: 'Réglages de la page publique',
     description:
-      'Publiée ou non, critères, contact, `version` ; `preview` : ce que le public voit (ou verra une ' +
-      'fois la page publiée), construit comme la route publique. Gestionnaires et administrateurs.',
+      'Publiée ou non, critères, contact, `blocks` (affichés, dans l’ordre), `version` ; `preview` : ' +
+      'ce que le public voit (ou verra une fois la page publiée), construit comme la route publique ; ' +
+      '`content` : ce que chaque bloc peut montrer, pour prévisualiser d’autres réglages par la même ' +
+      'projection (`toPublicWorkspacePage`). Gestionnaires et administrateurs.',
   })
   @ApiOkResponse({ description: 'Réglages et aperçu.' })
   settings(
@@ -146,9 +157,11 @@ export class WorkspacePageController {
       '`published` (la page n’existe pour le public qu’une fois publiée : non publiée par défaut), ' +
       `\`criteria\` (≤ ${WORKSPACE_PAGE_LIMITS.criteria}) et \`contact\` ` +
       `(≤ ${WORKSPACE_PAGE_LIMITS.contact}) en texte simple sans balise — visibles par tous une ` +
-      'fois publiée : une adresse ou un numéro écrit dans le contact devient public —, tous ' +
-      'renvoyés avec la `version` lue. Mêmes valeurs : rien n’est écrit. Journal ' +
-      '`workspace_updated` (champs nommés, textes jamais copiés).',
+      'fois publiée : une adresse ou un numéro écrit dans le contact devient public —, `blocks` : ' +
+      'les blocs affichés dans leur ordre, chacun au plus une fois, parmi ' +
+      `${PUBLIC_PAGE_BLOCKS.length} (absent : inchangés), tous renvoyés avec la \`version\` lue. ` +
+      'Mêmes valeurs : rien n’est écrit. Journal `workspace_updated` (champs nommés, blocs avant et ' +
+      'après, textes jamais copiés).',
   })
   @ApiOkResponse({ description: 'Réglages enregistrés et aperçu.' })
   @ApiBadRequestResponse({ description: 'Réglage invalide.' })

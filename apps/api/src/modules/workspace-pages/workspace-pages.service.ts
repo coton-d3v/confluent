@@ -1,12 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { Prisma, Workspace } from '@prisma/client'
 import {
+  PUBLIC_PAGE_BLOCKS,
   WORKSPACE_LOGO_MAX_BYTES,
   WORKSPACE_PAGE_LIMITS,
+  readPublicPageBlocks,
   toPublicCommittee,
+  toPublicWorkspacePage,
   workspaceSlugSchema,
-  type PublicCard,
-  type PublicWorkspace,
+  type PublicPageBlock,
+  type PublicPageContent,
+  type PublicWorkspacePage,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
@@ -30,15 +34,25 @@ export interface WorkspacePageInput {
   published: boolean
   criteria: string | null
   contact: string | null
+  // Absent: kept as they are.
+  blocks?: PublicPageBlock[]
   version: number
 }
 
+// @confluent/shared `publicCommitteeSchema`, before its dates are sent.
+type PublicCommitteeView = Pick<
+  CommitteeView,
+  'id' | 'name' | 'date' | 'time' | 'timeZone' | 'startsAt'
+>
+
+// @confluent/shared `publicPageContentSchema`.
+export type PublicPageContentView = Omit<PublicPageContent, 'committees'> & {
+  committees: PublicCommitteeView[]
+}
+
 // @confluent/shared `publicWorkspacePageSchema`.
-export interface PublicWorkspacePageView {
-  workspace: PublicWorkspace
-  committees: Array<Pick<CommitteeView, 'id' | 'name' | 'date' | 'time' | 'timeZone' | 'startsAt'>>
-  receivesCandidatures: boolean
-  cards: PublicCard[]
+export type PublicWorkspacePageView = Omit<PublicWorkspacePage, 'committees'> & {
+  committees: PublicCommitteeView[]
 }
 
 // @confluent/shared `workspacePageSettingsSchema`.
@@ -46,8 +60,10 @@ export interface WorkspacePageSettingsView {
   published: boolean
   criteria: string | null
   contact: string | null
+  blocks: PublicPageBlock[]
   version: number
   preview: PublicWorkspacePageView
+  content: PublicPageContentView
 }
 
 const PAGE_FIELDS = {
@@ -65,12 +81,16 @@ const PAGE_FIELDS = {
 // address. An unknown slug and an unpublished page answer the same `404` (R66). Nothing of its
 // members, its internal settings or its committees' place, link, information or notes. E09.02: the
 // anonymous cards its candidates consented to show there (`ShowcaseCardsService.publicCards`).
+// E09.04: all of it in blocks its managers show or not, in their order, through one projection
+// (@confluent/shared `toPublicWorkspacePage`): a block not shown sends nothing, its data not even
+// read.
 //
 // Its managers (`canManageWorkspace`) read and write the page's settings — published or not,
-// criteria, contact — under the workspace's lock, the right read again after it (R53), from the
-// version they read (`409`, never reused: R63), journaled in the same transaction
+// criteria, contact, blocks — under the workspace's lock, the right read again after it (R53), from
+// the version they read (`409`, never reused: R63), journaled in the same transaction
 // (`workspace_updated`, fields named, texts never copied). They read what the public sees, or would
-// see once published, built by the same projection.
+// see once published, built by the same projection, and what every block may show (`content`) for
+// the site to preview settings not yet saved through that projection.
 @Injectable()
 export class WorkspacePagesService {
   private readonly logger = new Logger(WorkspacePagesService.name)
@@ -86,7 +106,9 @@ export class WorkspacePagesService {
   // ── The public ───────────────────────────────────────────────────────────────────────────────
 
   async publicPage(slug: string): Promise<PublicWorkspacePageView> {
-    return this.pageOf(await this.published(slug), Date.now())
+    const workspace = await this.published(slug)
+    const blocks = readPublicPageBlocks(workspace.publicPageBlocks)
+    return toPublicWorkspacePage(await this.contentOf(workspace, Date.now(), blocks), blocks)
   }
 
   // The logo of a published page, read from the private bucket by the API, its format recognised
@@ -127,9 +149,14 @@ export class WorkspacePagesService {
       if (current.publicPageVersion !== input.version) {
         throw WorkspacePageErrors.changed(current.publicPageVersion)
       }
-      const changes = (Object.keys(PAGE_FIELDS) as Array<keyof typeof PAGE_FIELDS>).filter(
-        (field) => input[field] !== current[PAGE_FIELDS[field]],
-      )
+      const changes: string[] = (Object.keys(PAGE_FIELDS) as Array<keyof typeof PAGE_FIELDS>)
+        .filter((field) => input[field] !== current[PAGE_FIELDS[field]])
+        .map((field) => PAGE_FIELDS[field])
+      // Compared with the blocks as read (closed): a value no longer known is not a difference.
+      const blocksBefore = readPublicPageBlocks(current.publicPageBlocks)
+      const blocksAfter = input.blocks ?? blocksBefore
+      const blocksChanged = blocksAfter.join() !== blocksBefore.join()
+      if (blocksChanged) changes.push('publicPageBlocks')
       if (changes.length === 0) return current
       const wasPublished = current.publicPagePublished
       const row = await tx.workspace.update({
@@ -138,6 +165,7 @@ export class WorkspacePagesService {
           publicPagePublished: input.published,
           publicCriteria: input.criteria,
           publicContact: input.contact,
+          ...(blocksChanged ? { publicPageBlocks: blocksAfter } : {}),
           publicPageVersion: current.publicPageVersion + 1,
         },
       })
@@ -147,13 +175,15 @@ export class WorkspacePagesService {
         metadata: {
           workspaceId,
           // Named like the other settings' changes; the texts are never copied.
-          changes: changes.map((field) => PAGE_FIELDS[field]),
+          changes,
           publicPageVersion: row.publicPageVersion,
-          ...(changes.includes('published')
+          ...(changes.includes('publicPagePublished')
             ? {
                 publicPagePublished: { from: wasPublished, to: row.publicPagePublished },
               }
             : {}),
+          // The blocks' names only, in their order.
+          ...(blocksChanged ? { publicPageBlocks: { from: blocksBefore, to: blocksAfter } } : {}),
         },
       })
       return row
@@ -171,11 +201,18 @@ export class WorkspacePagesService {
     return workspace
   }
 
-  private async pageOf(workspace: Workspace, now: number): Promise<PublicWorkspacePageView> {
+  // What the blocks may show, each by its closed projection; only what the blocks named need is read
+  // (the sessions serve both `committees` and `participate`).
+  private async contentOf(
+    workspace: Workspace,
+    now: number,
+    blocks: readonly PublicPageBlock[],
+  ): Promise<PublicPageContentView> {
+    const needs = (...names: PublicPageBlock[]) => names.some((name) => blocks.includes(name))
     const [committees, candidatureForm, cards] = await Promise.all([
-      offeredCommittees(this.prisma, workspace.id, now),
-      openCandidatureFormVersion(this.prisma, workspace.id),
-      this.cards.publicCards(workspace, now),
+      needs('committees', 'participate') ? offeredCommittees(this.prisma, workspace.id, now) : [],
+      needs('apply') ? openCandidatureFormVersion(this.prisma, workspace.id) : null,
+      needs('cards') ? this.cards.publicCards(workspace, now) : [],
     ])
     return {
       workspace: toPublicWorkspace(workspace),
@@ -188,12 +225,17 @@ export class WorkspacePagesService {
   }
 
   private async settingsOf(workspace: Workspace): Promise<WorkspacePageSettingsView> {
+    const blocks = readPublicPageBlocks(workspace.publicPageBlocks)
+    // Every block's content, for a preview of other blocks than those saved.
+    const content = await this.contentOf(workspace, Date.now(), PUBLIC_PAGE_BLOCKS)
     return {
       published: workspace.publicPagePublished,
       criteria: workspace.publicCriteria,
       contact: workspace.publicContact,
+      blocks,
       version: workspace.publicPageVersion,
-      preview: await this.pageOf(workspace, Date.now()),
+      preview: toPublicWorkspacePage(content, blocks),
+      content,
     }
   }
 

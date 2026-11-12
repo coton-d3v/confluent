@@ -28,6 +28,9 @@ export const WORKSPACE_COLUMN_AUDIENCE = {
   publicCriteria: 'public',
   publicContact: 'public',
   publicPageVersion: 'internal',
+  // E09.04: the managers' choice of blocks. The public reads the blocks shown, in their order, and
+  // what each shows (`toPublicWorkspacePage`), never this setting itself.
+  publicPageBlocks: 'internal',
 } as const satisfies Record<keyof Workspace, 'public' | 'internal'>
 
 // What the public reads of a workspace, copied field by field (@confluent/shared

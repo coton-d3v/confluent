@@ -19,6 +19,7 @@ const ROW: Workspace = {
   publicCriteria: 'Entreprises innovantes.',
   publicContact: 'Écrivez à vitrine@cci-touraine.fr.',
   publicPageVersion: 987654,
+  publicPageBlocks: ['contact', 'presentation'],
 }
 
 const scalarColumns = () =>

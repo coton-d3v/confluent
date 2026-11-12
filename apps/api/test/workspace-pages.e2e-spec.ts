@@ -5,6 +5,8 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import request from 'supertest'
 import type { App } from 'supertest/types'
 import {
+  DEFAULT_PUBLIC_PAGE_BLOCKS,
+  PUBLIC_PAGE_BLOCKS,
   PUBLIC_WORKSPACE_FIELDS,
   WORKSPACE_PAGE_LIMITS,
   publicWorkspacePageSchema,
@@ -214,6 +216,8 @@ describe('workspace public page (e2e)', () => {
         contact: PAGE.contact,
         logoVersion: null,
       },
+      // E09.04: by default every block, those with something to show, in E09.01's order.
+      blocks: ['presentation', 'criteria', 'committees', 'participate', 'contact'],
       committees: [
         {
           id: june.id,
@@ -225,6 +229,7 @@ describe('workspace public page (e2e)', () => {
         },
       ],
       receivesCandidatures: false,
+      receivesParticipationRequests: true,
       // E09.02: no owner consented to a card (test/showcase-cards.e2e-spec.ts).
       cards: [],
     })
@@ -426,6 +431,13 @@ describe('workspace public page (e2e)', () => {
       { ...PAGE, published: 'oui', version: 1 },
       { criteria: null, contact: null, version: 1 },
       { ...PAGE, version: 1, presentation: 'autre' },
+      // E09.04: a closed catalogue, each block at most once.
+      { ...PAGE, version: 1, blocks: ['presentation', 'texte-libre'] },
+      { ...PAGE, version: 1, blocks: ['contact', 'contact'] },
+      { ...PAGE, version: 1, blocks: [...PUBLIC_PAGE_BLOCKS, 'contact'] },
+      { ...PAGE, version: 1, blocks: 'contact' },
+      { ...PAGE, version: 1, blocks: null },
+      { ...PAGE, version: 1, blocks: [{ type: 'contact', enabled: true }] },
     ]) {
       const res = await write(body)
       expect([JSON.stringify(body).slice(0, 60), res.status]).toEqual([
@@ -437,6 +449,8 @@ describe('workspace public page (e2e)', () => {
       { publicPagePublished: true },
       { publicCriteria: 'x' },
       { published: true },
+      { publicPageBlocks: ['contact'] },
+      { blocks: ['contact'] },
     ]) {
       await call('patch', `/admin/workspaces/${cci}`, 'manager').send(body).expect(400)
     }
@@ -445,6 +459,7 @@ describe('workspace public page (e2e)', () => {
       publicCriteria: null,
       publicContact: null,
       publicPageVersion: 1,
+      publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
     })
     expect(journal()).toEqual([])
   })
@@ -462,7 +477,11 @@ describe('workspace public page (e2e)', () => {
     const notFound = (await readSettings(club, 'manager')).body
     for (const [as, workspaceId, status] of outside) {
       const read = await call('get', settingsPath(workspaceId), as)
-      const wrote = await call('put', settingsPath(workspaceId), as).send({ ...PAGE, version: 1 })
+      const wrote = await call('put', settingsPath(workspaceId), as).send({
+        ...PAGE,
+        blocks: ['contact'],
+        version: 1,
+      })
       // An invalid body changes nothing to the answer of whoever is outside the workspace.
       const invalid = await call('put', settingsPath(workspaceId), as).send({ nope: true })
       expect([as, workspaceId, read.status, wrote.status]).toEqual([
@@ -483,12 +502,132 @@ describe('workspace public page (e2e)', () => {
       (m) => m.userId === 'manager' && m.workspaceId === cci,
     )!
     membership.canManageWorkspace = false
-    await write({ ...PAGE, version: 1 }).expect(403)
+    await write({ ...PAGE, blocks: ['contact'], version: 1 }).expect(403)
     membership.canManageWorkspace = true
     membership.deactivatedAt = new Date()
-    await write({ ...PAGE, version: 1 }).expect(404)
-    expect(fake.table('workspace').get(cci)?.publicPageVersion).toBe(1)
+    await write({ ...PAGE, blocks: ['contact'], version: 1 }).expect(404)
+    expect(fake.table('workspace').get(cci)).toMatchObject({
+      publicPageVersion: 1,
+      publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
+    })
     expect(journal()).toEqual([])
+  })
+
+  it('lets the managers choose the blocks shown and their order: the public reads them so, nothing of the others, journaled without the texts', async () => {
+    const june = await plan({ participationRequestsOpen: true })
+    const form = await fake.prisma.questionnaire.create({
+      data: { workspaceId: cci, usage: 'candidature', name: 'Candidature CCI' },
+    })
+    await fake.prisma.questionnaireVersion.create({
+      data: { questionnaireId: form.id, version: 1, status: 'published' },
+    })
+    const first = await publish()
+    const all = (await visitor().page('cci-touraine').expect(200)).body
+    expect(all.blocks).toEqual([
+      'presentation',
+      'criteria',
+      'committees',
+      'apply',
+      'participate',
+      'contact',
+    ])
+    fake.table('auditLog').clear()
+
+    // Contact first, then the call to take part — without the sessions' list —, then criteria.
+    const chosen = ['contact', 'participate', 'criteria']
+    const saved = await write({ ...PAGE, blocks: chosen, version: first.version }).expect(200)
+    expect(workspacePageSettingsSchema.parse(saved.body)).toEqual(saved.body)
+    expect(saved.body).toMatchObject({ blocks: chosen, version: first.version + 1 })
+    const page = await visitor().page('cci-touraine').expect(200)
+    expect(publicWorkspacePageSchema.parse(page.body)).toEqual(page.body)
+    expect(page.body).toEqual({
+      workspace: {
+        slug: 'cci-touraine',
+        name: 'CCI Touraine',
+        programName: 'MoneyPlace',
+        color: '#1d4ed8',
+        presentation: null,
+        criteria: PAGE.criteria,
+        contact: PAGE.contact,
+        logoVersion: null,
+      },
+      blocks: chosen,
+      committees: [],
+      receivesCandidatures: false,
+      receivesParticipationRequests: true,
+      cards: [],
+    })
+    const text = JSON.stringify(page.body)
+    for (const hidden of [june.id, 'Comité de juin', 'accompagne', '2099-06-10']) {
+      expect([hidden, text.includes(hidden)]).toEqual([hidden, false])
+    }
+    // The preview is the public page, by the same projection; the content holds every block's.
+    expect(saved.body.preview).toEqual(page.body)
+    expect(saved.body.content).toMatchObject({
+      workspace: { presentation: 'La CCI accompagne les entreprises innovantes.' },
+      committees: [{ id: june.id }],
+      receivesCandidatures: true,
+    })
+
+    // Not named: kept as they are. The same blocks: nothing written.
+    const kept = await write({ ...PAGE, version: first.version + 1 }).expect(200)
+    expect(kept.body).toMatchObject({ blocks: chosen, version: first.version + 1 })
+    await write({ ...PAGE, blocks: chosen, version: first.version + 1 }).expect(200)
+
+    // None shown: the header alone.
+    const none = await write({ ...PAGE, blocks: [], version: first.version + 1 }).expect(200)
+    expect(none.body.version).toBe(first.version + 2)
+    const empty = (await visitor().page('cci-touraine').expect(200)).body
+    expect(empty).toMatchObject({
+      workspace: { name: 'CCI Touraine', presentation: null, criteria: null, contact: null },
+      blocks: [],
+      committees: [],
+      receivesCandidatures: false,
+      receivesParticipationRequests: false,
+      cards: [],
+    })
+
+    // From a stale version: refused, nothing written.
+    await write({ ...PAGE, blocks: chosen, version: first.version + 1 }).expect(409)
+    expect(fake.table('workspace').get(cci)!.publicPageBlocks).toEqual([])
+
+    const entries = journal()
+    expect(entries.map((e) => e.metadata)).toEqual([
+      {
+        workspaceId: cci,
+        changes: ['publicPageBlocks'],
+        publicPageVersion: first.version + 1,
+        publicPageBlocks: { from: [...DEFAULT_PUBLIC_PAGE_BLOCKS], to: chosen },
+      },
+      {
+        workspaceId: cci,
+        changes: ['publicPageBlocks'],
+        publicPageVersion: first.version + 2,
+        publicPageBlocks: { from: chosen, to: [] },
+      },
+    ])
+    expect(JSON.stringify(entries)).not.toMatch(/innovantes|vitrine@|juin/)
+  })
+
+  it('ignores at read a stored block no longer known, and a block stored twice', async () => {
+    const { version } = await publish()
+    fake.table('workspace').get(cci)!.publicPageBlocks = [
+      'texte-libre',
+      'contact',
+      'criteria',
+      'contact',
+    ]
+    const page = (await visitor().page('cci-touraine').expect(200)).body
+    expect(publicWorkspacePageSchema.parse(page)).toEqual(page)
+    expect(page.blocks).toEqual(['contact', 'criteria'])
+    expect(JSON.stringify(page)).not.toContain('texte-libre')
+    const settings = (await readSettings().expect(200)).body
+    expect(settings.blocks).toEqual(['contact', 'criteria'])
+    // The same blocks as read: nothing to write; others replace the stored list.
+    await write({ ...PAGE, blocks: ['contact', 'criteria'], version }).expect(200)
+    expect(fake.table('workspace').get(cci)!.publicPageVersion).toBe(version)
+    await write({ ...PAGE, blocks: ['criteria'], version }).expect(200)
+    expect(fake.table('workspace').get(cci)!.publicPageBlocks).toEqual(['criteria'])
   })
 
   it('limits the public routes per network address', async () => {
