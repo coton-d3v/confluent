@@ -2,6 +2,8 @@ import { interestIdentityLabel } from '@confluent/shared'
 import { formatAmount } from '@/features/dossiers/presentation'
 import { useAsync } from '@/lib/useAsync'
 import { getDossierPositions } from '../api'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`)
@@ -37,9 +39,10 @@ export function DossierPositionsSection({ dossierId }: { dossierId: string }) {
         {query.isLoading && !data ? (
           <p className="text-sm text-muted-foreground">Chargement…</p>
         ) : !data ? (
-          <p role="alert" className="text-sm text-destructive">
-            Impossible de charger les positionnements.
-          </p>
+          <LoadError
+            message={readFailure(query.error, 'Les positionnements n’ont pas pu être chargés.')}
+            onRetry={query.refetch}
+          />
         ) : data.interests.count === 0 && data.pledges.count === 0 ? (
           <p className="text-sm text-muted-foreground">
             Aucune marque d’intérêt ni promesse pour le moment.

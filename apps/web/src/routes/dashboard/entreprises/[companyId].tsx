@@ -16,6 +16,8 @@ import { createCompanyDossier, getCompany } from '@/features/companies/api'
 import { financingTypeLabels, formatAmount } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 // ROADMAP E05.07: a company and its financing requests. Its profile (answers) and its document
 // library are common to its requests: a new request presents them without entering them again.
@@ -28,11 +30,22 @@ export default function CompanyRoute() {
   if (query.isLoading) return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
   if (query.error || !query.data) {
     const notFound = (query.error as ApiError | undefined)?.status === 404 || !companyId
+    if (!notFound) {
+      return (
+        <section className="mx-auto max-w-md pt-16">
+          <title>Entreprise indisponible · Confluent</title>
+          <LoadError
+            message={readFailure(query.error, 'L’entreprise n’a pas pu être chargée.')}
+            onRetry={query.refetch}
+          />
+        </section>
+      )
+    }
     return (
       <section className="mx-auto max-w-md pt-16 text-center">
         <title>Entreprise introuvable · Confluent</title>
         <p className="text-sm text-muted-foreground">
-          {notFound ? 'Entreprise introuvable.' : 'Impossible de charger l’entreprise. Réessayez plus tard.'}
+          Entreprise introuvable.
         </p>
         <Link to="/dashboard" className="mt-4 inline-block text-sm underline hover:text-foreground">
           Retour à mes dossiers
@@ -48,7 +61,7 @@ function CompanyView({ company }: { company: Company }) {
   useEffect(() => headingRef.current?.focus(), [company.id])
   return (
     <div className="mx-auto max-w-[720px]">
-      <title>{company.name} · Confluent</title>
+      <title>{`${company.name} · Confluent`}</title>
       <nav aria-label="Fil d'Ariane" className="mb-4">
         <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <li>
@@ -163,7 +176,7 @@ function RequestCard({ dossier }: { dossier: CompanyDossier }) {
       className="flex min-h-11 flex-col gap-2 rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="min-w-0 break-words text-base font-medium text-foreground">{dossier.name}</h3>
+        <h3 className="min-w-0 wrap-anywhere text-base font-medium text-foreground">{dossier.name}</h3>
         <div className="flex flex-wrap gap-1.5">
           <Badge
             variant={status === 'published' ? 'default' : status === 'archived' ? 'outline' : 'secondary'}
@@ -174,7 +187,7 @@ function RequestCard({ dossier }: { dossier: CompanyDossier }) {
         </div>
       </div>
       {dossier.summary && (
-        <p className="line-clamp-2 break-words text-sm text-muted-foreground">{dossier.summary}</p>
+        <p className="line-clamp-2 wrap-anywhere text-sm text-muted-foreground">{dossier.summary}</p>
       )}
       {(amount || types.length > 0) && (
         <p className="text-xs text-muted-foreground">

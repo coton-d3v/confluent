@@ -8,6 +8,8 @@ import {
 } from '@/features/workspaces/components/WorkspacePageHeader'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { adminFailure } from '@/features/admin/failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 // Members of a workspace, for Confluent administrators and the workspace's managers (E05.02); the
 // API decides who may, at each request.
@@ -23,12 +25,18 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }) {
 
   if (error) {
     if (error.status === 403) return <WorkspaceNotManaged />
+    if (error.status === 404 || error.status === 400) {
+      return <p className="pt-8 text-sm text-destructive">Workspace introuvable.</p>
+    }
     return (
-      <p className="pt-8 text-sm text-destructive">
-        {error.status === 404 || error.status === 400
-          ? 'Workspace introuvable.'
-          : 'Impossible de charger les membres du workspace.'}
-      </p>
+      <LoadError
+        className="mt-8"
+        message={adminFailure(error, 'Les membres du workspace n’ont pas pu être chargés.')}
+        onRetry={() => {
+          workspace.refetch()
+          members.refetch()
+        }}
+      />
     )
   }
   if (!workspace.data || !members.data) {

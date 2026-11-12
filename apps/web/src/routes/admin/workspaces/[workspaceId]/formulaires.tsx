@@ -9,6 +9,8 @@ import {
 } from '@/features/workspaces/components/WorkspacePageHeader'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { adminFailure } from '@/features/admin/failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 // E05.09: a workspace's own forms — its complementary form for candidatures — for its managers and
 // Confluent's administrators; the API decides who may, at each request.
@@ -25,12 +27,15 @@ function WorkspaceForms({ workspaceId }: { workspaceId: string }) {
     if (workspace.error) {
       const status = (workspace.error as ApiError).status
       if (status === 403) return <WorkspaceNotManaged />
+      if (status === 404 || status === 400) {
+        return <p className="pt-8 text-sm text-destructive">Workspace introuvable.</p>
+      }
       return (
-        <p className="pt-8 text-sm text-destructive">
-          {status === 404 || status === 400
-            ? 'Workspace introuvable.'
-            : 'Impossible de charger le workspace.'}
-        </p>
+        <LoadError
+          className="mt-8"
+          message={adminFailure(workspace.error, 'Le workspace n’a pas pu être chargé.')}
+          onRetry={workspace.refetch}
+        />
       )
     }
     return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>

@@ -23,7 +23,7 @@ function TagBadge({ tag }: { tag: string | null }) {
   if (!style) return <span className="text-muted-foreground">{tag}</span>
   return (
     <span
-      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+      className="inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
       style={{ backgroundColor: style.bg, color: style.text }}
     >
       {style.label}
@@ -212,7 +212,7 @@ function AdminDossiersList() {
                   to={`/admin/dossiers/${encodeURIComponent(d.slug)}`}
                   className="group flex min-h-11 flex-1 flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-foreground/20 focus-visible:border-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 >
-                  <h2 className="min-w-0 break-words text-base font-medium text-foreground">
+                  <h2 className="min-w-0 wrap-anywhere text-base font-medium text-foreground">
                     {d.name}
                   </h2>
                   <p className="text-xs text-muted-foreground">

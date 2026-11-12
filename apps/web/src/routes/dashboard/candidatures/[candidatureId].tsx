@@ -33,6 +33,8 @@ import {
 import type { ApiError } from '@/lib/api-client'
 import { stripNonPrintable } from '@/lib/sanitize'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -74,14 +76,20 @@ function CandidaturePage({ candidatureId }: { candidatureId: string }) {
   if (!candidature) {
     if (query.error) {
       const status = (query.error as ApiError).status
+      const notFound = status === 404 || status === 400
       return (
         <div className="flex flex-col items-start gap-2 pt-8">
-          <title>Candidature introuvable · Confluent</title>
-          <p role="alert" className="text-sm text-foreground">
-            {status === 404 || status === 400
-              ? 'Cette candidature est introuvable, ou elle n’est pas la vôtre.'
-              : 'Impossible de charger la candidature. Réessayez plus tard.'}
-          </p>
+          <title>{notFound ? 'Candidature introuvable · Confluent' : 'Candidature indisponible · Confluent'}</title>
+          {notFound ? (
+            <p role="alert" className="text-sm text-foreground">
+              Cette candidature est introuvable, ou elle n’est pas la vôtre.
+            </p>
+          ) : (
+            <LoadError
+              message={readFailure(query.error, 'La candidature n’a pas pu être chargée.')}
+              onRetry={query.refetch}
+            />
+          )}
           <Link to="/dashboard" className="text-sm text-foreground underline underline-offset-4">
             Retour à mes dossiers
           </Link>

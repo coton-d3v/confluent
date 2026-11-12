@@ -78,7 +78,7 @@ function NotFound({ reference }: { reference: string }) {
   return (
     <section className="mx-auto max-w-md pt-16 text-center">
       <title>Dossier introuvable · Confluent</title>
-      <p className="text-sm break-words text-foreground">
+      <p className="text-sm wrap-anywhere text-foreground">
         Aucun dossier n’a le slug ni l’identifiant « {reference} ».
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -178,7 +178,7 @@ function AdminDossierDetailView({
 
   return (
     <div className="mx-auto max-w-[720px]">
-      <title>{dossierName} · Confluent</title>
+      <title>{`${dossierName} · Confluent`}</title>
 
       <nav aria-label="Fil d'Ariane" className="mb-4">
         <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -542,7 +542,7 @@ function AdminRequest({ detail }: { detail: AdminDossierDetail }) {
         ) : (
           <ul className="mt-1 list-disc pl-5 text-muted-foreground">
             {selected.map((d) => (
-              <li key={d.id} className="break-words">
+              <li key={d.id} className="wrap-anywhere">
                 {d.filename} — {d.how}
               </li>
             ))}

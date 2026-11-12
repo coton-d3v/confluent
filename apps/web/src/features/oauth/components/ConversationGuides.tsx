@@ -47,7 +47,7 @@ function GuideCard({ guide }: { guide: ConversationGuide }) {
         <div>
           <dt className="font-medium text-foreground">Dans ChatGPT ou un autre assistant</dt>
           <dd className="mt-1 flex items-center gap-2">
-            <code className="min-w-0 flex-1 rounded-md bg-muted px-3 py-2 text-sm break-words text-foreground">
+            <code className="min-w-0 flex-1 rounded-md bg-muted px-3 py-2 text-sm wrap-anywhere text-foreground">
               {guide.request}
             </code>
             <CopyButton text={guide.request} label={`Copier la demande « ${guide.title} »`} />

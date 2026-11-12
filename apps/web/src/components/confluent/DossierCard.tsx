@@ -49,22 +49,11 @@ export function DossierCard({
   const maturityLabel = maturity ?? 'À soumettre'
   const publicationLabel =
     publicationStatus === undefined ? null : DOSSIER_PUBLICATION_STATUS_LABELS[publicationStatus]
-  const ariaLabel = [
-    name,
-    companyName && `entreprise ${companyName}`,
-    inPreparation && 'préparée pour un entrepreneur',
-    publicationLabel && `demande ${publicationLabel.toLowerCase()}`,
-    `secteur ${sectorLabel}`,
-    `stade ${maturityLabel}`,
-    accessLabel,
-    `créé ${relativeCreatedAt}`,
-  ]
-    .filter(Boolean)
-    .join(', ')
   return (
+    // E10.07: no aria-label: the link is named by the text it shows, so that what is read and what
+    // a voice command names agree (WCAG 2.5.3).
     <Link
       to={`/dashboard/dossiers/view/${slug}`}
-      aria-label={ariaLabel}
       className={cn(
         'group flex min-h-11 flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors',
         'hover:border-foreground/20',
@@ -72,8 +61,8 @@ export function DossierCard({
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="min-w-0 break-words text-base font-medium text-foreground">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h3 className="min-w-0 wrap-anywhere text-base font-medium text-foreground">
           {name}
         </h3>
         <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -93,6 +82,7 @@ export function DossierCard({
             </Badge>
           )}
           <Badge variant="secondary" className="shrink-0">
+            <span className="sr-only">Stade : </span>
             {maturityLabel}
           </Badge>
         </div>

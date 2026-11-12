@@ -2,7 +2,7 @@ import type { ComponentPropsWithRef } from 'react'
 import { cn } from '@/lib/utils'
 
 const WIZARD_FIELD =
-  'w-full border-0 border-b border-border bg-transparent py-2 text-lg outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground focus-visible:border-foreground aria-[invalid=true]:border-destructive'
+  'w-full border-0 border-b border-input bg-transparent py-2 text-lg outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground focus:shadow-[0_1px_0_var(--foreground)] aria-[invalid=true]:border-destructive'
 
 export type WizardInputProps = Omit<ComponentPropsWithRef<'input'>, 'className'> & {
   className?: string

@@ -5,6 +5,8 @@ import { getSharePreview } from '@/features/shares/api'
 import { RecipientPreview } from '@/features/shares/components/RecipientPreview'
 import { PREVIEW_CANDIDATURE_PARAM } from '@/features/shares/preview'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -19,7 +21,13 @@ export default function DossierPreviewRoute() {
   const dossiers = useAsync(() => listDossiers(), [])
   if (dossiers.isLoading) return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
   if (dossiers.error) {
-    return <p className="pt-8 text-sm text-destructive">Impossible de charger vos dossiers.</p>
+    return (
+      <LoadError
+        className="mt-8"
+        message={readFailure(dossiers.error, 'Vos dossiers n’ont pas pu être chargés.')}
+        onRetry={dossiers.refetch}
+      />
+    )
   }
   const dossier = dossiers.data?.find((d) => d.slug === slug && d.userId === user.id)
   if (!dossier) {

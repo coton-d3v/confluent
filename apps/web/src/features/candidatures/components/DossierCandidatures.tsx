@@ -11,6 +11,8 @@ import { useAsync } from '@/lib/useAsync'
 import { createCandidature, listCandidatureWorkspaces, listDossierCandidatures } from '../api'
 import { FinancingStatusBadge } from './FinancingStatusPanel'
 import { PoolPublicationBadge } from './PoolPublicationPanel'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -72,9 +74,10 @@ export function DossierCandidatures({
       {candidatures.isLoading && !candidatures.data ? (
         <p className="text-sm text-muted-foreground">Chargement…</p>
       ) : candidatures.error ? (
-        <p role="alert" className="text-sm text-destructive">
-          Impossible de charger les candidatures. Réessayez plus tard.
-        </p>
+        <LoadError
+          message={readFailure(candidatures.error, 'Les candidatures n’ont pas pu être chargées.')}
+          onRetry={candidatures.refetch}
+        />
       ) : (candidatures.data ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Cette demande n’est présentée à aucune structure pour l’instant.
@@ -104,7 +107,7 @@ function CandidatureRow({ candidature }: { candidature: CandidatureSummary }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link
           to={`/dashboard/candidatures/${candidature.id}`}
-          className="min-w-0 break-words text-base font-medium text-foreground underline-offset-4 hover:underline"
+          className="min-w-0 wrap-anywhere text-base font-medium text-foreground underline-offset-4 hover:underline"
         >
           {workspace.name}
         </Link>
@@ -155,9 +158,10 @@ function PresentForm({ dossierId, taken }: { dossierId: string; taken: ReadonlyS
   if (workspaces.isLoading && !workspaces.data) return null
   if (workspaces.error) {
     return (
-      <p role="alert" className="text-sm text-destructive">
-        Impossible de charger les structures. Réessayez plus tard.
-      </p>
+      <LoadError
+        message={readFailure(workspaces.error, 'Les structures n’ont pas pu être chargées.')}
+        onRetry={workspaces.refetch}
+      />
     )
   }
   if (available.length === 0) {
@@ -191,7 +195,7 @@ function PresentForm({ dossierId, taken }: { dossierId: string; taken: ReadonlyS
         </NativeSelect>
       </div>
       {chosen?.presentation && (
-        <p className="whitespace-pre-line break-words text-sm text-muted-foreground">
+        <p className="whitespace-pre-line wrap-anywhere text-sm text-muted-foreground">
           {chosen.presentation}
         </p>
       )}

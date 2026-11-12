@@ -33,7 +33,7 @@ function AdminDossierPreview() {
     return (
       <section className="mx-auto max-w-md pt-16 text-center">
         <title>Dossier introuvable · Confluent</title>
-        <p className="text-sm break-words text-muted-foreground">
+        <p className="text-sm wrap-anywhere text-muted-foreground">
           Aucun dossier n’a le slug ni l’identifiant « {ref} ».
         </p>
         <Link to="/admin/dossiers" className="mt-4 inline-block text-sm underline">

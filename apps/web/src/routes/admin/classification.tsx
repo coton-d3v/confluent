@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import type { ClassificationDimensionKey, CoverageIssue } from '@confluent/shared'
 import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
+import { LoadError } from '@/components/confluent/LoadError'
 import { Button } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/current-user/context'
 import { createRule, deleteRule, updateRule } from '@/features/admin/classification.api'
+import { adminFailure } from '@/features/admin/failure'
 import { CoveragePanel } from '@/features/classification/components/CoveragePanel'
 import { DimensionSection, type RuleDraft } from '@/features/classification/components/DimensionSection'
 import { ReclassificationPanel } from '@/features/classification/components/ReclassificationPanel'
@@ -52,7 +54,11 @@ function ClassificationAdmin() {
 
       {!data || !labels ? (
         loadError ? (
-          <p className="mt-8 text-sm text-destructive">Impossible de charger la classification.</p>
+          <LoadError
+            className="mt-8"
+            message={adminFailure(loadError, 'La classification n’a pas pu être chargée.')}
+            onRetry={() => void refresh()}
+          />
         ) : (
           <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
         )

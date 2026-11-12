@@ -64,9 +64,11 @@
     --muted-foreground: #6B6B6B;
     --accent: #F1F0EE;
     --accent-foreground: #1A1A1A;
-    --destructive: #E57373;
+    /* E10.07: 6.5:1 on white (WCAG AA for error text); the former #E57373 read at 2.8:1. */
+    --destructive: #B91C1C;
     --border: #E8E8E7;
-    --input: #E8E8E7;
+    /* E10.07: a field's outline reads at 3:1 against the page (WCAG 1.4.11); #E8E8E7 read at 1.2:1. */
+    --input: #878785;
     --ring: #37352F;
     --chart-1: #37352F;
     --chart-2: #6B6B6B;
@@ -97,9 +99,26 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
+    /* E10.07: a long unbroken word (a name, an address, a link) wraps instead of widening the page
+       (reflow at 320 px, WCAG 1.4.10). */
+    overflow-wrap: anywhere;
   }
   html {
     font-family: var(--font-sans);
+  }
+  /* E10.07: a heading or region focused by the page (route change, skip link) is a starting point
+     for the keyboard and the screen reader, not a control: no focus ring. */
+  :is(h1, h2, h3, main)[tabindex="-1"]:focus {
+    outline: none;
+  }
+  /* E10.07: on a touch screen, the links of every breadcrumb trail are at least 24 px high (WCAG 2.2
+     target size), without making the trail as tall as a button. */
+  @media (pointer: coarse) {
+    nav[aria-label^="Fil d"] a {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+    }
   }
 }
 
