@@ -23,7 +23,7 @@ import { filenamesByField, useDossierDocuments } from '@/features/documents/useD
 import { MetricCard } from '@/components/confluent/MetricCard'
 import { RevokeAccessDialog } from '@/components/confluent/RevokeAccessDialog'
 import { SharePanel } from '@/components/confluent/SharePanel'
-import { getDossier, listDossiers, deleteDossier } from '@/features/dossiers/api'
+import { getDossier, getDossierBySlug, deleteDossier } from '@/features/dossiers/api'
 import { useDossierAnswers } from '@/features/dossiers/hooks'
 import { AnswerOrigin } from '@/features/questionnaire/components/AnswerProvenance'
 import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/provenance'
@@ -74,25 +74,26 @@ export default function DossierViewRoute() {
   return <DossierBySlug key={slug} slug={slug} />
 }
 
+// ROADMAP E10.08: found by its address (it read the whole list of the account's dossiers first).
 function DossierBySlug({ slug }: { slug: string }) {
   const currentUser = useCurrentUser()
-  const dossiersQuery = useAsync(() => listDossiers(), [])
-  const dossier = dossiersQuery.data?.find((d) => d.slug === slug)
+  const dossierQuery = useAsync(() => getDossierBySlug(slug), [slug])
+  const dossier = dossierQuery.data
 
-  if (dossiersQuery.isLoading) {
+  if (dossierQuery.isLoading) {
     return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
   }
-  if (dossiersQuery.error) {
+  if ((dossierQuery.error as ApiError | null)?.status === 404 || (!dossierQuery.error && !dossier)) {
+    return <NotFound />
+  }
+  if (dossierQuery.error || !dossier) {
     return (
       <LoadError
         className="mt-8"
-        message={readFailure(dossiersQuery.error, 'Ce dossier n’a pas pu être chargé.')}
-        onRetry={dossiersQuery.refetch}
+        message={readFailure(dossierQuery.error, 'Ce dossier n’a pas pu être chargé.')}
+        onRetry={dossierQuery.refetch}
       />
     )
-  }
-  if (!dossier) {
-    return <NotFound />
   }
   const isOwner = dossier.userId === currentUser.id
   const isDraft = !dossier.submittedAt

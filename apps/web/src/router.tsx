@@ -1,226 +1,188 @@
+import type { ComponentType } from 'react'
 import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom'
-import { AppShell } from '@/components/layout/AppShell'
-import DashboardRoute from '@/routes/dashboard'
-import TableauDeBordRoute from '@/routes/dashboard/tableau-de-bord'
-import ApplicationsRoute from '@/routes/dashboard/applications'
-import DossierNewRoute from '@/routes/dashboard/dossiers/nouveau'
-import QuestionnaireRoute from '@/routes/dashboard/dossiers/nouveau/questionnaire'
-import RecapitulatifRoute from '@/routes/dashboard/dossiers/nouveau/recapitulatif'
-import DossierViewRoute from '@/routes/dashboard/dossiers/[slug]'
-import DossierPreviewRoute from '@/routes/dashboard/dossiers/[slug]/apercu'
-import CompanyRoute from '@/routes/dashboard/entreprises/[companyId]'
-import CompanyOffersRoute from '@/routes/dashboard/propositions'
-import AdminRoute from '@/routes/admin'
-import AdminDossiersRoute from '@/routes/admin/dossiers'
-import AdminDossierDetailRoute from '@/routes/admin/dossiers/[slug]'
-import AdminDossierPreviewRoute from '@/routes/admin/dossiers/[slug]/apercu'
-import AdminFormsRoute from '@/routes/admin/formulaires'
-import AdminClassificationRoute from '@/routes/admin/classification'
-import AdminFormEditorRoute from '@/routes/admin/formulaires/[formId]'
-import AdminUtilisateursRoute from '@/routes/admin/utilisateurs'
-import AdminWorkspacesRoute from '@/routes/admin/workspaces'
-import AdminWorkspaceNewRoute from '@/routes/admin/workspaces/nouveau'
-import AdminWorkspaceRoute from '@/routes/admin/workspaces/[workspaceId]'
-import AdminWorkspaceMembersRoute from '@/routes/admin/workspaces/[workspaceId]/membres'
-import AdminWorkspaceFormsRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires'
-import AdminWorkspaceFormEditorRoute from '@/routes/admin/workspaces/[workspaceId]/formulaires/[formId]'
-import AdminWorkspaceSourcesRoute from '@/routes/admin/workspaces/[workspaceId]/sources'
-import AdminWorkspaceSchemesRoute from '@/routes/admin/workspaces/[workspaceId]/dispositifs'
-import AdminWorkspaceSupportPathRoute from '@/routes/admin/workspaces/[workspaceId]/parcours'
-import AdminWorkspacePublicPageRoute from '@/routes/admin/workspaces/[workspaceId]/page-publique'
-import AdminWorkspaceRequestsRoute from '@/routes/admin/workspaces/[workspaceId]/demandes'
-import MyWorkspacesRoute from '@/routes/workspaces'
-import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
-import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
-import WorkspaceCommitteesRoute from '@/routes/workspaces/[workspaceId]/comites'
-import NewCommitteeRoute from '@/routes/workspaces/[workspaceId]/comites/nouveau'
-import CommitteeRoute from '@/routes/workspaces/[workspaceId]/comites/[committeeId]'
-import OpportunitiesRoute from '@/routes/opportunites'
-import OpportunityRoute from '@/routes/opportunites/[dossierId]'
-import PositionsRoute from '@/routes/positionnements'
-import NotificationsRoute from '@/routes/notifications'
-import CandidatureRoute from '@/routes/dashboard/candidatures/[candidatureId]'
-import ShareRoute from '@/routes/share'
-import ShareDossierRoute from '@/routes/share/dossier'
-import AuthRoute from '@/routes/auth'
-import AuthVerifyRoute from '@/routes/auth/verify'
-import NotFoundRoute from '@/routes/not-found'
+import { PageLoading, RootLayout } from '@/components/layout/PageLoading'
 import { RouteError } from '@/routes/error'
-import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
-import ConfidentialiteRoute from '@/routes/legal/confidentialite'
-import OAuthConsentRoute from '@/routes/oauth/consent'
-import ParticipationRoute from '@/routes/w/participer'
-import EntrepreneurAccessRoute from '@/routes/w/candidater'
-import PublicWorkspaceRoute from '@/routes/w/[slug]'
+// Eager, like the error screens that show it.
+import NotFoundRoute from '@/routes/not-found'
+
+// ROADMAP E10.08: each page, and the signed-in shell, is a chunk of its own, loaded when first opened:
+// the public page and the sign-in page no longer download the whole application, nor anyone the
+// administration's screens and form editors before opening them. While a chunk loads, the page left
+// stays on screen with a loading indicator (RootLayout); the first load shows `PageLoading`. A chunk
+// that cannot be loaded (a former version's, after a deployment) reaches the error screens, which
+// reload once (E10.06) — they are never loaded on demand themselves.
+const page = (load: () => Promise<{ default: ComponentType }>): Pick<RouteObject, 'lazy'> => ({
+  lazy: async () => ({ Component: (await load()).default }),
+})
 
 // The pages inside the application's shell (signed in).
 const appPages: RouteObject[] = [
   { index: true, element: <Navigate to="/dashboard" replace /> },
-  { path: 'dashboard', element: <DashboardRoute /> },
-  { path: 'dashboard/tableau-de-bord', element: <TableauDeBordRoute /> },
-  { path: 'dashboard/applications', element: <ApplicationsRoute /> },
+  { path: 'dashboard', ...page(() => import('@/routes/dashboard')) },
+  { path: 'dashboard/tableau-de-bord', ...page(() => import('@/routes/dashboard/tableau-de-bord')) },
+  { path: 'dashboard/applications', ...page(() => import('@/routes/dashboard/applications')) },
   { path: 'dashboard/dossiers', element: <Navigate to="/dashboard" replace /> },
   {
     path: 'dashboard/dossiers/nouveau',
-    element: <DossierNewRoute />,
+    ...page(() => import('@/routes/dashboard/dossiers/nouveau')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/dossiers/nouveau/questionnaire',
-    element: <QuestionnaireRoute />,
+    ...page(() => import('@/routes/dashboard/dossiers/nouveau/questionnaire')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/dossiers/nouveau/recapitulatif',
-    element: <RecapitulatifRoute />,
+    ...page(() => import('@/routes/dashboard/dossiers/nouveau/recapitulatif')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/dossiers/view/:slug',
-    element: <DossierViewRoute />,
+    ...page(() => import('@/routes/dashboard/dossiers/[slug]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/dossiers/view/:slug/apercu',
-    element: <DossierPreviewRoute />,
+    ...page(() => import('@/routes/dashboard/dossiers/[slug]/apercu')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/entreprises/:companyId',
-    element: <CompanyRoute />,
+    ...page(() => import('@/routes/dashboard/entreprises/[companyId]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/propositions',
-    element: <CompanyOffersRoute />,
+    ...page(() => import('@/routes/dashboard/propositions')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'dashboard/candidatures/:candidatureId',
-    element: <CandidatureRoute />,
+    ...page(() => import('@/routes/dashboard/candidatures/[candidatureId]')),
     handle: { hideBreadcrumb: true },
   },
-  { path: 'admin', element: <AdminRoute /> },
-  { path: 'admin/dossiers', element: <AdminDossiersRoute /> },
+  { path: 'admin', ...page(() => import('@/routes/admin')) },
+  { path: 'admin/dossiers', ...page(() => import('@/routes/admin/dossiers')) },
   {
     path: 'admin/dossiers/:slug',
-    element: <AdminDossierDetailRoute />,
+    ...page(() => import('@/routes/admin/dossiers/[slug]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/dossiers/:slug/apercu',
-    element: <AdminDossierPreviewRoute />,
+    ...page(() => import('@/routes/admin/dossiers/[slug]/apercu')),
     handle: { hideBreadcrumb: true },
   },
-  { path: 'admin/formulaires', element: <AdminFormsRoute /> },
-  { path: 'admin/classification', element: <AdminClassificationRoute /> },
+  { path: 'admin/formulaires', ...page(() => import('@/routes/admin/formulaires')) },
+  { path: 'admin/classification', ...page(() => import('@/routes/admin/classification')) },
   {
     path: 'admin/formulaires/:formId',
-    element: <AdminFormEditorRoute />,
+    ...page(() => import('@/routes/admin/formulaires/[formId]')),
     handle: { hideBreadcrumb: true },
   },
   // Former single-questionnaire page, replaced by the form builder.
   { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
-  { path: 'admin/utilisateurs', element: <AdminUtilisateursRoute /> },
-  { path: 'admin/workspaces', element: <AdminWorkspacesRoute /> },
-  { path: 'admin/workspaces/nouveau', element: <AdminWorkspaceNewRoute /> },
+  { path: 'admin/utilisateurs', ...page(() => import('@/routes/admin/utilisateurs')) },
+  { path: 'admin/workspaces', ...page(() => import('@/routes/admin/workspaces')) },
+  { path: 'admin/workspaces/nouveau', ...page(() => import('@/routes/admin/workspaces/nouveau')) },
   {
     path: 'admin/workspaces/:workspaceId',
-    element: <AdminWorkspaceRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/membres',
-    element: <AdminWorkspaceMembersRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/membres')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/formulaires',
-    element: <AdminWorkspaceFormsRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/formulaires')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/formulaires/:formId',
-    element: <AdminWorkspaceFormEditorRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/formulaires/[formId]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/sources',
-    element: <AdminWorkspaceSourcesRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/sources')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/dispositifs',
-    element: <AdminWorkspaceSchemesRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/dispositifs')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/parcours',
-    element: <AdminWorkspaceSupportPathRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/parcours')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/page-publique',
-    element: <AdminWorkspacePublicPageRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/page-publique')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'admin/workspaces/:workspaceId/demandes',
-    element: <AdminWorkspaceRequestsRoute />,
+    ...page(() => import('@/routes/admin/workspaces/[workspaceId]/demandes')),
     handle: { hideBreadcrumb: true },
   },
-  { path: 'workspaces', element: <MyWorkspacesRoute /> },
+  { path: 'workspaces', ...page(() => import('@/routes/workspaces')) },
   {
     path: 'workspaces/:workspaceId',
-    element: <WorkspaceRoute />,
+    ...page(() => import('@/routes/workspaces/[workspaceId]')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'workspaces/:workspaceId/candidatures/:candidatureId',
-    element: <ReceivedCandidatureRoute />,
+    ...page(() => import('@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]')),
     handle: { hideBreadcrumb: true },
   },
   // E08.01: its committees.
   {
     path: 'workspaces/:workspaceId/comites',
-    element: <WorkspaceCommitteesRoute />,
+    ...page(() => import('@/routes/workspaces/[workspaceId]/comites')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'workspaces/:workspaceId/comites/nouveau',
-    element: <NewCommitteeRoute />,
+    ...page(() => import('@/routes/workspaces/[workspaceId]/comites/nouveau')),
     handle: { hideBreadcrumb: true },
   },
   {
     path: 'workspaces/:workspaceId/comites/:committeeId',
-    element: <CommitteeRoute />,
+    ...page(() => import('@/routes/workspaces/[workspaceId]/comites/[committeeId]')),
     handle: { hideBreadcrumb: true },
   },
-  { path: 'opportunites', element: <OpportunitiesRoute /> },
-  { path: 'positionnements', element: <PositionsRoute /> },
+  { path: 'opportunites', ...page(() => import('@/routes/opportunites')) },
+  { path: 'positionnements', ...page(() => import('@/routes/positionnements')) },
   // E10.03: the signed-in person's notifications.
-  { path: 'notifications', element: <NotificationsRoute /> },
+  { path: 'notifications', ...page(() => import('@/routes/notifications')) },
   {
     path: 'opportunites/:dossierId',
-    element: <OpportunityRoute />,
+    ...page(() => import('@/routes/opportunites/[dossierId]')),
     handle: { hideBreadcrumb: true },
   },
 ]
 
 // The pages on their own: share links, sign-in, legal pages, consent, workspaces' public pages.
 const standalonePages: RouteObject[] = [
-  { path: '/share/:token', element: <ShareRoute /> },
-  { path: '/share/:token/dossier', element: <ShareDossierRoute /> },
-  { path: '/auth', element: <AuthRoute /> },
-  { path: '/auth/verify', element: <AuthVerifyRoute /> },
-  { path: '/mentions-legales', element: <MentionsLegalesRoute /> },
-  { path: '/confidentialite', element: <ConfidentialiteRoute /> },
-  { path: '/oauth/consent', element: <OAuthConsentRoute /> },
+  { path: '/share/:token', ...page(() => import('@/routes/share')) },
+  { path: '/share/:token/dossier', ...page(() => import('@/routes/share/dossier')) },
+  { path: '/auth', ...page(() => import('@/routes/auth')) },
+  { path: '/auth/verify', ...page(() => import('@/routes/auth/verify')) },
+  { path: '/mentions-legales', ...page(() => import('@/routes/legal/mentions-legales')) },
+  { path: '/confidentialite', ...page(() => import('@/routes/legal/confidentialite')) },
+  { path: '/oauth/consent', ...page(() => import('@/routes/oauth/consent')) },
   // E08.04: a workspace's public participation form, signed in or not.
   // E09.01: a workspace's public page, once its managers published it.
-  { path: '/w/:slug', element: <PublicWorkspaceRoute /> },
-  { path: '/w/:slug/participer', element: <ParticipationRoute /> },
-  { path: '/w/:slug/candidater', element: <EntrepreneurAccessRoute /> },
+  { path: '/w/:slug', ...page(() => import('@/routes/w/[slug]')) },
+  { path: '/w/:slug/participer', ...page(() => import('@/routes/w/participer')) },
+  { path: '/w/:slug/candidater', ...page(() => import('@/routes/w/candidater')) },
 ]
 
 // ROADMAP E10.06: a page that fails to render shows an error screen — inside the shell for its pages
@@ -228,11 +190,13 @@ const standalonePages: RouteObject[] = [
 // page.
 export const router = createBrowserRouter([
   {
+    element: <RootLayout />,
+    hydrateFallbackElement: <PageLoading />,
     errorElement: <RouteError fullPage />,
     children: [
       {
         path: '/',
-        element: <AppShell />,
+        ...page(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell }))),
         children: [{ errorElement: <RouteError />, children: appPages }],
       },
       ...standalonePages,

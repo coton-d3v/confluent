@@ -34,6 +34,9 @@ jobs:
       # Also fails if index.html lost its `noindex` tag (vite.config.ts, E09.06).
       - name: Web build
         run: pnpm --filter @confluent/web build
+      # ROADMAP E10.08: what every visitor downloads before any page, and each chunk, within budget.
+      - name: Web bundle budget
+        run: pnpm --filter @confluent/web check:bundle
 
   api-unit:
     name: API unit tests

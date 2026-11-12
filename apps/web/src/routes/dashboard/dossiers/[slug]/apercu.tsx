@@ -1,6 +1,7 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useCurrentUser } from '@/features/current-user/context'
-import { listDossiers } from '@/features/dossiers/api'
+import { getDossierBySlug } from '@/features/dossiers/api'
+import type { ApiError } from '@/lib/api-client'
 import { getSharePreview } from '@/features/shares/api'
 import { RecipientPreview } from '@/features/shares/components/RecipientPreview'
 import { PREVIEW_CANDIDATURE_PARAM } from '@/features/shares/preview'
@@ -18,18 +19,20 @@ export default function DossierPreviewRoute() {
   const fromCandidature = searchParams.get(PREVIEW_CANDIDATURE_PARAM)
   const candidatureId = fromCandidature && UUID.test(fromCandidature) ? fromCandidature : null
   const user = useCurrentUser()
-  const dossiers = useAsync(() => listDossiers(), [])
-  if (dossiers.isLoading) return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
-  if (dossiers.error) {
+  // ROADMAP E10.08: found by its address, not in the list of the account's dossiers.
+  const found = useAsync(() => getDossierBySlug(slug ?? ''), [slug])
+  if (found.isLoading) return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
+  if (found.error && (found.error as ApiError).status !== 404) {
     return (
       <LoadError
         className="mt-8"
-        message={readFailure(dossiers.error, 'Vos dossiers n’ont pas pu être chargés.')}
-        onRetry={dossiers.refetch}
+        message={readFailure(found.error, 'Ce dossier n’a pas pu être chargé.')}
+        onRetry={found.refetch}
       />
     )
   }
-  const dossier = dossiers.data?.find((d) => d.slug === slug && d.userId === user.id)
+  // The owner's preview only: a dossier shared with the account is not theirs to preview.
+  const dossier = found.data?.userId === user.id ? found.data : undefined
   if (!dossier) {
     return (
       <section className="mx-auto max-w-md pt-16 text-center">

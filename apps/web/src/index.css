@@ -139,3 +139,13 @@
 @utility animate-slide-down-in {
   animation: confluent-slide-down-in 200ms ease-out;
 }
+
+/* ROADMAP E10.08: the bar of a page loading (components/layout/PageLoading.tsx). */
+@keyframes confluent-page-loading {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
+}
+
+@utility animate-page-loading {
+  animation: confluent-page-loading 1.2s ease-in-out infinite;
+}

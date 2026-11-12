@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getUnreadNotifications } from './api'
 
-// Read again every minute and whenever the page comes back to the foreground; a failure keeps the
-// last count known (the bell is a hint, the list is the reference).
+// Read again every minute while the page is in the foreground, and whenever it comes back to it; a
+// failure keeps the last count known (the bell is a hint, the list is the reference). ROADMAP E10.08:
+// a tab left in the background asks nothing (it asked every minute, all day long).
 const EVERY_MS = 60_000
 
 export function useUnreadCount(userId: string | null) {
@@ -23,7 +24,9 @@ export function useUnreadCount(userId: string | null) {
   useEffect(() => {
     if (!userId) return
     refresh()
-    const timer = window.setInterval(refresh, EVERY_MS)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') refresh()
+    }, EVERY_MS)
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh()
     }

@@ -29,9 +29,12 @@ export function uploadErrorMessage(err: unknown, filename: string): string {
       return e.message ?? `« ${filename} » n’a pas été enregistré.`
     case 413:
       return `« ${filename} » dépasse 20 Mo.`
+    // E10.08: 429, too many files being sent at once; 507, also the company's documents at their
+    // limit — the API says which.
     case 415:
     case 507:
     case 503:
+    case 429:
       return e.message ?? 'Le fichier n’a pas été enregistré.'
     case 403:
     case 404:

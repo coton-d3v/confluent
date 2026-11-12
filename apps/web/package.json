@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5173",
     "build": "tsc -b && vite build",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test:smoke": "playwright test",
