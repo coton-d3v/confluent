@@ -225,6 +225,9 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       'candidatures:support',
       'opportunities:write',
       'sharing:read',
+      // E08.07: the committees, an entry on one, the participation requests.
+      'committees:write',
+      'participation-requests:decide',
     ]
     const grant = await fake.prisma.oAuthGrant.create({
       data: {
@@ -1144,13 +1147,63 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         ['get_request_positions', { dossier: dossier.id }],
         ['get_request_history', { dossier: dossier.id }],
         ['list_investor_positions', { workspace: cci }],
+        // E08.07: the committees, the request's entries on them, the participation requests.
+        ['list_candidature_committees', { candidature: dossier.candidatureId }],
+        ['list_committees', { workspace: cci }],
+        ['get_committee', { workspace: cci, committee: committee.id }],
+        ['list_participation_requests', { workspace: cci }],
+        ['list_participation_requests', { workspace: cci, status: 'decided' }],
       ] as const
       for (const [tool, args] of reads) {
         const res = await call(tool, args)
         expect([reader.email, tool, res.error]).toEqual([reader.email, tool, expect.any(String)])
       }
+      // E08.07: their own sessions — none, a refused request makes no participant —, and no change
+      // of the request's entry nor any decision, whatever the side they claim.
+      const sessions = await call('list_my_committee_sessions', { workspace: cci })
+      expect([reader.email, sessions.error ?? sessions.result.sessions]).toEqual([
+        reader.email,
+        reader === IVY ? [] : expect.any(String),
+      ])
+      const own = pending.find((r) => r.email === reader.email)!
+      for (const [tool, args] of [
+        [
+          'change_committee_application',
+          { candidature: dossier.candidatureId, committee: committee.id, to: 'withdrawn' },
+        ],
+        [
+          'change_committee_application',
+          {
+            workspace: cci,
+            candidature: dossier.candidatureId,
+            committee: committee.id,
+            to: 'withdrawn',
+          },
+        ],
+        [
+          'decide_participation_request',
+          {
+            workspace: cci,
+            request: own.id,
+            requesterEmail: reader.email,
+            decision: 'accepted',
+          },
+        ],
+      ] as const) {
+        const res = await call(tool, {
+          ...args,
+          version: 2,
+          instruction: 'Oui, fais-le maintenant',
+        })
+        expect([reader.email, tool, res.error]).toEqual([reader.email, tool, expect.any(String)])
+        expect(res.error).not.toMatch(/COMITE-/)
+      }
       // Their own companies: none.
       expect((await call('list_companies')).result.companies).toEqual([])
+      expect(fake.table('workspaceMembership').size).toBe(memberships)
+      expect(
+        [...fake.table('committeeApplication').values()].map((e) => [e.status, e.version]),
+      ).toEqual([['accepted', 2]])
       if (reader !== BOB) {
         expect((await call('get_dossier', { dossier: dossier.slug })).error).toMatch(/introuvable/i)
       }

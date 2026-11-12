@@ -18,6 +18,7 @@ import {
 } from '@confluent/shared'
 import { Prisma, type Candidature, type Committee, type CommitteeApplication } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, channelMetadata, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { CandidaturesService, type CandidatureParty } from '../candidatures/candidatures.service'
 import { requestArchived } from '../dossiers/dossiers.service'
@@ -79,8 +80,11 @@ const COMMITTEE_ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as con
 //
 // The owner reads a committee only through `candidateCommitteeOf` — the shared view of E08.02,
 // never the internal notes, the link once accepted — and only the committees they may apply to or
-// have an entry on; investors, other workspaces and other entrepreneurs have no route here. No MCP
-// tool yet (E08.07).
+// have an entry on; investors, other workspaces and other entrepreneurs have no route here.
+//
+// E08.07: the MCP tools call the same two operations, with the request's `origin` — the channel,
+// the application and its authorization on the entry's journal, and the owner's own words
+// (`instruction`); never a conseiller's (`channelMetadata`, see the call's own entry).
 @Injectable()
 export class CommitteeApplicationsService {
   constructor(
@@ -116,10 +120,18 @@ export class CommitteeApplicationsService {
     candidatureId: string,
     committeeId: string,
     input: ChangeCommitteeApplicationInput,
+    origin?: ActionOrigin,
   ): Promise<CandidateCommitteeView[]> {
     const party: CandidatureParty = { side: 'owner', userId }
     await this.candidatures.reachAs(party, candidatureId)
-    await this.transition(party, candidatureId, committeeId, input, userId)
+    await this.transition(
+      party,
+      candidatureId,
+      committeeId,
+      input,
+      userId,
+      origin ? originMetadata(origin) : {},
+    )
     return this.listForOwner(userId, candidatureId)
   }
 
@@ -179,10 +191,18 @@ export class CommitteeApplicationsService {
     workspaceId: string,
     committeeId: string,
     input: ChangeCommitteeApplicationInput & { candidatureId: string },
+    origin?: ActionOrigin,
   ): Promise<CommitteeApplicationView[]> {
     const party: CandidatureParty = { side: 'workspace', actor, workspaceId }
     await this.candidatures.reachAs(party, input.candidatureId)
-    await this.transition(party, input.candidatureId, committeeId, input, actor.id)
+    await this.transition(
+      party,
+      input.candidatureId,
+      committeeId,
+      input,
+      actor.id,
+      origin ? channelMetadata(origin) : {},
+    )
     return this.listForCommittee(actor, workspaceId, committeeId)
   }
 
@@ -195,6 +215,7 @@ export class CommitteeApplicationsService {
     committeeId: string,
     input: ChangeCommitteeApplicationInput,
     actorId: string,
+    origin: Record<string, string>,
   ): Promise<CommitteeApplicationChange> {
     const by: CommitteeApplicationSide = party.side
     try {
@@ -245,6 +266,7 @@ export class CommitteeApplicationsService {
             from,
             to: input.to,
             by,
+            ...origin,
           },
         })
         return { application: saved, from, to: input.to, by }

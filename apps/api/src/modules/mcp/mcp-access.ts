@@ -134,6 +134,13 @@ const NOT_FOUND_HINTS: Record<string, string> = {
     'Opportunité introuvable, ou que vous ne lisez pas (ou plus) depuis cette application. ' +
     'Utilisez list_opportunities.',
   SHARE_LINK_NOT_FOUND: 'Accès introuvable pour cette demande. Utilisez list_request_shares.',
+  // E08.07: the same answer for an unknown committee, another workspace's and, for the owner of a
+  // request, one they do not see.
+  COMMITTEE_NOT_FOUND:
+    'Comité introuvable dans ce workspace, ou que vous ne voyez pas. Utilisez list_committees ' +
+    '(conseillers) ou list_candidature_committees (porteur).',
+  PARTICIPATION_REQUEST_NOT_FOUND:
+    'Demande de participation introuvable dans ce workspace. Utilisez list_participation_requests.',
 }
 
 // Runs a service operation and passes its refusal on to the assistant as the site shows it (the
