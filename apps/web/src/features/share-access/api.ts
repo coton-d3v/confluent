@@ -2,8 +2,9 @@ import type { FinanceurShareResponse } from '@confluent/shared'
 import { getAuthState, sessionGeneration } from '@/features/auth/auth-store'
 import { apiRequest, publicApiRequest, type ApiError } from '@/lib/api-client'
 
-// Each reading of a share is recorded as a view (`share_link_viewed`): identical requests in flight
-// at the same time — React StrictMode mounts effects twice — share one call (code review R04).
+// Each reading of a share opens or resumes a consultation (E07.08: the API counts loads within 30
+// minutes as one): identical requests in flight at the same time — React StrictMode mounts effects
+// twice — still share one call (code review R04).
 // Only within one session (code review R47): a read started for account A is never handed to B, nor
 // to a later sign-in, which must each be checked by the API for themselves.
 const inFlight = new Map<string, Promise<FinanceurShareResponse>>()

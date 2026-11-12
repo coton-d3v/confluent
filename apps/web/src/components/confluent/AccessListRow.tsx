@@ -63,97 +63,115 @@ export function AccessListRow({
   return (
     <li
       className={cn(
-        'flex flex-col gap-3 px-4 py-3 not-[:first-child]:border-t not-[:first-child]:border-border sm:flex-row sm:items-center sm:justify-between',
+        'flex flex-col gap-2 px-4 py-3 not-[:first-child]:border-t not-[:first-child]:border-border',
         className,
       )}
     >
-      <div
-        className={cn(
-          'flex min-w-0 items-center gap-3',
-          isRevoked && 'opacity-[0.55]',
-        )}
-      >
-        <Avatar role="img" aria-label={entry.email}>
-          <AvatarFallback>{entry.initials}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p
-            className="truncate text-sm font-medium text-foreground"
-            title={entry.email}
-          >
-            {entry.email}
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {entry.lastSeen}
-          </p>
-        </div>
-        {isRevoked || !onLevelChange ? (
-          <AccessLevelBadge level={entry.accessLevel} />
-        ) : (
-          <NativeSelect
-            aria-label={`Niveau d'accès de ${entry.email}`}
-            value={entry.accessLevel}
-            disabled={levelChanging}
-            onChange={(e) => onLevelChange(entry, e.target.value as AccessLevel)}
-            className="h-9 w-auto shrink-0"
-          >
-            {ACCESS_LEVELS.map((level) => (
-              <option key={level} value={level}>
-                {ACCESS_LEVEL_LABELS[level]}
-              </option>
-            ))}
-          </NativeSelect>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
-        <span
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div
           className={cn(
-            'text-[22px] tabular-nums',
-            isPending
-              ? 'font-normal text-muted-foreground'
-              : 'font-bold text-foreground',
+            'flex min-w-0 items-center gap-3',
             isRevoked && 'opacity-[0.55]',
           )}
         >
-          {entry.sessionDuration}
-        </span>
-        <StatusDot status={entry.status} />
-        {previewHref && !isRevoked && (
-          <Link
-            to={previewHref}
-            aria-label={`Voir comme ${entry.email}`}
-            className="inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
-          >
-            Voir comme ce destinataire
-          </Link>
-        )}
-        {entry.status === 'revoked' ? (
-          <Tooltip>
-            <TooltipTrigger
-              className="cursor-help rounded-sm text-xs text-muted-foreground opacity-[0.55] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] focus-visible:opacity-100"
-              render={<span tabIndex={0} />}
+          <Avatar role="img" aria-label={entry.email}>
+            <AvatarFallback>{entry.initials}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p
+              className="truncate text-sm font-medium text-foreground"
+              title={entry.email}
             >
-              Révoqué le {entry.revokedAt}
-              {entry.revokedBy !== '—' && ` par ${entry.revokedBy}`}
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>à {formatRevokedTime(entry.revokedAtIso)}</p>
-            </TooltipContent>
-          </Tooltip>
-        ) : onRevokeClick ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label={`Révoquer l'accès de ${entry.email}`}
-            onClick={() => onRevokeClick(entry)}
-            className="min-h-11 border-border hover:border-destructive hover:bg-transparent hover:text-destructive"
+              {entry.email}
+            </p>
+            <p className="text-xs text-muted-foreground wrap-anywhere">
+              {entry.lastSeen}
+            </p>
+          </div>
+          {isRevoked || !onLevelChange ? (
+            <AccessLevelBadge level={entry.accessLevel} />
+          ) : (
+            <NativeSelect
+              aria-label={`Niveau d'accès de ${entry.email}`}
+              value={entry.accessLevel}
+              disabled={levelChanging}
+              onChange={(e) => onLevelChange(entry, e.target.value as AccessLevel)}
+              className="h-9 w-auto shrink-0"
+            >
+              {ACCESS_LEVELS.map((level) => (
+                <option key={level} value={level}>
+                  {ACCESS_LEVEL_LABELS[level]}
+                </option>
+              ))}
+            </NativeSelect>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
+          <span
+            className={cn(
+              'text-[22px] tabular-nums',
+              isPending
+                ? 'font-normal text-muted-foreground'
+                : 'font-bold text-foreground',
+              isRevoked && 'opacity-[0.55]',
+            )}
           >
-            Révoquer
-          </Button>
-        ) : null}
+            <span className="sr-only">Temps actif : </span>
+            {entry.sessionDuration}
+          </span>
+          <StatusDot status={entry.status} />
+          {previewHref && !isRevoked && (
+            <Link
+              to={previewHref}
+              aria-label={`Voir comme ${entry.email}`}
+              className="inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+            >
+              Voir comme ce destinataire
+            </Link>
+          )}
+          {entry.status === 'revoked' ? (
+            <Tooltip>
+              <TooltipTrigger
+                className="cursor-help rounded-sm text-xs text-muted-foreground opacity-[0.55] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] focus-visible:opacity-100"
+                render={<span tabIndex={0} />}
+              >
+                Révoqué le {entry.revokedAt}
+                {entry.revokedBy !== '—' && ` par ${entry.revokedBy}`}
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>à {formatRevokedTime(entry.revokedAtIso)}</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : onRevokeClick ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={`Révoquer l'accès de ${entry.email}`}
+              onClick={() => onRevokeClick(entry)}
+              className="min-h-11 border-border hover:border-destructive hover:bg-transparent hover:text-destructive"
+            >
+              Révoquer
+            </Button>
+          ) : null}
+        </div>
       </div>
+      {entry.consultations && entry.consultations.length > 0 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm py-3 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">
+            Détail des consultations
+            {entry.firstSeen && ` · première le ${entry.firstSeen}`}
+          </summary>
+          <ul role="list" className="mt-1 flex flex-col gap-1 pl-4">
+            {entry.consultations.map((c) => (
+              <li key={c.key} className="wrap-anywhere">
+                {c.label}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </li>
   )
 }

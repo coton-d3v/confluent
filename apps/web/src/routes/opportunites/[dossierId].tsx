@@ -6,6 +6,7 @@ import { PledgePanel } from '@/features/pledges/components/PledgePanel'
 import { StructureDisclosurePanel } from '@/features/positions/components/StructureDisclosurePanel'
 import { sourceLabel } from '@/features/opportunities/presentation'
 import { RecipientDossierView } from '@/features/share-access/components/RecipientDossierView'
+import { useReadingTracker } from '@/features/reading/useReadingTracker'
 import { useAsync } from '@/lib/useAsync'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
@@ -20,6 +21,9 @@ export default function OpportunityRoute() {
   const query = useAsync(() => getOpportunity(dossierId), [dossierId])
   const data = query.data
   const status = (query.error as { status?: number } | null)?.status
+  // E07.08: measured only through a direct share (`reading` null otherwise).
+  useReadingTracker(data?.opportunity.reading?.id)
+  const throughShare = data?.opportunity.sources.some((s) => s.kind === 'share') ?? false
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
@@ -105,6 +109,11 @@ export default function OpportunityRoute() {
                 {ACCESS_LEVEL_LABELS[data.opportunity.accessLevel].toLowerCase()}.
               </p>
             )}
+            <p className="text-xs text-muted-foreground">
+              {throughShare
+                ? 'Le porteur voit vos consultations de cette demande comme celles de son partage avec vous : leur nombre, leurs dates et le temps pendant lequel la page est affichée au premier plan et utilisée — une mesure approximative, pas une appréciation de votre intérêt.'
+                : 'Vos lectures par le vivier ne sont ni chronométrées ni montrées au porteur, pas même en nombre.'}
+            </p>
           </section>
         </>
       )}

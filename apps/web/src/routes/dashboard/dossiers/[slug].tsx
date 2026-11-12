@@ -28,6 +28,7 @@ import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/pro
 import { listShares, createShare, revokeShare, changeShareLevel } from '@/features/shares/api'
 import { previewHref } from '@/features/shares/preview'
 import { getAnalytics } from '@/features/analytics/api'
+import { formatActiveTime } from '@/features/analytics/format'
 import { buildAccessEntries } from '@/features/shares/build-access-entries'
 import type { AccessEntry, AccessLevel } from '@/features/shares/access-entry'
 import { useAsync } from '@/lib/useAsync'
@@ -59,13 +60,6 @@ const TAB_VALUES = {
 } as const
 
 type TabValue = (typeof TAB_VALUES)[keyof typeof TAB_VALUES]
-
-function formatDuration(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds)) return '—'
-  const min = Math.floor(seconds / 60)
-  const sec = Math.floor(seconds % 60)
-  return `${min}m ${sec.toString().padStart(2, '0')}s`
-}
 
 export default function DossierViewRoute() {
   const { slug } = useParams<{ slug: string }>()
@@ -556,16 +550,51 @@ function DossierView({
               value={(analyticsQuery.data?.activeRecipients ?? 0).toString()}
             />
             <MetricCard
-              label="Vues totales"
+              label="Consultations"
               value={(analyticsQuery.data?.totalViews ?? 0).toString()}
+              subLabel="Par vos liens nominatifs"
             />
             <MetricCard
-              label="Durée moy. de session"
-              value={formatDuration(
-                analyticsQuery.data?.avgSessionDurationSeconds ?? null,
-              )}
+              label="Temps actif moyen"
+              value={formatActiveTime(analyticsQuery.data?.avgSessionDurationSeconds)}
+              subLabel={
+                analyticsQuery.data?.totalActiveSeconds == null
+                  ? 'Aucune consultation mesurée'
+                  : `Par consultation · ${formatActiveTime(analyticsQuery.data.totalActiveSeconds)} au total`
+              }
             />
           </div>
+          {/* E07.08: what the measures count, and what they do not tell. */}
+          <section
+            aria-labelledby="measures-heading"
+            className="mt-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+          >
+            <h2 id="measures-heading" className="font-medium">
+              Comment lire ces mesures
+            </h2>
+            <ul role="list" className="mt-2 flex list-disc flex-col gap-1 pl-5 text-muted-foreground">
+              <li>
+                Une consultation regroupe les ouvertures d’un même destinataire à moins de
+                30 minutes d’intervalle : un rechargement, une reconnexion ou un second onglet ne
+                comptent qu’une fois.
+              </li>
+              <li>
+                Le temps actif ne compte que les moments où la page est affichée au premier plan et
+                où le destinataire s’en sert (défilement, clic, clavier) depuis moins d’une minute.
+                Les consultations antérieures à cette mesure n’ont pas de durée.
+              </li>
+              <li>
+                C’est une mesure de présence, pas d’intérêt : une lecture rapide, un document
+                imprimé ou transmis, une page laissée ouverte pendant une autre tâche la faussent.
+                Fiez-vous plutôt aux marques d’intérêt et aux promesses.
+              </li>
+              <li>
+                Seules les lectures par vos liens nominatifs sont comptées : celles des
+                investisseurs d’un vivier ne vous sont pas montrées, même en nombre, faute de leur
+                consentement.
+              </li>
+            </ul>
+          </section>
 
           {/* E07.07: the marks of interest (E07.05) and pledges (E07.06), in one view. */}
           {isOwner && <DossierPositionsSection dossierId={dossierId} />}

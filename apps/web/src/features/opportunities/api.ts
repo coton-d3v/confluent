@@ -12,9 +12,9 @@ export function listOpportunities(query: OpportunitiesQuery = {}): Promise<Oppor
   return apiRequest<Opportunities>(`/v1/opportunities${search ? `?${search}` : ''}`)
 }
 
-// Each reading of an opportunity is journaled once (`opportunity_viewed`): identical requests in
-// flight at the same time — React StrictMode mounts effects twice — share one call, within one
-// session only (as for a share, code review R04/R47).
+// Each reading of an opportunity opens or resumes a consultation (E07.08: the API counts loads within
+// 30 minutes as one): identical requests in flight at the same time — React StrictMode mounts effects
+// twice — still share one call, within one session only (as for a share, code review R04/R47).
 const inFlight = new Map<string, Promise<Opportunity>>()
 
 export function getOpportunity(dossierId: string): Promise<Opportunity> {
