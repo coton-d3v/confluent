@@ -6,6 +6,8 @@ import { buttonVariants } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/current-user/context'
 import { listWorkspaces } from '@/features/admin/workspaces.api'
 import { useAsync } from '@/lib/useAsync'
+import { LoadError } from '@/components/confluent/LoadError'
+import { adminFailure } from '@/features/admin/failure'
 
 export default function AdminWorkspacesRoute() {
   const me = useCurrentUser()
@@ -45,7 +47,11 @@ function AdminWorkspacesList() {
       {workspaces.isLoading && !workspaces.data ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : workspaces.error ? (
-        <p className="mt-8 text-sm text-destructive">Impossible de charger les workspaces.</p>
+        <LoadError
+          className="mt-8"
+          message={adminFailure(workspaces.error, 'Les workspaces n’ont pas pu être chargés.')}
+          onRetry={workspaces.refetch}
+        />
       ) : workspaces.data?.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">Aucun workspace pour l’instant.</p>
       ) : (

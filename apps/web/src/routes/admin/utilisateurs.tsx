@@ -38,6 +38,8 @@ import {
   reactivateUser,
 } from '@/features/admin/users.api'
 import { useAsync } from '@/lib/useAsync'
+import { LoadError } from '@/components/confluent/LoadError'
+import { adminFailure } from '@/features/admin/failure'
 import type { ApiError } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 
@@ -117,8 +119,7 @@ function AdminUtilisateursList() {
       toast.success('Compte désactivé.')
       usersQuery.refetch()
     } catch (err) {
-      const apiErr = err as ApiError
-      toast.error(apiErr?.message ?? 'Désactivation impossible.')
+      toast.error(adminFailure(err, 'Le compte n’a pas été désactivé.'))
     }
     setDeactivateTarget(null)
   }
@@ -129,8 +130,7 @@ function AdminUtilisateursList() {
       toast.success('Compte réactivé.')
       usersQuery.refetch()
     } catch (err) {
-      const apiErr = err as ApiError
-      toast.error(apiErr?.message ?? 'Réactivation impossible.')
+      toast.error(adminFailure(err, 'Le compte n’a pas été réactivé.'))
     }
   }
 
@@ -163,9 +163,11 @@ function AdminUtilisateursList() {
         {usersQuery.isLoading ? (
           <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
         ) : usersQuery.error ? (
-          <p className="mt-8 text-sm text-destructive">
-            Impossible de charger les utilisateurs.
-          </p>
+          <LoadError
+            className="mt-8"
+            message={adminFailure(usersQuery.error, 'Les utilisateurs n’ont pas pu être chargés.')}
+            onRetry={usersQuery.refetch}
+          />
         ) : users.length === 0 ? (
           <p className="mt-8 text-sm text-muted-foreground">
             Aucun utilisateur pour le moment.

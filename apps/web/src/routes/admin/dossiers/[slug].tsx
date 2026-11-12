@@ -14,9 +14,12 @@ import {
   adminRevokeShare,
   getAdminDossier,
   getAdminDossierAuditLog,
-  listAdminDossiers,
+  lookupAdminDossier,
   patchAdminAnswers,
 } from '@/features/admin/dossiers.api'
+import { AdminDocumentsSection } from '@/features/admin/components/AdminDocumentsSection'
+import { adminFailure } from '@/features/admin/failure'
+import { LoadError } from '@/components/confluent/LoadError'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import type { Question } from '@/data/questionnaire'
@@ -34,44 +37,68 @@ import { buildAccessEntries } from '@/features/shares/build-access-entries'
 import type { AccessEntry } from '@/features/shares/access-entry'
 import { previewHref } from '@/features/shares/preview'
 
-const SEARCH_PAGE_SIZE = 100
-
 export default function AdminDossierDetailRoute() {
   const user = useCurrentUser()
   if (user.role !== 'admin') return <Navigate to="/dashboard" replace />
-  return <AdminDossierBySlug />
+  return <AdminDossierByRef />
 }
 
-function AdminDossierBySlug() {
-  const { slug } = useParams<{ slug: string }>()
-  // TODO: backend endpoint to resolve dossier id from slug. For V1, scan first page (max 100).
-  const list = useAsync(() => listAdminDossiers(1, SEARCH_PAGE_SIZE), [])
+// E10.05: the request whose slug or identifier the address names, read by the server whatever the
+// number of requests; an address by identifier (or by a slug's other case) is shown under its slug.
+function AdminDossierByRef() {
+  const { slug: ref = '' } = useParams<{ slug: string }>()
+  const found = useAsync(() => lookupAdminDossier(ref), [ref])
 
-  if (!slug) return <NotFound />
-  if (list.isLoading) return <p className="pt-8 text-sm text-muted-foreground">Chargement…</p>
-  if (list.error) {
+  if (found.isLoading) {
     return (
-      <p className="pt-8 text-sm text-destructive">
-        Impossible de charger la liste des dossiers.
+      <p className="pt-8 text-sm text-muted-foreground" role="status">
+        Chargement…
       </p>
     )
   }
-  const item = list.data?.items.find((d) => d.slug === slug)
-  if (!item) return <NotFound />
+  if (found.error) {
+    if ((found.error as Partial<ApiError>).status === 404) return <NotFound reference={ref} />
+    return (
+      <LoadError
+        className="mt-8"
+        message={adminFailure(found.error, 'Le dossier n’a pas pu être chargé.')}
+        onRetry={found.refetch}
+      />
+    )
+  }
+  const item = found.data
+  if (!item) return <NotFound reference={ref} />
+  if (item.slug !== ref) {
+    return <Navigate to={`/admin/dossiers/${encodeURIComponent(item.slug)}`} replace />
+  }
   return <AdminDossierDetailView dossierId={item.id} dossierName={item.name} slug={item.slug} />
 }
 
-function NotFound() {
+function NotFound({ reference }: { reference: string }) {
   return (
     <section className="mx-auto max-w-md pt-16 text-center">
       <title>Dossier introuvable · Confluent</title>
-      <p className="text-sm text-muted-foreground">Dossier introuvable.</p>
-      <Link
-        to="/admin/dossiers"
-        className="mt-4 inline-block text-sm underline hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
-      >
-        Retour à la liste
-      </Link>
+      <p className="text-sm break-words text-foreground">
+        Aucun dossier n’a le slug ni l’identifiant « {reference} ».
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Le titre d’une demande change son slug : cherchez-la par son titre, son entreprise ou l’email
+        de son porteur.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-center gap-4 text-sm">
+        <Link
+          to={`/admin/dossiers?${new URLSearchParams({ q: reference }).toString()}`}
+          className="break-all underline hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+        >
+          Rechercher « {reference} »
+        </Link>
+        <Link
+          to="/admin/dossiers"
+          className="underline hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+        >
+          Retour à la liste
+        </Link>
+      </div>
     </section>
   )
 }
@@ -112,14 +139,27 @@ function AdminDossierDetailView({
   const snapshot = detailQuery.data?.questionnaireVersion
   const dynamic = useMemo(() => (snapshot ? buildDynamicQuestionnaire(snapshot) : null), [snapshot])
 
+  const { refetch: refetchDetail } = detailQuery
+  const { refetch: refetchAudit } = auditQuery
+  // After a change, the sections it affects are read again (R70): the request, its journal.
+  const refreshRequest = useCallback(() => {
+    refetchDetail()
+    refetchAudit()
+  }, [refetchDetail, refetchAudit])
+
   const handleSaveAnswer = useCallback(
     async (fieldId: string, value: string) => {
       await patchAdminAnswers(dossierId, [{ fieldId, value }])
       toast.success('Réponse mise à jour')
-      detailQuery.refetch()
-      auditQuery.refetch()
+      refreshRequest()
     },
-    [dossierId, detailQuery, auditQuery],
+    [dossierId, refreshRequest],
+  )
+
+  // Questions of the request's own form, to say which one a document answers.
+  const fieldLabels = useMemo(
+    () => new Map((dynamic?.flat ?? []).map((q) => [q.id, q.label])),
+    [dynamic],
   )
 
   async function handleConfirmRevoke(entry: AccessEntry) {
@@ -129,12 +169,11 @@ function AdminDossierDetailView({
       await adminRevokeShare(dossierId, entry.id)
       toast.success('Accès révoqué')
     } catch (err) {
-      const apiErr = err as ApiError
-      toast.error(apiErr?.message ?? 'Révocation impossible.')
+      toast.error(adminFailure(err, 'L’accès n’a pas été révoqué.'))
     }
     setEntryToRevoke(null)
     sharesQuery.refetch()
-    auditQuery.refetch()
+    refreshRequest()
   }
 
   return (
@@ -195,11 +234,20 @@ function AdminDossierDetailView({
         </p>
       </div>
 
-      {detailQuery.isLoading ? (
-        <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
-      ) : detailQuery.error || !detailQuery.data || !dynamic ? (
-        <p className="mt-8 text-sm text-destructive">
-          Impossible de charger le dossier.
+      {detailQuery.error ? (
+        <LoadError
+          className="mt-8"
+          message={adminFailure(detailQuery.error, 'Le dossier n’a pas pu être chargé.')}
+          onRetry={refetchDetail}
+          retrying={detailQuery.isLoading}
+        />
+      ) : !detailQuery.data ? (
+        <p className="mt-8 text-sm text-muted-foreground" role="status">
+          Chargement…
+        </p>
+      ) : !dynamic ? (
+        <p className="mt-8 text-sm text-muted-foreground">
+          Ce dossier n’a pas de formulaire de profil : aucune réponse à afficher.
         </p>
       ) : (
         <>
@@ -238,12 +286,15 @@ function AdminDossierDetailView({
               l’administration ». Le niveau d’un accès reste la décision du porteur.
             </p>
             <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
-              {sharesQuery.isLoading ? (
+              {sharesQuery.error ? (
+                <LoadError
+                  className="m-3"
+                  message={adminFailure(sharesQuery.error, 'Les accès n’ont pas pu être chargés.')}
+                  onRetry={sharesQuery.refetch}
+                  retrying={sharesQuery.isLoading}
+                />
+              ) : !sharesQuery.data ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">Chargement…</p>
-              ) : sharesQuery.error ? (
-                <p className="px-4 py-6 text-center text-sm text-destructive">
-                  Impossible de charger les accès.
-                </p>
               ) : accessEntries.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">
                   Aucun partage pour ce dossier.
@@ -281,6 +332,14 @@ function AdminDossierDetailView({
         </>
       )}
 
+      {/* Its own reading: the library can be read, and documents deposited, even if the request's
+          other sections could not be. */}
+      <AdminDocumentsSection
+        dossierId={dossierId}
+        fieldLabels={fieldLabels}
+        onChanged={refreshRequest}
+      />
+
       <RevokeAccessDialog
         open={entryToRevoke !== null}
         entry={entryToRevoke}
@@ -295,9 +354,16 @@ function AdminDossierDetailView({
           Journal d&apos;audit
         </h2>
         <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
-          {auditQuery.isLoading ? (
+          {auditQuery.error ? (
+            <LoadError
+              className="m-3"
+              message={adminFailure(auditQuery.error, 'Le journal n’a pas pu être chargé.')}
+              onRetry={refetchAudit}
+              retrying={auditQuery.isLoading}
+            />
+          ) : !auditQuery.data ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">Chargement…</p>
-          ) : (auditQuery.data ?? []).length === 0 ? (
+          ) : auditQuery.data.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
               Aucun événement à afficher.
             </p>
