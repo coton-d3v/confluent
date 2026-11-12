@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom'
+import { ROBOTS_OPEN, publicPageRobots } from '@confluent/shared'
 import { PublicShell } from '@/components/confluent/PublicShell'
 import { Button } from '@/components/ui/button'
 import { getPublicWorkspacePage, publicLogoUrl } from '@/features/workspace-pages/api'
@@ -7,7 +8,9 @@ import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
 
 // ROADMAP E09.01: a workspace's public page, signed in or not, once its managers published it. An
-// unknown address and an unpublished page read alike. Not indexed by search engines.
+// unknown address and an unpublished page read alike. E09.06: not indexed by search engines — while
+// it loads, when it cannot be read, when there is none — unless its managers allowed it; then it
+// names its one address (canonical, whatever the query string or a trailing slash).
 export default function PublicWorkspaceRoute() {
   const { slug = '' } = useParams()
   return <PublicWorkspace key={slug} slug={slug} />
@@ -49,8 +52,15 @@ function PublicWorkspace({ slug }: { slug: string }) {
 
   const page = loaded.data
   const { workspace } = page
+  const robots = publicPageRobots(page)
   return (
-    <PublicShell title={workspace.programName ?? workspace.name}>
+    <PublicShell title={workspace.programName ?? workspace.name} robots={robots}>
+      {robots === ROBOTS_OPEN && (
+        <link
+          rel="canonical"
+          href={`${window.location.origin}/w/${encodeURIComponent(workspace.slug)}`}
+        />
+      )}
       <PublicWorkspaceContent
         page={page}
         logoSrc={workspace.logoVersion ? publicLogoUrl(workspace.slug, workspace.logoVersion) : null}

@@ -34,7 +34,8 @@ const isField = (key: unknown): key is FieldName => FIELDS.includes(key as Field
 // managers (the API decides who may, at each request): published or not — unpublished by default —,
 // criteria and contact. E09.03: the projects' cards, hidden or restored. E09.04: the blocks shown and
 // their order, with a live preview of the settings as edited, built by the same projection as the
-// public page (@confluent/shared `toPublicWorkspacePage`).
+// public page (@confluent/shared `toPublicWorkspacePage`). E09.06: whether search engines may index
+// the page while it is published — no by default.
 export default function AdminWorkspacePublicPageRoute() {
   const { workspaceId = '' } = useParams()
   return <WorkspacePublicPage key={workspaceId} workspaceId={workspaceId} />
@@ -82,7 +83,11 @@ function WorkspacePublicPage({ workspaceId }: { workspaceId: string }) {
       <title>{`Page publique · ${workspace.data.name} · Confluent`}</title>
       <WorkspacePageHeader workspace={workspace.data} />
       <div className="mt-6 flex max-w-2xl flex-col gap-6">
-        <PublicationStatus workspace={workspace.data} published={settings.published} />
+        <PublicationStatus
+          workspace={workspace.data}
+          published={settings.published}
+          indexable={settings.indexable}
+        />
         <PublicPageForm
           key={revision}
           workspaceId={workspaceId}
@@ -106,7 +111,15 @@ function WorkspacePublicPage({ workspaceId }: { workspaceId: string }) {
   )
 }
 
-function PublicationStatus({ workspace, published }: { workspace: Workspace; published: boolean }) {
+function PublicationStatus({
+  workspace,
+  published,
+  indexable,
+}: {
+  workspace: Workspace
+  published: boolean
+  indexable: boolean
+}) {
   const address = `/w/${workspace.slug}`
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4 text-sm">
@@ -125,12 +138,17 @@ function PublicationStatus({ workspace, published }: { workspace: Workspace; pub
             {address}
             <span className="sr-only"> (nouvel onglet)</span>
           </Link>
-          . Elle n’est pas référencée par les moteurs de recherche.
+          .{' '}
+          {indexable
+            ? 'Les moteurs de recherche sont autorisés à l’indexer : ils décident eux-mêmes quand elle apparaît dans leurs résultats.'
+            : 'Elle demande aux moteurs de recherche de ne pas l’indexer.'}
         </p>
       ) : (
         <p className="text-muted-foreground">
           À l’adresse <span className="break-all font-mono text-foreground">{address}</span>, le
           public lit « Aucune page publique à cette adresse », comme pour une adresse inconnue.
+          {indexable &&
+            ' L’indexation par les moteurs de recherche est autorisée : elle vaudra une fois la page publiée.'}
         </p>
       )}
     </div>
@@ -165,6 +183,7 @@ function PublicPageForm({
     contact: base.contact ?? '',
   })
   const [blocks, setBlocks] = useState<PublicPageBlock[]>(base.blocks)
+  const [indexable, setIndexable] = useState(base.indexable)
   const [errors, setErrors] = useState<Errors>({})
   const [failure, setFailure] = useState<string | null>(null)
   // Set when a change made meanwhile could not be read again (code review R71): the form still shows
@@ -181,7 +200,8 @@ function PublicPageForm({
     published !== base.published ||
     texts.criteria !== base.criteria ||
     texts.contact !== base.contact ||
-    blocks.join() !== base.blocks.join()
+    blocks.join() !== base.blocks.join() ||
+    indexable !== base.indexable
   // The page as the public would read it with these settings, by the public route's projection.
   const preview = useMemo(
     () =>
@@ -195,8 +215,9 @@ function PublicPageForm({
           },
         },
         blocks,
+        indexable,
       ),
-    [settings.content, texts.criteria, texts.contact, blocks],
+    [settings.content, texts.criteria, texts.contact, blocks, indexable],
   )
 
   // Reads the settings as they now are; true once read (the form is then rebuilt from them).
@@ -229,6 +250,7 @@ function PublicPageForm({
       published,
       ...values,
       blocks,
+      indexable,
       version: base.version,
     })
     if (!parsed.success) {
@@ -303,6 +325,31 @@ function PublicPageForm({
               demandes de participation (nom, date et heure seulement)… Ni les membres, ni l’email
               de contact des réglages, ni les dossiers n’y figurent, hors les cartes anonymes que
               les entreprises choisissent d’y afficher.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="flex min-h-11 items-start gap-3 text-sm text-foreground">
+              <input
+                id="ws-page-indexable"
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0"
+                checked={indexable}
+                aria-describedby="ws-page-indexable-help"
+                onChange={(e) => {
+                  setIndexable(e.target.checked)
+                  if (!unread) setFailure(null)
+                }}
+              />
+              <span className="font-medium">Autoriser l’indexation par les moteurs de recherche</span>
+            </label>
+            <p id="ws-page-indexable-help" className="text-xs text-muted-foreground">
+              Décochée (par défaut), la page demande aux moteurs de recherche (Google, Bing…) de ne
+              pas l’indexer : elle n’apparaît pas dans leurs résultats. Cochée, ils
+              peuvent l’indexer tant qu’elle est publiée, et la proposer dans leurs résultats avec
+              son contenu public. Les formulaires de participation et de candidature, comme le reste
+              de Confluent, ne sont jamais indexés. Décocher ne la retire de leurs résultats qu’à
+              leur prochain passage.
             </p>
           </div>
 
