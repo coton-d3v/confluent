@@ -1,4 +1,4 @@
-import { canonicalTimeZone, type Committee } from '@confluent/shared'
+import { canonicalTimeZone, type Committee, type CommitteeProgress } from '@confluent/shared'
 
 // How a committee's moment reads (ROADMAP E08.01): in the committee's own time zone, named, as the
 // manager typed it — never converted silently into the reader's zone. The offset is the one the API
@@ -131,7 +131,7 @@ export function otherTimeZones(): string[] {
 }
 
 // Planned and still to come.
-export const isUpcoming = (committee: Committee, now: number) =>
+export const isUpcoming = (committee: Pick<Committee, 'status' | 'startsAt'>, now: number) =>
   committee.status === 'planned' && Date.parse(committee.startsAt) > now
 
 // A planned committee whose start has passed: to be marked held, or cancelled.
@@ -143,4 +143,19 @@ export function placeLine(committee: Pick<Committee, 'location' | 'meetingUrl'>)
   if (committee.location) return committee.location
   if (committee.meetingUrl) return 'En ligne'
   return 'Lieu à préciser'
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
+
+// E08.06: « 2 retenues · 1 en attente · 3 participants » — what a committee's list shows of its
+// progress (the waiting entries: applications and proposals not answered yet).
+export function progressLine(progress: CommitteeProgress): string {
+  const { applications, participants } = progress
+  const waiting = applications.applied + applications.proposed
+  const parts = [
+    plural(applications.accepted, 'demande retenue', 'demandes retenues'),
+    ...(waiting > 0 ? [`${waiting} en attente`] : []),
+    plural(participants.accepted, 'participant', 'participants'),
+  ]
+  return parts.join(' · ')
 }

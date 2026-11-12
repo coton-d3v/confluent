@@ -5,7 +5,11 @@ import type {
   ChangeWorkspaceCommitteeApplicationInput,
   Committee,
   CommitteeApplication,
+  CommitteeNotice,
+  CommitteeParticipant,
+  CommitteeProgress,
   CreateCommitteeInput,
+  SharedCommittee,
   UpdateCommitteeInput,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
@@ -74,3 +78,18 @@ export const changeCandidateApplication = (
     `/v1/candidatures/${id(candidatureId)}/committees/${id(committeeId)}/application`,
     { method: 'POST', body: JSON.stringify(input) },
   )
+
+// E08.06: each committee's progress (counts only), for the workspace's conseillers; its participants
+// by name and who was told of its changes, for its managers; the sessions the signed-in member was
+// accepted for, as their shared view.
+export const listCommitteeProgress = (workspaceId: string) =>
+  apiRequest<CommitteeProgress[]>(`${read(workspaceId)}/progress`)
+
+export const listCommitteeParticipants = (workspaceId: string, committeeId: string) =>
+  apiRequest<CommitteeParticipant[]>(`${managed(workspaceId)}/${id(committeeId)}/participants`)
+
+export const listCommitteeNotices = (workspaceId: string, committeeId: string) =>
+  apiRequest<CommitteeNotice[]>(`${managed(workspaceId)}/${id(committeeId)}/notices`)
+
+export const listMyCommitteeSessions = (workspaceId: string) =>
+  apiRequest<SharedCommittee[]>(`/v1/workspaces/${id(workspaceId)}/committee-sessions`)
