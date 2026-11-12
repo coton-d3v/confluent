@@ -48,8 +48,9 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 //
 // Two texts (E08.02): `internalNotes` for the conseillers only, `sharedInfo` for the committee's
 // candidates and investors, edited alike; a journal entry names a changed text, never copies it.
-// Nobody outside the conseillers reads a committee yet; when E08.03 and later steps let someone, it
-// is through `sharedCommitteeOf` (committee-views.ts), never `CommitteeView`.
+// Outside the conseillers, a committee is read through its shared view only, never `CommitteeView`:
+// by the entrepreneurs who may apply to it or whose request has an entry on it (E08.03,
+// `CommitteeApplicationsService`, the link once accepted); its participants come with E08.04–E08.06.
 //
 // Extension point: E08.06 notifies a change of schedule or a cancellation — `update` and
 // `changeStatus` already tell which fields changed.

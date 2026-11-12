@@ -22,8 +22,9 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 // shared view, a journal entry or an email —; `sharedInfo`, written by the same managers for the
 // committee's candidates and investors. What they will read of a committee is `toSharedCommittee`
 // (`COMMITTEE_SHARED_FIELDS`, closed list), the only view any reader outside the workspace's
-// conseillers may get; nobody reads it yet: E08.03 (candidates) and E08.04–E08.06 (participants)
-// decide who does.
+// conseillers may get: the entrepreneurs who may apply to it or whose request has an entry on it
+// read it from E08.03 (`candidateCommitteeOf`, committee-application.schema.ts, the link once
+// accepted); its participants come with E08.04–E08.06.
 //
 // Who: read by those who follow the workspace's candidatures (its active conseillers and Confluent
 // administrators, `canReadCommittees`); created, edited and cancelled by those who manage the

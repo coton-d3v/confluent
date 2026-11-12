@@ -1,7 +1,8 @@
 -- Reverts migration 20261201000000_committees (ROADMAP E08.01) before the application is rolled back
 -- to E06.04. Lost on the way back: every committee (cancelled ones included) and the journal entries
 -- of their changes; the values added to `audit_action` stay (PostgreSQL cannot remove them; unused).
--- Nothing else references the table: it can be run first, before the reverts of earlier migrations.
+-- Only E08.03's entries reference the table: run after the revert of E08.03 (and of E08.02), before
+-- the reverts of earlier migrations.
 --
 -- Without any committee nor journal entry, nothing is lost. One would be — a session a workspace
 -- scheduled, which its managers would have to enter again, or the trace of who changed it —, so the

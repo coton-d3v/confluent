@@ -54,6 +54,7 @@ describe('owner history rules (E07.09)', () => {
       'committee_created',
       'committee_updated',
       'committee_status_changed',
+      'committee_application_changed',
     ]) {
       expect([action, ownerRule(action)]).toEqual([action, null])
     }

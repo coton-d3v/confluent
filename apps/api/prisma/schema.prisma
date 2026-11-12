@@ -121,6 +121,9 @@ enum audit_action {
   committee_updated
   // E08.01: a manager cancelled a committee, marked it held, or put it back to planned.
   committee_status_changed
+  // E08.03: a request applied to, was proposed for, accepted at, refused at or withdrawn from a
+  // committee.
+  committee_application_changed
 
   @@map("audit_action")
 }
@@ -166,6 +169,7 @@ model User {
   pledgesConfirmed            FundingPlanPledgeLink[]
   positionDisclosures         InvestorPositionDisclosure[]
   readingSessions             ReadingSession[]
+  committeeApplicationChanges CommitteeApplication[]
 
   @@map("users")
 }
@@ -613,18 +617,20 @@ model Candidature {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  dossier          Dossier                     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  workspace        Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  formVersion      QuestionnaireVersion        @relation(fields: [formVersionId], references: [id])
-  answers          CandidatureAnswer[]
-  statusChanges    CandidatureStatusChange[]
-  planLines        FundingPlanLine[]
-  eligibilities    CandidatureEligibility[]
-  stepValidations  CandidatureStepValidation[]
-  notes            CandidatureNote[]
+  dossier               Dossier                     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  workspace             Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  formVersion           QuestionnaireVersion        @relation(fields: [formVersionId], references: [id])
+  answers               CandidatureAnswer[]
+  statusChanges         CandidatureStatusChange[]
+  planLines             FundingPlanLine[]
+  eligibilities         CandidatureEligibility[]
+  stepValidations       CandidatureStepValidation[]
+  notes                 CandidatureNote[]
   // At most one: `pool_publications.candidature_id` is unique.
-  poolPublications PoolPublication[]
-  pledgeLinks      FundingPlanPledgeLink[]
+  poolPublications      PoolPublication[]
+  pledgeLinks           FundingPlanPledgeLink[]
+  // E08.03: its entries on the committees of its workspace.
+  committeeApplications CommitteeApplication[]
 
   @@unique([dossierId, workspaceId])
   // Target of the (candidature, workspace) foreign keys of plan lines, eligibilities, step
@@ -1333,11 +1339,43 @@ model Committee {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // E08.03: the requests applied to, proposed for or presented at it.
+  applications CommitteeApplication[]
 
-  // Target of the composite foreign keys that will keep what joins a committee (E08.03) inside its
+  // Target of the composite foreign keys that keep what joins a committee (E08.03) inside its
   // workspace.
   @@unique([id, workspaceId])
   @@index([workspaceId, startsAt])
   @@map("committees")
+}
+
+// E08.03: a request's entry on a committee, through its candidature to the committee's workspace —
+// both composite foreign keys carry `workspace_id`, so an entry never joins a committee and a
+// candidature of different workspaces. At most one per candidature and committee; never deleted but
+// with them, its version only grows. Rules: @confluent/shared `committee-application.schema.ts`.
+model CommitteeApplication {
+  id              String   @id @default(uuid())
+  committeeId     String   @map("committee_id")
+  candidatureId   String   @map("candidature_id")
+  workspaceId     String   @map("workspace_id")
+  // COMMITTEE_APPLICATION_STATUSES, changed only through `CommitteeApplicationsService`.
+  status          String
+  // Which side made the last change (`owner` or `workspace`), who, and when.
+  statusBy        String   @map("status_by")
+  statusActorId   String?  @map("status_actor_id")
+  statusChangedAt DateTime @map("status_changed_at")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  committee   Committee   @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  candidature Candidature @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  statusActor User?       @relation(fields: [statusActorId], references: [id], onDelete: SetNull)
+
+  @@unique([committeeId, candidatureId])
+  @@index([committeeId, workspaceId])
+  @@index([candidatureId, workspaceId])
+  @@index([statusActorId])
+  @@map("committee_applications")
 }

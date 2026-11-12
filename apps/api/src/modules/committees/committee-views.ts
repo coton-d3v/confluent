@@ -2,8 +2,9 @@ import type { Committee } from '@prisma/client'
 import { committeeStatusOf, toSharedCommittee, type CommitteeStatus } from '@confluent/shared'
 
 // How a committee is read (ROADMAP E08.01, E08.02): whole by the workspace's conseillers
-// (`CommitteeView`); by anyone else — its candidates and investors, once E08.03 and later steps say
-// who they are — only through `sharedCommitteeOf`, which never holds the internal notes.
+// (`CommitteeView`); by anyone else only through its shared view, which never holds the internal
+// notes — `sharedCommitteeOf`, or for its candidates (E08.03) `candidateCommitteeOf` of
+// @confluent/shared, the same view with the link once their request is accepted.
 
 export interface CommitteeView {
   id: string
