@@ -33,6 +33,7 @@ import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
+import { READING_SESSION_DOC } from '../reading-sessions/reading-session-doc'
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
 import { InterestsService } from './interests.service'
 import { PledgesService } from './pledges.service'
@@ -148,9 +149,12 @@ export class OpportunitiesController {
       OPPORTUNITY_SCOPE +
       '\n\nLa vue de la demande au niveau de l’opportunité (même projection que ' +
       '`GET /v1/shares/:token`, documents téléchargeables à ce niveau) et `opportunity` (niveau, ' +
-      'provenances). Chaque lecture est journalisée une fois (`opportunity_viewed`, invisible du ' +
-      'porteur), sur le partage direct du lecteur s’il en a un : elle compte alors comme une ' +
-      'consultation de ce partage, une seule fois.',
+      'provenances). Chaque chargement ouvre ou reprend une consultation (E07.08), journalisée une ' +
+      'fois (`opportunity_viewed`, invisible du porteur), sur le partage direct du lecteur s’il en a ' +
+      'un : elle compte alors comme une consultation de ce partage, mesurée (`opportunity.reading` ' +
+      'non nul, alimenté par `POST /v1/reading-sessions/:id/heartbeat`) ; par les seuls viviers, ' +
+      '`reading` est nul : ni chronométrée ni montrée au porteur.\n\n' +
+      READING_SESSION_DOC,
   })
   @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
   @ApiOkResponse({ description: 'La demande telle que l’opportunité permet de la lire.' })

@@ -54,56 +54,65 @@ describe('ShareLinksController (e2e)', () => {
     documentFindMany = jest.fn().mockResolvedValue([])
     fieldFindMany = jest.fn().mockResolvedValue(fields)
     auditRecord = jest.fn().mockResolvedValue(undefined)
+    const prisma: Record<string, unknown> = {
+      onModuleInit: async () => {},
+      onModuleDestroy: async () => {},
+      user: { findUnique: userFindUnique },
+      magicLinkToken: {
+        create: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      shareLink: { findUnique: shareFindUnique },
+      dossier: { findUnique: dossierFindUnique },
+      // The answers of the company profile the dossier presents (E05.05).
+      dossierAnswer: {
+        findMany: jest.fn(({ where }: { where: { companyId: string } }) =>
+          Promise.resolve(where.companyId === 'c-1' ? profileAnswers : []),
+        ),
+      },
+      questionnaireVersion: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'v-2', version: 2 }),
+      },
+      questionnaireSection: { findMany: jest.fn().mockResolvedValue(sections) },
+      questionnaireField: { findMany: fieldFindMany },
+      classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
+      // The company's library (E05.06): documents with their field and versions.
+      libraryDocument: { findMany: documentFindMany },
+      // The dossier selects every document of the library, following its latest version, as the
+      // E05.07 migration leaves an existing dossier (selection itself: financing-requests e2e).
+      dossierDocument: {
+        findMany: jest.fn().mockResolvedValue(
+          [0, 1, 2, 3].map((i) => ({
+            libraryDocumentId: `lib-doc-${i}`,
+            pinnedVersionId: null,
+          })),
+        ),
+      },
+      auditLog: { create: jest.fn() },
+      // E07.08: each load opens a reading session — counting rules in reading-sessions e2e.
+      readingSession: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(({ data }: { data: object }) => Promise.resolve({ id: 'rs-1', ...data })),
+      },
+      $executeRaw: jest.fn().mockResolvedValue(0),
+    }
+    prisma.$transaction = (fn: (tx: unknown) => unknown) => fn(prisma)
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue({
-        onModuleInit: async () => {},
-        onModuleDestroy: async () => {},
-        user: { findUnique: userFindUnique },
-        magicLinkToken: {
-          create: jest.fn().mockResolvedValue({}),
-          findUnique: jest.fn(),
-          update: jest.fn(),
-        },
-        shareLink: { findUnique: shareFindUnique },
-        dossier: { findUnique: dossierFindUnique },
-        // The answers of the company profile the dossier presents (E05.05).
-        dossierAnswer: {
-          findMany: jest.fn(({ where }: { where: { companyId: string } }) =>
-            Promise.resolve(where.companyId === 'c-1' ? profileAnswers : []),
-          ),
-        },
-        questionnaireVersion: {
-          findUnique: jest.fn().mockResolvedValue({ id: 'v-2', version: 2 }),
-        },
-        questionnaireSection: { findMany: jest.fn().mockResolvedValue(sections) },
-        questionnaireField: { findMany: fieldFindMany },
-        classificationRule: { findMany: jest.fn().mockResolvedValue(DEFAULT_CLASSIFICATION_RULES) },
-        // The company's library (E05.06): documents with their field and versions.
-        libraryDocument: { findMany: documentFindMany },
-        // The dossier selects every document of the library, following its latest version, as the
-        // E05.07 migration leaves an existing dossier (selection itself: financing-requests e2e).
-        dossierDocument: {
-          findMany: jest
-            .fn()
-            .mockResolvedValue(
-              [0, 1, 2, 3].map((i) => ({
-                libraryDocumentId: `lib-doc-${i}`,
-                pinnedVersionId: null,
-              })),
-            ),
-        },
-        auditLog: { create: jest.fn() },
-      })
+      .useValue(prisma)
       .overrideProvider(EMAIL_TRANSPORT)
       .useValue({
         sendMagicLink: (sendMagicLink = jest.fn().mockResolvedValue(undefined)),
         sendShareInvite: jest.fn(),
       })
       .overrideProvider(AuditService)
-      .useValue({ record: auditRecord })
+      .useValue({
+        record: auditRecord,
+        recordIn: (_tx: unknown, entry: unknown) => auditRecord(entry),
+      })
       .compile()
 
     app = moduleFixture.createNestApplication()
@@ -266,6 +275,7 @@ describe('ShareLinksController (e2e)', () => {
       recipientEmail: 'bob@invest.fr',
       status: 'active',
       accessLevel: 'public',
+      reading: { id: 'rs-1' },
     })
     expect(res.body.fields.map((f: { id: string }) => f.id)).toEqual(['f-name', 'f-secteur'])
     expect(res.body.sections.map((sec: { id: string }) => sec.id)).toEqual(['s-identite'])
@@ -281,8 +291,10 @@ describe('ShareLinksController (e2e)', () => {
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: 'share_link_viewed',
+        actorId: 'u-marc',
         shareLinkId: 'sl-1',
         dossierId: 'd-1',
+        metadata: expect.objectContaining({ readingSessionId: 'rs-1' }),
       }),
     )
   })

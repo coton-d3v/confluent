@@ -3,6 +3,7 @@ import { accessLevelSchema } from './access-level.schema.js'
 import { documentGroupSchema } from './document.schema.js'
 import { dossierSchema } from './dossier.schema.js'
 import { questionnaireFieldSchema, questionnaireSectionSchema } from './questionnaire.schema.js'
+import { readingSchema } from './reading.schema.js'
 
 export const shareLinkStatusSchema = z.enum(['pending', 'active', 'revoked', 'expired'])
 
@@ -80,12 +81,14 @@ export const recipientViewSchema = z.object({
   documents: z.array(documentGroupSchema),
 })
 
-// What a financeur sees through a share link: the recipient's view at the level of this very link.
+// What a financeur sees through a share link: the recipient's view at the level of this very link,
+// and the reading session this load opened or resumed (E07.08, reading.schema.ts).
 export const financeurShareResponseSchema = recipientViewSchema.extend({
   share: z.object({
     recipientEmail: z.string().email(),
     status: shareLinkStatusSchema,
     accessLevel: accessLevelSchema,
+    reading: readingSchema.nullable(),
   }),
 })
 

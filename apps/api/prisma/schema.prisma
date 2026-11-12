@@ -158,6 +158,7 @@ model User {
   interestsMarked             InvestorInterest[]
   pledgesMade                 InvestorPledge[]
   positionDisclosures         InvestorPositionDisclosure[]
+  readingSessions             ReadingSession[]
 
   @@map("users")
 }
@@ -423,6 +424,7 @@ model Dossier {
   investorInterests    InvestorInterest[]
   investorPledges      InvestorPledge[]
   positionDisclosures  InvestorPositionDisclosure[]
+  readingSessions      ReadingSession[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -712,12 +714,41 @@ model ShareLink {
   createdAt      DateTime          @default(now()) @map("created_at")
   revokedAt      DateTime?         @map("revoked_at")
 
-  dossier   Dossier    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  auditLogs AuditLog[]
+  dossier         Dossier          @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  auditLogs       AuditLog[]
+  readingSessions ReadingSession[]
 
   @@index([dossierId])
   @@index([token])
   @@map("share_links")
+}
+
+// A reading session of a request (ROADMAP E07.08, rules in @confluent/shared `reading.schema.ts`):
+// one view. Opened by the server when a reader loads the request, through `channel` (`share`: the
+// page of a share link; `opportunity`: an opportunity, CHECK), and resumed by their next loads of it
+// through the same direct share (`share_link_id`, or none) while its last activity is recent. Active
+// time (`active_ms`) is credited by the server from the page's heartbeats, bounded by the time elapsed
+// (CHECK: 0 to 3 h); `NULL` when not measured — a reading through pools alone, or one taken before
+// E07.08. Removed with the request or the share; the reader's account removed, the view stays.
+model ReadingSession {
+  id          String   @id @default(uuid())
+  dossierId   String   @map("dossier_id")
+  readerId    String?  @map("reader_id")
+  shareLinkId String?  @map("share_link_id")
+  channel     String
+  startedAt   DateTime @map("started_at")
+  lastSeenAt  DateTime @map("last_seen_at")
+  activeMs    Int?     @map("active_ms")
+
+  dossier   Dossier    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  reader    User?      @relation(fields: [readerId], references: [id], onDelete: SetNull)
+  shareLink ShareLink? @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+
+  // A load looks for the reader's latest session on the request; the owner reads them per share.
+  @@index([readerId, dossierId, lastSeenAt])
+  @@index([shareLinkId])
+  @@index([dossierId])
+  @@map("reading_sessions")
 }
 
 model AuditLog {

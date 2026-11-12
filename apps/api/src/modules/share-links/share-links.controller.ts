@@ -47,6 +47,7 @@ import {
 } from './share-links.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
+import { READING_SESSION_DOC } from '../reading-sessions/reading-session-doc'
 
 class CreateShareLinkDto extends createZodDto(createShareLinkSchema) {}
 class ShareAccessRequestDto extends createZodDto(shareAccessRequestSchema) {}
@@ -73,7 +74,12 @@ export class ShareLinksController {
       '`401` (le visiteur passe par `POST /shares/:token/access-request`), autre compte `403` ' +
       '(`details.reason = "recipient_mismatch"`). Le `ShareLinkGuard` vérifie que le token existe et que `status === "active"` ; ' +
       'sinon `403` générique (pas de leak) + entrée `audit_log: share_link_access_denied` avec token hashé SHA-256. ' +
-      'Les accès valides génèrent un `audit_log: share_link_viewed` pour les analytics entrepreneur (FR23).\n\n' +
+      'Chaque chargement par le destinataire ouvre ou reprend une **consultation** (E07.08) : ' +
+      '`share.reading.id` est la session que la page alimente par `POST ' +
+      '/v1/reading-sessions/:id/heartbeat` ; une consultation est journalisée une fois ' +
+      '(`share_link_viewed`) et lue par le porteur dans ses analytics.\n\n' +
+      READING_SESSION_DOC +
+      '\n\n' +
       'Rate-limit 10 req/min/IP.',
   })
   @ApiParam({
@@ -90,8 +96,8 @@ export class ShareLinksController {
     const aug = req as AugmentedRequest & { user: AuthenticatedUser }
     const shareLink = aug.shareLink!
     this.service.assertRecipient(shareLink, aug.user)
-    await this.service.recordView(shareLink, req)
-    return this.service.resolveForFinanceur(shareLink)
+    const reading = await this.service.recordView(shareLink, aug.user, req)
+    return this.service.resolveForFinanceur(shareLink, reading)
   }
 
   @Public()

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { CandidaturesModule } from '../candidatures/candidatures.module'
 import { DossiersModule } from '../dossiers/dossiers.module'
+import { ReadingSessionsModule } from '../reading-sessions/reading-sessions.module'
 import { ShareLinksModule } from '../share-links/share-links.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
 import { DossierInterestsController } from './dossier-interests.controller'
@@ -20,7 +21,13 @@ import { PositionsService } from './positions.service'
 // E07.05: their marks of interest, and E07.06: their pledges, as their owners read them; E07.07: the
 // positions as the investor, the owner and the structures they consented to read them.
 @Module({
-  imports: [DossiersModule, ShareLinksModule, CandidaturesModule, WorkspacesModule],
+  imports: [
+    DossiersModule,
+    ShareLinksModule,
+    CandidaturesModule,
+    WorkspacesModule,
+    ReadingSessionsModule,
+  ],
   controllers: [
     OpportunitiesController,
     DossierInterestsController,

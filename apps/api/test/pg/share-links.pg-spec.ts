@@ -11,6 +11,7 @@ import { CompaniesService } from '../../src/modules/companies/companies.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { ReadingSessionsService } from '../../src/modules/reading-sessions/reading-sessions.service'
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
 import { shareLinksDown, shareLinksUp } from './sql-file'
@@ -58,6 +59,7 @@ async function fingerprint(tx: Tx): Promise<string> {
 describe('nominative shares (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
+  const readings = new ReadingSessionsService(prisma, audit)
   const dossiers = new DossiersService(
     prisma,
     new QuestionnairesService(prisma),
@@ -74,6 +76,7 @@ describe('nominative shares (PostgreSQL)', () => {
     {} as AuthService,
     new QuestionnairesService(prisma),
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
+    readings,
   )
   const tag = randomUUID().slice(0, 8)
 

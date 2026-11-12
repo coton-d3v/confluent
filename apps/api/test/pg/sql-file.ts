@@ -206,3 +206,16 @@ export function positionDisclosuresDown(): string[] {
 export function positionDisclosuresUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261128000000_position_disclosures/migration.sql'))
 }
+
+// The revert of E07.08 (reading sessions): it accepts that the measured active times are lost (SET
+// LOCAL, test transactions only).
+export function readingSessionsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_reading_sessions_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261129000000_reading_sessions.down.sql')),
+  ]
+}
+
+export function readingSessionsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261129000000_reading_sessions/migration.sql'))
+}

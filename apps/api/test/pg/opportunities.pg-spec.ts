@@ -12,6 +12,7 @@ import type { DocumentsService } from '../../src/modules/documents/documents.ser
 import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { OpportunitiesService } from '../../src/modules/opportunities/opportunities.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { ReadingSessionsService } from '../../src/modules/reading-sessions/reading-sessions.service'
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
 import { opportunityViewsDown, opportunityViewsUp } from './sql-file'
@@ -38,6 +39,7 @@ const rows = (tx: Tx, sql: string) => tx.$queryRawUnsafe<Array<Record<string, un
 describe('opportunities (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
+  const readings = new ReadingSessionsService(prisma, audit)
   const questionnaires = new QuestionnairesService(prisma)
   const dossiers = new DossiersService(
     prisma,
@@ -55,8 +57,9 @@ describe('opportunities (PostgreSQL)', () => {
     {} as AuthService,
     questionnaires,
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
+    readings,
   )
-  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, audit)
+  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, readings)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   let formId = ''
