@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto'
 // In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
 // Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
-// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ not }`, `{ in }`, `{ notIn }`,
+// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ gte }`, `{ not }`, `{ in }`,
+// `{ notIn }`,
 // `{ equals, mode: 'insensitive' }`.
 type Row = Record<string, unknown> & { id: string }
 type Where = Record<string, unknown>
@@ -14,6 +15,7 @@ function matches(row: Row, where: Where = {}): boolean {
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
       const c = cond as {
         gt?: Date
+        gte?: Date
         not?: unknown
         in?: unknown[]
         notIn?: unknown[]
@@ -25,6 +27,7 @@ function matches(row: Row, where: Where = {}): boolean {
         return v.toLowerCase() === String(c.equals).toLowerCase()
       }
       if ('gt' in c) return v instanceof Date && v.getTime() > c.gt!.getTime()
+      if ('gte' in c) return v instanceof Date && v.getTime() >= c.gte!.getTime()
       if ('not' in c) return v !== c.not
       if ('in' in c) return c.in!.includes(v)
       if ('notIn' in c) return !c.notIn!.includes(v)
@@ -565,6 +568,7 @@ export function createFakePrisma() {
     investorInterest: model('investorInterest', () => ({ nameVisible: false })),
     investorPledge: model('investorPledge', () => ({ comment: null, version: 1 })),
     investorPositionDisclosure: model('investorPositionDisclosure'),
+    readingSession: model('readingSession', () => ({ readerId: null, shareLinkId: null })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,

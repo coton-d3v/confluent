@@ -28,7 +28,8 @@ export class AdminAnalyticsController {
       '- `activeThisMonth` — dossiers créés ou modifiés ce mois (UTC)\n' +
       '- `bySector[]` / `byMaturityStage[]` — groupBy tri par count desc\n' +
       '- `totalShareLinks` — partages au statut `active`\n' +
-      '- `totalViewsThisMonth` — consultations financeurs ce mois\n\n' +
+      '- `totalViewsThisMonth` — consultations (sessions de lecture, E07.08) par un partage direct ' +
+      'commencées ce mois\n\n' +
       'Empty-db safe : zéro counts / empty arrays, jamais de 500.',
   })
   @ApiOkResponse({ description: 'Statistiques plateforme agrégées.' })

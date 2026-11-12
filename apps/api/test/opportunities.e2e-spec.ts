@@ -351,7 +351,13 @@ describe('Opportunities (e2e)', () => {
         actorId: CLAIRE.id,
         dossierId: bio.id,
         shareLinkId: toClaire.id,
-        metadata: { accessLevel: 'partiel', shareLinkIds: [toClaire.id], workspaceIds: [cci] },
+        metadata: {
+          accessLevel: 'partiel',
+          shareLinkIds: [toClaire.id],
+          workspaceIds: [cci],
+          // E07.08: the reading session it opened, measured on the share.
+          readingSessionId: body.opportunity.reading.id,
+        },
       }),
     ])
     const analytics = (await sophie.get(`/v1/dossiers/${bio.id}/analytics`).expect(200)).body

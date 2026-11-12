@@ -13,6 +13,7 @@ import { DossiersService } from '../../src/modules/dossiers/dossiers.service'
 import { OpportunitiesService } from '../../src/modules/opportunities/opportunities.service'
 import { PledgesService } from '../../src/modules/opportunities/pledges.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { ReadingSessionsService } from '../../src/modules/reading-sessions/reading-sessions.service'
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
 import { investorPledgesDown, investorPledgesUp } from './sql-file'
@@ -72,6 +73,7 @@ async function fingerprint(tx: Tx): Promise<string> {
 describe('pledges (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
+  const readings = new ReadingSessionsService(prisma, audit)
   const questionnaires = new QuestionnairesService(prisma)
   const dossiers = new DossiersService(
     prisma,
@@ -89,8 +91,9 @@ describe('pledges (PostgreSQL)', () => {
     {} as AuthService,
     questionnaires,
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
+    readings,
   )
-  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, audit)
+  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, readings)
   const pledges = new PledgesService(prisma, opportunities, dossiers, audit)
   const tag = randomUUID().slice(0, 8)
   let formId = ''

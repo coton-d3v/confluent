@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { ReadingSessionsService } from '../reading-sessions/reading-sessions.service'
 
 export interface PlatformAnalytics {
   totalDossiers: number
@@ -16,7 +17,10 @@ function startOfMonth(now: Date = new Date()): Date {
 
 @Injectable()
 export class AdminAnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly readings: ReadingSessionsService,
+  ) {}
 
   async platform(): Promise<PlatformAnalytics> {
     const som = startOfMonth()
@@ -41,9 +45,8 @@ export class AdminAnalyticsService {
         _count: { _all: true },
       }),
       this.prisma.shareLink.count({ where: { status: 'active' } }),
-      this.prisma.auditLog.count({
-        where: { actionType: 'share_link_viewed', createdAt: { gte: som } },
-      }),
+      // E07.08: a view is a reading session through a share (`reading.schema.ts`).
+      this.readings.countShareViewsSince(som),
     ])
 
     const bySector = sectorGroups

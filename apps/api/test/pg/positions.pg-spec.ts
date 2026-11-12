@@ -17,6 +17,7 @@ import { OpportunitiesService } from '../../src/modules/opportunities/opportunit
 import { PledgesService } from '../../src/modules/opportunities/pledges.service'
 import { PositionsService } from '../../src/modules/opportunities/positions.service'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
+import { ReadingSessionsService } from '../../src/modules/reading-sessions/reading-sessions.service'
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
@@ -77,6 +78,7 @@ async function fingerprint(tx: Tx): Promise<string> {
 describe('positions (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
+  const readings = new ReadingSessionsService(prisma, audit)
   const questionnaires = new QuestionnairesService(prisma)
   const dossiers = new DossiersService(
     prisma,
@@ -94,8 +96,9 @@ describe('positions (PostgreSQL)', () => {
     {} as AuthService,
     questionnaires,
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
+    readings,
   )
-  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, audit)
+  const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, readings)
   const candidatures = new CandidaturesService(
     prisma,
     dossiers,

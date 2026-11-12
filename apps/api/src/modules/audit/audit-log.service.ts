@@ -7,7 +7,8 @@ const OPS_ONLY_ACTIONS = ['rate_limit_exceeded', 'share_link_access_denied']
 // entries carry no text, but the entrepreneur does not even learn that notes exist.
 const WORKSPACE_INTERNAL_ACTIONS = ['candidature_note_updated']
 // Who among a pool's investors read the request (ROADMAP E07.03): never named to its owner (D05);
-// a reading through a direct share counts as that share's view (`AnalyticsService`).
+// a reading through a direct share counts as that share's view (E07.08: one entry per reading
+// session, `ReadingSessionsService`; the owner reads the share's sessions in `AnalyticsService`).
 const INVESTOR_READINGS = ['opportunity_viewed']
 // Who marked their interest, and whether they show their name (ROADMAP E07.05): the owner reads the
 // count and the names shown (`InterestsService.forOwner`), never the entries, which name everyone.

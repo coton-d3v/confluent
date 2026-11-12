@@ -8,14 +8,15 @@ import {
   type OpportunitySort,
   type OpportunitySourceKind,
   type PledgeIntention,
+  type Reading,
   pledgeIntentionOf,
 } from '@confluent/shared'
 import type { Dossier, InvestorInterest, InvestorPledge, Prisma, User } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { grantedLevel, presentationForShare } from '../dossiers/financeur-access'
 import { listedPoolPublications } from '../pool-publications/pool-publication'
+import { ReadingSessionsService } from '../reading-sessions/reading-sessions.service'
 import { ShareLinksService, type RecipientView } from '../share-links/share-links.service'
 import { readsPool } from '../workspaces/workspace-access'
 
@@ -132,6 +133,8 @@ export type OpportunityView = RecipientView & {
   opportunity: OpportunityAccessView & {
     shownAs: InterestIdentityView
     structures: OpportunityStructureView[]
+    // E07.08: the measured reading session this load opened or resumed, through a direct share only.
+    reading: Reading | null
   }
 }
 
@@ -183,7 +186,7 @@ export class OpportunitiesService {
     private readonly prisma: PrismaService,
     private readonly dossiers: DossiersService,
     private readonly shareLinks: ShareLinksService,
-    private readonly audit: AuditService,
+    private readonly readings: ReadingSessionsService,
   ) {}
 
   async list(
@@ -251,8 +254,10 @@ export class OpportunitiesService {
   // One opportunity, as a recipient of a nominative share at its level reads it — the same
   // projection (`recipientView`). Anything the reader does not reach — an unknown request, one only
   // shared with someone else, a pool they are no investor of, a publication withdrawn or paused, a
-  // revoked share — is the same `404`. Each reading is journaled once (`opportunity_viewed`), on the
-  // reader's direct share if they have one, so that it counts as that share's view and once only.
+  // revoked share — is the same `404`. Each load opens or resumes a reading session (E07.08), journaled
+  // once (`opportunity_viewed`), on the reader's direct share if they have one, so that it counts as
+  // that share's view — measured — and once only; through pools alone it is neither timed nor shown
+  // to the owner.
   async get(reader: OpportunityReader, dossierId: string): Promise<OpportunityView> {
     const found = await this.reachOne(reader, dossierId)
     if (!found) throw opportunityNotFound()
@@ -265,12 +270,12 @@ export class OpportunitiesService {
         where: { investorId: reader.id, dossierId: found.dossier.id },
       }),
     ])
-    await this.audit.record({
-      actionType: 'opportunity_viewed',
-      actorId: reader.id,
+    const reading = await this.readings.open({
+      reader,
       dossierId: found.dossier.id,
       shareLinkId: found.shareLinkIds[0] ?? null,
-      metadata: {
+      channel: 'opportunity',
+      journal: {
         accessLevel: found.accessLevel,
         shareLinkIds: found.shareLinkIds,
         workspaceIds: found.sources.flatMap((s) => (s.kind === 'pool' ? [s.workspace.id] : [])),
@@ -301,6 +306,7 @@ export class OpportunitiesService {
             },
           ]
         }),
+        reading,
       },
     }
   }

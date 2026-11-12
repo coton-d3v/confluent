@@ -10,7 +10,13 @@ import {
 import { ConfigService } from '@nestjs/config'
 import type { Request } from 'express'
 import type { Dossier, Prisma, ShareLink } from '@prisma/client'
-import { grantsAccess, isArchived, type AccessLevel, type ShareRevokedBy } from '@confluent/shared'
+import {
+  grantsAccess,
+  isArchived,
+  type AccessLevel,
+  type Reading,
+  type ShareRevokedBy,
+} from '@confluent/shared'
 import type { QuestionnaireField, QuestionnaireSection } from '@prisma/client'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -21,6 +27,7 @@ import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { DossiersService, lockDossier, requestArchived } from '../dossiers/dossiers.service'
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
 import { fieldVisibleAt, grantedLevel, presentationForShare } from '../dossiers/financeur-access'
+import { ReadingSessionsService } from '../reading-sessions/reading-sessions.service'
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -58,7 +65,13 @@ export interface RecipientView {
 }
 
 export interface FinanceurShareResponse extends RecipientView {
-  share: { recipientEmail: string; status: string; accessLevel: AccessLevel }
+  share: {
+    recipientEmail: string
+    status: string
+    accessLevel: AccessLevel
+    // E07.08: the reading session this load opened or resumed.
+    reading: Reading | null
+  }
 }
 
 // E07.01 « Voir comme le destinataire ».
@@ -97,6 +110,7 @@ export class ShareLinksService {
     private readonly auth: AuthService,
     private readonly questionnaires: QuestionnairesService,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
+    private readonly readings: ReadingSessionsService,
   ) {}
 
   // E02.08: a share link opens the dossier only to the account it was sent to. A forwarded link
@@ -124,13 +138,22 @@ export class ShareLinksService {
   }
 
   // The dossier at the level of this very link — not the highest across the recipient's links: the
-  // token is what was shared, and it may have been forwarded.
-  async resolveForFinanceur(shareLink: ShareLink): Promise<FinanceurShareResponse> {
+  // token is what was shared, and it may have been forwarded. `reading`: the session of this load
+  // (`recordView`).
+  async resolveForFinanceur(
+    shareLink: ShareLink,
+    reading: Reading | null = null,
+  ): Promise<FinanceurShareResponse> {
     const dossier = await this.findDossier(shareLink.dossierId)
     const accessLevel = grantedLevel(shareLink.accessLevel)
     return {
       ...(await this.recipientView(dossier, accessLevel)),
-      share: { recipientEmail: shareLink.recipientEmail, status: shareLink.status, accessLevel },
+      share: {
+        recipientEmail: shareLink.recipientEmail,
+        status: shareLink.status,
+        accessLevel,
+        reading,
+      },
     }
   }
 
@@ -219,12 +242,19 @@ export class ShareLinksService {
     }
   }
 
-  async recordView(shareLink: ShareLink, req: Request): Promise<void> {
-    await this.audit.record({
-      actionType: 'share_link_viewed',
-      shareLinkId: shareLink.id,
+  // E07.08: the recipient's load of their link opens or resumes a reading session of this share —
+  // one view, journaled once (`share_link_viewed`) — and returns it, for the page to measure.
+  recordView(
+    shareLink: ShareLink,
+    recipient: { id: string; email: string },
+    req: Request,
+  ): Promise<Reading | null> {
+    return this.readings.open({
+      reader: recipient,
       dossierId: shareLink.dossierId,
-      metadata: {
+      shareLinkId: shareLink.id,
+      channel: 'share',
+      journal: {
         recipientEmail: shareLink.recipientEmail,
         userAgent: req.headers['user-agent'] ?? null,
         ip: req.ip ?? null,
