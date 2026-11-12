@@ -124,6 +124,12 @@ enum audit_action {
   // E08.03: a request applied to, was proposed for, accepted at, refused at or withdrawn from a
   // committee.
   committee_application_changed
+  // E08.04: someone asked, from the public form, to take part in committees (recorded or merged
+  // into their pending request).
+  participation_request_received
+  // E08.04: a public submission set aside without being recorded (robot field, too many for one
+  // address).
+  participation_request_discarded
 
   @@map("audit_action")
 }
@@ -911,18 +917,20 @@ model Workspace {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  memberships         WorkspaceMembership[]
-  preparedCompanies   Company[]
-  companyTransfers    CompanyTransfer[]
-  forms               Questionnaire[]
-  candidatures        Candidature[]
-  fundingSources      FundingSourceCategory[]
-  eligibilitySchemes  EligibilityScheme[]
-  supportSteps        SupportStep[]
+  memberships           WorkspaceMembership[]
+  preparedCompanies     Company[]
+  companyTransfers      CompanyTransfer[]
+  forms                 Questionnaire[]
+  candidatures          Candidature[]
+  fundingSources        FundingSourceCategory[]
+  eligibilitySchemes    EligibilityScheme[]
+  supportSteps          SupportStep[]
   // E07.07: the positions its investors consented to show it.
-  positionDisclosures InvestorPositionDisclosure[]
+  positionDisclosures   InvestorPositionDisclosure[]
   // E08.01: the committees it organises.
-  committees          Committee[]
+  committees            Committee[]
+  // E08.04: the participation requests sent from its public form.
+  participationRequests ParticipationRequest[]
 
   @@map("workspaces")
 }
@@ -1323,25 +1331,29 @@ model WorkspaceMembership {
 // CHECK: closed status, trimmed bounded texts, https link, zone name, minute precision, years
 // 2000–2099, `startsAt` within the offsets of a real zone (migration 20261201000000_committees).
 model Committee {
-  id            String   @id @default(uuid())
-  workspaceId   String   @map("workspace_id")
-  name          String
-  localStart    DateTime @map("local_start") @db.Timestamp(0)
-  timeZone      String   @map("time_zone")
-  startsAt      DateTime @map("starts_at")
-  location      String?
-  meetingUrl    String?  @map("meeting_url")
-  status        String   @default("planned")
-  internalNotes String?  @map("internal_notes")
+  id                        String   @id @default(uuid())
+  workspaceId               String   @map("workspace_id")
+  name                      String
+  localStart                DateTime @map("local_start") @db.Timestamp(0)
+  timeZone                  String   @map("time_zone")
+  startsAt                  DateTime @map("starts_at")
+  location                  String?
+  meetingUrl                String?  @map("meeting_url")
+  status                    String   @default("planned")
+  internalNotes             String?  @map("internal_notes")
   // E08.02: what the committee's candidates and investors read, beside the internal notes.
-  sharedInfo    String?  @map("shared_info")
-  version       Int      @default(1)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  sharedInfo                String?  @map("shared_info")
+  // E08.04: offered on the workspace's public participation form (planned and not started only).
+  participationRequestsOpen Boolean  @default(false) @map("participation_requests_open")
+  version                   Int      @default(1)
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
 
-  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace             Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   // E08.03: the requests applied to, proposed for or presented at it.
-  applications CommitteeApplication[]
+  applications          CommitteeApplication[]
+  // E08.04: the participation requests asking for it.
+  participationRequests ParticipationRequestCommittee[]
 
   // Target of the composite foreign keys that keep what joins a committee (E08.03) inside its
   // workspace.
@@ -1378,4 +1390,51 @@ model CommitteeApplication {
   @@index([candidatureId, workspaceId])
   @@index([statusActorId])
   @@map("committee_applications")
+}
+
+// E08.04: a request, sent from a workspace's public form by someone outside it (no account), to take
+// part in some of its committees — pending until E08.05 decides it; it grants nothing. At most one
+// pending request per address and workspace (partial unique index
+// `participation_requests_pending_email_key`, in the migration only): a new submission adds its
+// sessions to it and keeps what it said first. Rules: @confluent/shared
+// `participation-request.schema.ts`.
+model ParticipationRequest {
+  id              String   @id @default(uuid())
+  workspaceId     String   @map("workspace_id")
+  // Lower case, as typed otherwise; not known to be the sender's until they act on an invitation.
+  email           String
+  name            String
+  organization    String?
+  message         String?
+  // PARTICIPATION_REQUEST_STATUSES (`pending` only until E08.05).
+  status          String   @default("pending")
+  submissionCount Int      @default(1) @map("submission_count")
+  lastSubmittedAt DateTime @map("last_submitted_at")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  workspace  Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  committees ParticipationRequestCommittee[]
+
+  // Target of the composite foreign key that keeps its sessions inside its workspace.
+  @@unique([id, workspaceId])
+  @@index([workspaceId, createdAt])
+  @@map("participation_requests")
+}
+
+// E08.04: a session a participation request asks for — a committee of the request's workspace (both
+// composite foreign keys carry `workspace_id`).
+model ParticipationRequestCommittee {
+  requestId   String   @map("request_id")
+  committeeId String   @map("committee_id")
+  workspaceId String   @map("workspace_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  request   ParticipationRequest @relation(fields: [requestId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  committee Committee            @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([requestId, committeeId])
+  @@index([committeeId, workspaceId])
+  @@map("participation_request_committees")
 }

@@ -4,7 +4,8 @@ import { committeeStatusOf, toSharedCommittee, type CommitteeStatus } from '@con
 // How a committee is read (ROADMAP E08.01, E08.02): whole by the workspace's conseillers
 // (`CommitteeView`); by anyone else only through its shared view, which never holds the internal
 // notes — `sharedCommitteeOf`, or for its candidates (E08.03) `candidateCommitteeOf` of
-// @confluent/shared, the same view with the link once their request is accepted.
+// @confluent/shared, the same view with the link once their request is accepted; by the public
+// (E08.04), when a manager offers it on the participation form, `toPublicCommittee` — name and when.
 
 export interface CommitteeView {
   id: string
@@ -19,6 +20,8 @@ export interface CommitteeView {
   status: CommitteeStatus
   internalNotes: string | null
   sharedInfo: string | null
+  // E08.04: offered on the workspace's public participation form.
+  participationRequestsOpen: boolean
   version: number
   createdAt: Date
   updatedAt: Date
@@ -44,6 +47,9 @@ export const COMMITTEE_COLUMN_AUDIENCE = {
   status: 'shared',
   internalNotes: 'internal',
   sharedInfo: 'shared',
+  // E08.04: the managers' choice; the public reads only which committees are offered, through
+  // `toPublicCommittee` (@confluent/shared).
+  participationRequestsOpen: 'internal',
   version: 'internal',
   createdAt: 'internal',
   updatedAt: 'internal',
@@ -64,6 +70,7 @@ export function toView(row: Committee): CommitteeView {
     status: committeeStatusOf(row.status),
     internalNotes: row.internalNotes,
     sharedInfo: row.sharedInfo,
+    participationRequestsOpen: row.participationRequestsOpen,
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

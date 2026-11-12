@@ -105,6 +105,8 @@ describe('committees (e2e)', () => {
       workspaceId: cci,
       ...JUNE,
       sharedInfo: null,
+      // E08.04: not offered on the public participation form until a manager opens it.
+      participationRequestsOpen: false,
       startsAt: '2099-06-10T12:00:00.000Z',
       status: 'planned',
       version: 1,

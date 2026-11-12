@@ -351,6 +351,7 @@ describe('committee rules', () => {
       status: 'planned',
       internalNotes: 'NOTE-INTERNE Biosensio : trésorerie fragile',
       sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
+      participationRequestsOpen: true,
       version: 7,
       createdAt: '2027-01-02T03:04:05.000Z',
       updatedAt: '2027-02-03T04:05:06.000Z',

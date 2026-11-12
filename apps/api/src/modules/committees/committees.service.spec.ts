@@ -90,6 +90,7 @@ describe('CommitteesService', () => {
         status: 'planned',
         internalNotes: 'Ordre du jour à envoyer.',
         sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
+        participationRequestsOpen: false,
         version: 1,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
@@ -458,6 +459,56 @@ describe('CommitteesService', () => {
       for (const text of ['Accueil', 'PARTAGE-2', 'INTERNE-3', 'Ordre du jour']) {
         expect([text, written.includes(text)]).toEqual([text, false])
       }
+    })
+
+    it('opens a committee to participation requests (E08.04): closed by default, kept when absent, journaled with its value', async () => {
+      const committee = await service.create(MANAGER, cci, JUNE)
+      expect(committee.participationRequestsOpen).toBe(false)
+      fake.table('auditLog').clear()
+      const opened = await service.update(MANAGER, cci, committee.id, {
+        ...JUNE,
+        participationRequestsOpen: true,
+        version: 1,
+      })
+      expect(opened).toMatchObject({ version: 2, participationRequestsOpen: true })
+      // A client that predates it (E08.01–E08.03) keeps it open.
+      const renamed = await service.update(MANAGER, cci, committee.id, {
+        ...JUNE,
+        name: 'Comité de juin (salle 3)',
+        version: 2,
+      })
+      expect(renamed).toMatchObject({ version: 3, participationRequestsOpen: true })
+      const closed = await service.update(ADMIN, cci, committee.id, {
+        ...JUNE,
+        name: renamed.name,
+        participationRequestsOpen: false,
+        version: 3,
+      })
+      expect(closed).toMatchObject({ version: 4, participationRequestsOpen: false })
+      expect(
+        journal().map((e) => {
+          const { fields, participationRequestsOpen } = e.metadata as {
+            fields: string[]
+            participationRequestsOpen?: unknown
+          }
+          return { fields, participationRequestsOpen }
+        }),
+      ).toEqual([
+        {
+          fields: ['participationRequestsOpen'],
+          participationRequestsOpen: { from: false, to: true },
+        },
+        { fields: ['name'], participationRequestsOpen: undefined },
+        {
+          fields: ['participationRequestsOpen'],
+          participationRequestsOpen: { from: true, to: false },
+        },
+      ])
+      // Created open when asked.
+      expect(
+        (await service.create(MANAGER, cci, { ...JUNE, participationRequestsOpen: true }))
+          .participationRequestsOpen,
+      ).toBe(true)
     })
 
     it('keeps both texts from the workspace’s investors and from anyone outside it', async () => {
