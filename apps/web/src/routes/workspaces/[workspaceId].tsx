@@ -4,6 +4,7 @@ import {
   INVESTOR_TYPE_LABELS,
   WORKSPACE_MEMBER_ROLE_LABELS,
   canPrepareCompanies,
+  canReadCommittees,
   canReviewCandidatures,
   type CurrentWorkspace,
 } from '@confluent/shared'
@@ -13,6 +14,7 @@ import { useCurrentUser } from '@/features/current-user/context'
 import { PreparedCompaniesSection } from '@/features/company-transfers/components/PreparedCompaniesSection'
 import { ReceivedCandidaturesSection } from '@/features/candidatures/components/ReceivedCandidaturesSection'
 import { FundingSourcesSection } from '@/features/funding-sources/components/FundingSourcesSection'
+import { CommitteesSection } from '@/features/committees/components/CommitteesSection'
 import { WorkspacePositionsSection } from '@/features/positions/components/WorkspacePositionsSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
@@ -160,6 +162,11 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
             </p>
           )}
         </section>
+
+        {/* E08.01: its committees, for its conseillers; planned by its managers. */}
+        {canReadCommittees(me, membership) && (
+          <CommitteesSection workspaceId={workspace.id} canManage={canManageWorkspace} />
+        )}
 
         {/* E05.09: the candidatures it receives, for its conseillers. */}
         {canReviewCandidatures(me, membership) && (

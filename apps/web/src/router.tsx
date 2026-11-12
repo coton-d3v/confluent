@@ -30,6 +30,9 @@ import AdminWorkspaceSupportPathRoute from '@/routes/admin/workspaces/[workspace
 import MyWorkspacesRoute from '@/routes/workspaces'
 import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
+import WorkspaceCommitteesRoute from '@/routes/workspaces/[workspaceId]/comites'
+import NewCommitteeRoute from '@/routes/workspaces/[workspaceId]/comites/nouveau'
+import CommitteeRoute from '@/routes/workspaces/[workspaceId]/comites/[committeeId]'
 import OpportunitiesRoute from '@/routes/opportunites'
 import OpportunityRoute from '@/routes/opportunites/[dossierId]'
 import PositionsRoute from '@/routes/positionnements'
@@ -161,6 +164,22 @@ export const router = createBrowserRouter([
       {
         path: 'workspaces/:workspaceId/candidatures/:candidatureId',
         element: <ReceivedCandidatureRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      // E08.01: its committees.
+      {
+        path: 'workspaces/:workspaceId/comites',
+        element: <WorkspaceCommitteesRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'workspaces/:workspaceId/comites/nouveau',
+        element: <NewCommitteeRoute />,
+        handle: { hideBreadcrumb: true },
+      },
+      {
+        path: 'workspaces/:workspaceId/comites/:committeeId',
+        element: <CommitteeRoute />,
         handle: { hideBreadcrumb: true },
       },
       { path: 'opportunites', element: <OpportunitiesRoute /> },
