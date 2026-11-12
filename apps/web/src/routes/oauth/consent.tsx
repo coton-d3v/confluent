@@ -280,7 +280,7 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
                   disabled={pending !== null}
                 />
                 <span className="flex min-w-0 flex-col gap-1">
-                  <span className="break-words font-medium">{workspace.name}</span>
+                  <span className="wrap-anywhere font-medium">{workspace.name}</span>
                   <span className="text-muted-foreground">
                     {WORKSPACE_MEMBER_ROLE_LABELS[workspace.role]}
                     {workspace.programName ? ` · ${workspace.programName}` : ''}

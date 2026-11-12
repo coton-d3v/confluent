@@ -17,6 +17,8 @@ import { SupportPathPanel } from '@/features/support-paths/components/SupportPat
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -67,15 +69,25 @@ function ReceivedCandidaturePage({
   if (!query.data) {
     if (query.error) {
       const status = (query.error as ApiError).status
+      if (status !== 403 && status !== 404 && status !== 400) {
+        return (
+          <div className="flex flex-col items-start gap-2 pt-8">
+            <title>Candidature indisponible · Confluent</title>
+            <LoadError
+              message={readFailure(query.error, 'La candidature n’a pas pu être chargée.')}
+              onRetry={query.refetch}
+            />
+            {back}
+          </div>
+        )
+      }
       return (
         <div className="flex flex-col items-start gap-2 pt-8">
           <title>Candidature introuvable · Confluent</title>
           <p role="alert" className="text-sm text-foreground">
             {status === 403
               ? 'Les candidatures reçues par ce workspace sont lues par ses conseillers.'
-              : status === 404 || status === 400
-                ? 'Cette candidature est introuvable dans ce workspace.'
-                : 'Impossible de charger la candidature. Réessayez plus tard.'}
+              : 'Cette candidature est introuvable dans ce workspace.'}
           </p>
           {back}
         </div>

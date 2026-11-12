@@ -11,6 +11,8 @@ import { AnswerOrigin } from '@/features/questionnaire/components/AnswerProvenan
 import { hasOriginToShow, isPendingProposal } from '@/features/questionnaire/provenance'
 import { useAsync } from '@/lib/useAsync'
 import type { ApiError } from '@/lib/api-client'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 export default function RecapitulatifRoute() {
   const [searchParams] = useSearchParams()
@@ -58,7 +60,20 @@ function FinalReview({ dossierId }: { dossierId: string }) {
   }
   const dossier = dossierQuery.data
   if (dossierQuery.error || answersQuery.error || documentsQuery.error || !dossier || !questionnaire) {
-    return <p className="pt-8 text-sm text-destructive">Impossible de charger le dossier.</p>
+    return (
+      <LoadError
+        className="mt-8"
+        message={readFailure(
+          dossierQuery.error ?? answersQuery.error ?? documentsQuery.error,
+          'Le dossier n’a pas pu être chargé.',
+        )}
+        onRetry={() => {
+          dossierQuery.refetch()
+          answersQuery.refetch()
+          documentsQuery.refetch()
+        }}
+      />
+    )
   }
 
   const missing = missingRequiredAnswers(questionnaire.flat, answers, new Set(attachedFiles.keys()))
@@ -153,46 +168,48 @@ function FinalReview({ dossierId }: { dossierId: string }) {
                 const isFile = q.fieldType === 'file'
                 const value = isFile ? (attachedFiles.get(q.id) ?? []).join('\n') : (answers[q.id] ?? '')
                 return (
+                  // E10.07: the term and its descriptions are children of the row itself (a <dl>
+                  // allows a <div> grouping them, nothing deeper); the edit link is one of them.
                   <div
                     key={q.id}
                     id={`reponse-${q.id}`}
-                    className="flex scroll-mt-20 flex-wrap items-start justify-between gap-4 py-3"
+                    className="grid scroll-mt-20 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 py-3"
                   >
-                    <div className="min-w-0 flex-1">
-                      <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{q.label}</dt>
-                      <dd className="mt-1 whitespace-pre-line break-words text-[13px] font-medium text-foreground">
-                        {value.trim() ? (
-                          isFile ? value : answerLabel(q, value)
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {!q.required
-                              ? '—'
-                              : isFile
-                                ? 'Document obligatoire manquant'
-                                : 'Réponse obligatoire manquante'}
-                          </span>
-                        )}
-                      </dd>
-                      {!isFile && hasOriginToShow(rows.get(q.id)) && (
-                        <dd className="mt-2">
-                          <AnswerOrigin
-                            dossierId={dossierId}
-                            label={q.label}
-                            row={rows.get(q.id)}
-                            onConfirmed={answersQuery.replace}
-                            correctHref={questionPath(dossierId, q.id)}
-                            formatValue={(v) => answerLabel(q, v)}
-                          />
-                        </dd>
+                    <dt className="col-start-1 text-[11px] uppercase tracking-wider text-muted-foreground">{q.label}</dt>
+                    <dd className="col-start-1 mt-1 whitespace-pre-line wrap-anywhere text-[13px] font-medium text-foreground">
+                      {value.trim() ? (
+                        isFile ? value : answerLabel(q, value)
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {!q.required
+                            ? '—'
+                            : isFile
+                              ? 'Document obligatoire manquant'
+                              : 'Réponse obligatoire manquante'}
+                        </span>
                       )}
-                    </div>
-                    <Link
-                      to={questionPath(dossierId, q.id)}
-                      aria-label={`${isFile ? 'Modifier les fichiers' : 'Modifier la réponse'} : ${q.label}`}
-                      className="min-h-11 shrink-0 px-2 text-xs text-muted-foreground hover:underline"
-                    >
-                      Modifier
-                    </Link>
+                    </dd>
+                    {!isFile && hasOriginToShow(rows.get(q.id)) && (
+                      <dd className="col-start-1 mt-2">
+                        <AnswerOrigin
+                          dossierId={dossierId}
+                          label={q.label}
+                          row={rows.get(q.id)}
+                          onConfirmed={answersQuery.replace}
+                          correctHref={questionPath(dossierId, q.id)}
+                          formatValue={(v) => answerLabel(q, v)}
+                        />
+                      </dd>
+                    )}
+                    <dd className="col-start-2 row-start-1 row-end-3">
+                      <Link
+                        to={questionPath(dossierId, q.id)}
+                        aria-label={`${isFile ? 'Modifier les fichiers' : 'Modifier la réponse'} : ${q.label}`}
+                        className="inline-flex min-h-11 items-center px-2 text-xs text-muted-foreground hover:underline"
+                      >
+                        Modifier
+                      </Link>
+                    </dd>
                   </div>
                 )
               })}

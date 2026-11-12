@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { LoaderCircleIcon } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
@@ -15,9 +15,12 @@ import {
 } from '@/components/ui/sheet'
 import { useAuthState } from '@/features/current-user/context'
 import { logout, updateProfile } from '@/features/auth/api'
+import type { ApiError } from '@/lib/api-client'
 import { setAuth, getAuthState } from '@/features/auth/auth-store'
 import { Breadcrumbs } from './Breadcrumbs'
 import { NavItem } from './NavItem'
+import { AccountMenu } from './AccountMenu'
+import { useRouteFocus } from './useRouteFocus'
 import { VersionBadge } from './VersionBadge'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { ServerUnreachable } from '@/components/confluent/ServerUnreachable'
@@ -37,22 +40,41 @@ import {
 } from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
 
+// updateProfileSchema of @confluent/shared.
+const PROFILE_NAME_MAX = 100
+
+function profileFailure(err: unknown): string {
+  const status = (err as Partial<ApiError> | undefined)?.status
+  if (status === undefined) {
+    return 'Vos informations n’ont pas été enregistrées : le serveur ne répond pas. Vérifiez votre connexion internet, puis réessayez.'
+  }
+  if (status === 400) {
+    return `Vos informations n’ont pas été enregistrées : le prénom et le nom sont requis, ${PROFILE_NAME_MAX} caractères au plus chacun.`
+  }
+  if (status === 401) return 'Votre session a expiré : reconnectez-vous pour enregistrer vos informations.'
+  return 'Vos informations n’ont pas été enregistrées : le serveur est momentanément indisponible. Réessayez dans quelques instants.'
+}
+
 function ProfileSheet({
   open,
   onOpenChange,
   required,
   currentFirstName,
   currentLastName,
+  returnFocus,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   required: boolean
   currentFirstName: string
   currentLastName: string
+  // Where the focus goes back when it closes (it has no trigger of its own).
+  returnFocus: React.RefObject<HTMLElement | null>
 }) {
   const [firstName, setFirstName] = useState(currentFirstName)
   const [lastName, setLastName] = useState(currentLastName)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const savingRef = useRef(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -60,9 +82,13 @@ function ProfileSheet({
     if (savingRef.current || !firstName.trim() || !lastName.trim()) return
     savingRef.current = true
     setSaving(true)
+    setError(null)
     try {
       await updateProfile(firstName.trim(), lastName.trim())
       onOpenChange(false)
+    } catch (err) {
+      // E10.07 (U04): said in French, what was typed stays in the fields.
+      setError(profileFailure(err))
     } finally {
       savingRef.current = false
       setSaving(false)
@@ -70,8 +96,18 @@ function ProfileSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={required ? undefined : onOpenChange}>
-      <SheetContent showCloseButton={!required}>
+    <Sheet
+      open={open}
+      onOpenChange={
+        required
+          ? undefined
+          : (next) => {
+              if (!next) setError(null)
+              onOpenChange(next)
+            }
+      }
+    >
+      <SheetContent showCloseButton={!required} finalFocus={returnFocus}>
         <SheetHeader>
           <SheetTitle>{required ? 'Bienvenue sur Confluent' : 'Mon profil'}</SheetTitle>
           <SheetDescription>
@@ -91,6 +127,9 @@ function ProfileSheet({
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="Sophie"
               required
+              maxLength={PROFILE_NAME_MAX}
+              autoComplete="given-name"
+              aria-describedby={error ? 'profile-error' : undefined}
               autoFocus
             />
           </div>
@@ -104,7 +143,17 @@ function ProfileSheet({
               onChange={(e) => setLastName(e.target.value)}
               placeholder="Moreau"
               required
+              maxLength={PROFILE_NAME_MAX}
+              autoComplete="family-name"
+              aria-describedby={error ? 'profile-error' : undefined}
             />
+          </div>
+          <div aria-live="assertive" aria-atomic="true">
+            {error && (
+              <p id="profile-error" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
           </div>
         </form>
         <SheetFooter>
@@ -143,7 +192,7 @@ function DesktopSidebar({
   user: CurrentUser
   navItems: NavItemSpec[]
   onLogout: () => void
-  onEditProfile: () => void
+  onEditProfile: (returnTo?: HTMLElement | null) => void
 }) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col bg-sidebar lg:flex">
@@ -166,7 +215,7 @@ function DesktopSidebar({
       <div className="px-4 py-4 text-sm">
         <button
           type="button"
-          onClick={onEditProfile}
+          onClick={(e) => onEditProfile(e.currentTarget)}
           className="mb-3 w-full rounded-md px-1 py-1 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
         >
           <div className="truncate font-medium text-sidebar-foreground" title={user.name}>
@@ -186,8 +235,17 @@ function DesktopSidebar({
   )
 }
 
-function TabletRail({ user, navItems }: { user: CurrentUser; navItems: NavItemSpec[] }) {
-  const initial = (user.name.charAt(0) || '?').toUpperCase()
+function TabletRail({
+  user,
+  navItems,
+  onLogout,
+  onEditProfile,
+}: {
+  user: CurrentUser
+  navItems: NavItemSpec[]
+  onLogout: () => void
+  onEditProfile: (returnTo?: HTMLElement | null) => void
+}) {
   return (
     <aside className="hidden w-[60px] shrink-0 flex-col items-center bg-sidebar md:flex lg:hidden">
       <div
@@ -209,14 +267,7 @@ function TabletRail({ user, navItems }: { user: CurrentUser; navItems: NavItemSp
       </nav>
       <Separator />
       <div className="py-4">
-        <div
-          role="img"
-          title={user.name}
-          aria-label={user.name}
-          className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
-        >
-          {initial}
-        </div>
+        <AccountMenu user={user} onLogout={onLogout} onEditProfile={onEditProfile} />
       </div>
     </aside>
   )
@@ -247,6 +298,12 @@ export function AppShell() {
   const needsOnboarding = !!user && !user.firstName
   // Only the voluntary "edit my profile" opening is local state.
   const [editingProfile, setEditingProfile] = useState(false)
+  const profileReturn = useRef<HTMLElement | null>(null)
+  // E10.07: closing the profile gives the focus back to what opened it.
+  const editProfile = useCallback((returnTo?: HTMLElement | null) => {
+    profileReturn.current = returnTo ?? (document.activeElement as HTMLElement | null)
+    setEditingProfile(true)
+  }, [])
   // Every account's memberships: the workspaces it can switch between (an administrator may be a
   // member too); none for most accounts, whose journeys stay as they were.
   const memberships = useMyWorkspaceMemberships(user ? user.id : null)
@@ -260,6 +317,7 @@ export function AppShell() {
     () => ({ count: unread.count, refresh: unread.refresh }),
     [unread.count, unread.refresh],
   )
+  useRouteFocus('main-content')
 
   if (loading) {
     return (
@@ -310,20 +368,26 @@ export function AppShell() {
             user={user}
             navItems={navItems}
             onLogout={handleLogout}
-            onEditProfile={() => setEditingProfile(true)}
+            onEditProfile={editProfile}
           />
-          <TabletRail user={user} navItems={navItems} />
+          <TabletRail
+            user={user}
+            navItems={navItems}
+            onLogout={handleLogout}
+            onEditProfile={editProfile}
+          />
           <ProfileSheet
             open={needsOnboarding || editingProfile}
             onOpenChange={setEditingProfile}
             required={needsOnboarding}
             currentFirstName={currentFirstName}
             currentLastName={currentLastName}
+            returnFocus={profileReturn}
           />
           <main
             id="main-content"
             tabIndex={-1}
-            className="min-w-0 flex-1 px-6 py-8 pb-16 md:pb-0 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)]"
+            className="min-w-0 flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-8 md:pb-8"
           >
             <div
               className={cn(
@@ -332,7 +396,14 @@ export function AppShell() {
               )}
             >
               <WorkspaceSwitcher className="max-w-sm min-w-0 flex-1" />
-              <NotificationBell className="-mt-1 ml-auto shrink-0 md:hidden" />
+              <div className="-mt-1 ml-auto flex shrink-0 items-center md:hidden">
+                <NotificationBell />
+                <AccountMenu
+                  user={user}
+                  onLogout={handleLogout}
+                  onEditProfile={editProfile}
+                />
+              </div>
             </div>
             <Breadcrumbs />
             <Outlet />

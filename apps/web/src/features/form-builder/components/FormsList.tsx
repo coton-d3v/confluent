@@ -110,7 +110,7 @@ function FormRow({ form, to }: { form: FormSummary; to: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link
           to={to}
-          className="min-w-0 break-words text-base font-medium text-foreground underline-offset-4 hover:underline"
+          className="min-w-0 wrap-anywhere text-base font-medium text-foreground underline-offset-4 hover:underline"
         >
           {form.name}
         </Link>

@@ -22,7 +22,7 @@ function Source({ source }: { source: NonNullable<Provenance['source']> }) {
     <>
       <p className="text-xs text-muted-foreground">Source : {sourceLabel(source)}</p>
       {source.excerpt && (
-        <blockquote className="mt-1 whitespace-pre-line break-words border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+        <blockquote className="mt-1 whitespace-pre-line wrap-anywhere border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
           « {source.excerpt} »
         </blockquote>
       )}
@@ -117,7 +117,7 @@ function HistoryEntry({
   const p = entry.provenance
   return (
     <li className="flex flex-col gap-0.5 py-2">
-      <p className="whitespace-pre-line break-words text-[13px] text-foreground">
+      <p className="whitespace-pre-line wrap-anywhere text-[13px] text-foreground">
         {entry.value ? formatValue(entry.value) : <span className="text-muted-foreground">(vide)</span>}
       </p>
       <p className="text-xs text-muted-foreground">

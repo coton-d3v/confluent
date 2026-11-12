@@ -71,12 +71,12 @@ function DossierNewForm() {
         noValidate
         className="mx-auto flex max-w-md flex-col gap-6 pt-8"
       >
-        <label
-          htmlFor="dossier-name"
-          className="font-heading text-2xl font-medium text-foreground"
-        >
-          Comment s&apos;appelle votre entreprise ou votre projet&nbsp;?
-        </label>
+        {/* E10.07: the question is the page's heading too. */}
+        <h1 className="font-heading text-2xl font-medium text-foreground">
+          <label htmlFor="dossier-name">
+            Comment s&apos;appelle votre entreprise ou votre projet&nbsp;?
+          </label>
+        </h1>
         <WizardInput
           ref={inputRef}
           id="dossier-name"

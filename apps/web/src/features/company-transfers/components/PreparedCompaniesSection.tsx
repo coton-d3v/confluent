@@ -95,7 +95,7 @@ export function PreparedCompaniesSection({ workspaceId }: { workspaceId: string 
                     key={p.company.id}
                     className="rounded-lg border border-border px-4 py-3 text-sm text-muted-foreground"
                   >
-                    <span className="font-medium break-words text-foreground">
+                    <span className="font-medium wrap-anywhere text-foreground">
                       {p.company.name}
                     </span>
                     {' — '}acceptée par <span className="break-all">{p.invitation.email}</span> le{' '}
@@ -306,7 +306,7 @@ function HeldCompanyCard({
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-medium break-words text-foreground">{company.name}</p>
+          <p className="font-medium wrap-anywhere text-foreground">{company.name}</p>
           <p className="text-xs text-muted-foreground">
             {preparation.dossierCount === 1
               ? '1 demande'

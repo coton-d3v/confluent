@@ -226,7 +226,7 @@ export function AdminDocumentsSection({
                     {pending.files.map((file, i) => {
                       const existing = existingOf(file)
                       return (
-                        <li key={i} className="break-words">
+                        <li key={i} className="wrap-anywhere">
                           {existing
                             ? `« ${file.name} » : nouvelle version ${existing.current.version + 1} du document existant`
                             : `« ${file.name} » : nouveau document (${DOCUMENT_TYPE_LABELS[pending.type]})`}
@@ -280,7 +280,7 @@ function AdminLibraryItem({
     <li className="flex flex-col gap-3 px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
-          <p className="text-sm font-medium break-words text-foreground">{group.filename}</p>
+          <p className="text-sm font-medium wrap-anywhere text-foreground">{group.filename}</p>
           <div>
             <Badge variant="secondary">{DOCUMENT_TYPE_LABELS[group.type]}</Badge>
           </div>

@@ -11,6 +11,8 @@ import {
 } from '@confluent/shared'
 import { toast } from 'sonner'
 import { DossierField } from '@/components/confluent/DossierField'
+import { DossierOutline } from '@/components/confluent/DossierOutline'
+import { sectionAnchor } from '@/lib/section-anchor'
 import { Badge } from '@/components/ui/badge'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
@@ -141,9 +143,13 @@ function SharedAnswers({
   }
   return (
     <div className="flex flex-col gap-10">
+      <DossierOutline sections={questionnaire.sections} />
       {questionnaire.sections.map((section, i) => (
         <section key={section.id}>
-          <Heading className="font-heading text-xl font-semibold text-foreground md:text-2xl">
+          <Heading
+            id={sectionAnchor(section.id)}
+            className="scroll-mt-6 font-heading text-xl font-semibold text-foreground md:text-2xl"
+          >
             {i + 1}. {section.title}
           </Heading>
           <dl className="mt-4 flex flex-col gap-6">

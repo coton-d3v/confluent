@@ -20,6 +20,8 @@ import { ConversationGuides } from '@/features/oauth/components/ConversationGuid
 import { CopyButton } from '@/features/oauth/components/CopyButton'
 import { API_BASE_URL } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const MCP_URL = `${API_BASE_URL.replace(/\/+$/, '')}/mcp`
 
@@ -63,7 +65,11 @@ export default function ApplicationsRoute() {
         {isLoading ? (
           <p className="mt-4 text-sm text-muted-foreground">Chargement…</p>
         ) : error || !data ? (
-          <p className="mt-4 text-sm text-destructive">Impossible de charger vos applications.</p>
+          <LoadError
+            className="mt-4"
+            message={readFailure(error, 'Vos applications connectées n’ont pas pu être chargées.')}
+            onRetry={refetch}
+          />
         ) : data.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">
             Aucune application n’a accès à votre compte.
@@ -128,8 +134,9 @@ function ConnectorAddress() {
   return (
     <section className="mt-8 max-w-2xl rounded-lg border border-border bg-card p-4">
       <h2 className="text-sm font-medium text-foreground">Adresse du connecteur</h2>
+      {/* E10.07 (U12): shown whole and selected in one click or tap, to copy by hand if needed. */}
       <div className="mt-2 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+        <code className="min-w-0 flex-1 rounded-md bg-muted px-3 py-2 text-sm break-all text-foreground select-all">
           {MCP_URL}
         </code>
         <CopyButton text={MCP_URL} label="Copier l’adresse du connecteur" />

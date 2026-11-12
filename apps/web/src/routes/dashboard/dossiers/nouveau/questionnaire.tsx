@@ -25,6 +25,8 @@ import { useAnswerAutosave } from '@/features/questionnaire/useAnswerAutosave'
 import { ProposalNotice } from '@/features/questionnaire/components/AnswerProvenance'
 import { isPendingProposal } from '@/features/questionnaire/provenance'
 import type { AnswerRow } from '@confluent/shared'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const recapPath = (dossierId: string) =>
   `/dashboard/dossiers/nouveau/recapitulatif?dossierId=${encodeURIComponent(dossierId)}`
@@ -64,9 +66,17 @@ function QuestionnaireLoader({ dossierId, questionId }: { dossierId: string; que
   const snapshot = dossierQuery.data?.questionnaireVersion
   if (dossierQuery.error || answersQuery.error || !snapshot) {
     return (
-      <p className="pt-8 text-sm text-destructive">
-        Impossible de charger le questionnaire. Réessayez plus tard.
-      </p>
+      <LoadError
+        className="mt-8"
+        message={readFailure(
+          dossierQuery.error ?? answersQuery.error,
+          'Le questionnaire n’a pas pu être chargé.',
+        )}
+        onRetry={() => {
+          dossierQuery.refetch()
+          answersQuery.refetch()
+        }}
+      />
     )
   }
   const initialAnswers: Record<string, string> = {}

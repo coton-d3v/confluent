@@ -23,6 +23,8 @@ import { formatAmount, financingTypeLabels, parseAmount } from '@/features/dossi
 import { listOpportunities } from '@/features/opportunities/api'
 import { sourceLabel } from '@/features/opportunities/presentation'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -156,11 +158,16 @@ export default function OpportunitiesRoute() {
           {query.isLoading && !data ? (
             <p className="text-sm text-muted-foreground">Chargement…</p>
           ) : query.error || !data ? (
-            <p role="alert" className="text-sm text-destructive">
-              {(query.error as { status?: number } | null)?.status === 400
-                ? 'Ces filtres ne sont pas valides : retirez-les pour revenir à la liste.'
-                : 'Impossible de charger vos opportunités. Réessayez plus tard.'}
-            </p>
+            (query.error as { status?: number } | null)?.status === 400 ? (
+              <p role="alert" className="text-sm text-destructive">
+                Ces filtres ne sont pas valides : retirez-les pour revenir à la liste.
+              </p>
+            ) : (
+              <LoadError
+                message={readFailure(query.error, 'Vos opportunités n’ont pas pu être chargées.')}
+                onRetry={query.refetch}
+              />
+            )
           ) : (
             <Results
               data={data}

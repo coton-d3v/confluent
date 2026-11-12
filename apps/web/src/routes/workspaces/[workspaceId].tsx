@@ -198,7 +198,7 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
             >
               Présentation
             </h2>
-            <p className="mt-2 whitespace-pre-line break-words text-sm text-foreground">
+            <p className="mt-2 whitespace-pre-line wrap-anywhere text-sm text-foreground">
               {workspace.presentation}
             </p>
           </section>

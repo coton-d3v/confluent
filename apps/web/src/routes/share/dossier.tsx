@@ -17,7 +17,7 @@ export function SharedDossierPage({ data }: { data: FinanceurShareResponse }) {
   useReadingTracker(data.share.reading?.id)
   return (
     <>
-      <title>{data.dossier.name} · Confluent</title>
+      <title>{`${data.dossier.name} · Confluent`}</title>
       <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-8 bg-background px-6 py-8 lg:max-w-3xl lg:px-10">
         <ConfluentWordmark className="h-6 w-auto text-foreground" />
         <RecipientDossierView

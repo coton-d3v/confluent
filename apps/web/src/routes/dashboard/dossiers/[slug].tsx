@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { AccessListRow } from '@/components/confluent/AccessListRow'
 import { DossierField } from '@/components/confluent/DossierField'
+import { DossierOutline } from '@/components/confluent/DossierOutline'
+import { sectionAnchor } from '@/lib/section-anchor'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import { filenamesByField, useDossierDocuments } from '@/features/documents/useDossierDocuments'
 import { MetricCard } from '@/components/confluent/MetricCard'
@@ -296,7 +298,7 @@ function DossierView({
 
   return (
     <div className="mx-auto max-w-[720px]">
-      <title>{displayName} · Confluent</title>
+      <title>{`${displayName} · Confluent`}</title>
 
       <nav aria-label="Fil d'Ariane" className="mb-4">
         <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -357,7 +359,7 @@ function DossierView({
           )}
         </div>
         {isOwner && isDraft ? (
-          <div className="flex gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap gap-2 self-start sm:self-auto">
             <Button
               type="button"
               variant="outline"
@@ -377,7 +379,7 @@ function DossierView({
             </Button>
           </div>
         ) : isOwner ? (
-          <div className="flex gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap gap-2 self-start sm:self-auto">
             <Button
               type="button"
               variant="outline"
@@ -484,6 +486,7 @@ function DossierView({
             />
           ) : questionnaire ? (
             <div className="flex flex-col gap-10">
+              <DossierOutline sections={questionnaire.sections} />
               {toConfirm > 0 && (
                 <p
                   role="status"
@@ -500,7 +503,10 @@ function DossierView({
                 )
                 return (
                   <section key={section.id}>
-                    <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">
+                    <h2
+                      id={sectionAnchor(section.id)}
+                      className="scroll-mt-6 font-heading text-xl font-semibold text-foreground md:text-2xl"
+                    >
                       {i + 1}. {section.title}
                     </h2>
                     <dl className="mt-4 flex flex-col gap-6">

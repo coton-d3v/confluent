@@ -93,13 +93,13 @@ export default function DashboardRoute() {
           </h2>
           <ul role="list" className="mt-2 flex flex-wrap gap-2">
             {companies.map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className="max-w-full">
                 <Link
                   to={`/dashboard/entreprises/${encodeURIComponent(c.id)}`}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:border-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 >
                   <span className="font-medium">{c.name}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
                     {c.dossiers.length <= 1
                       ? `${c.dossiers.length} demande`
                       : `${c.dossiers.length} demandes`}

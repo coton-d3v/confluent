@@ -7,6 +7,8 @@ import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/Confi
 import { answerCompanyOffer, listCompanyOffers } from '@/features/company-transfers/api'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -97,9 +99,11 @@ export default function CompanyOffersRoute() {
       {offers.isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : offers.error ? (
-        <p role="alert" className="mt-8 text-sm text-destructive">
-          Impossible de charger les propositions. Réessayez plus tard.
-        </p>
+        <LoadError
+          className="mt-8"
+          message={readFailure(offers.error, 'Les propositions n’ont pas pu être chargées.')}
+          onRetry={offers.refetch}
+        />
       ) : list.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">
           Aucune proposition en attente.{' '}
@@ -118,7 +122,7 @@ export default function CompanyOffersRoute() {
                 <div>
                   <h2
                     id={`offer-${offer.id}`}
-                    className="font-heading text-lg font-semibold break-words text-foreground"
+                    className="font-heading text-lg font-semibold wrap-anywhere text-foreground"
                   >
                     {offer.company.name}
                   </h2>

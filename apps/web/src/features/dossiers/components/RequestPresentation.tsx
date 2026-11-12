@@ -9,7 +9,7 @@ export function RequestPresentation({ dossier }: { dossier: PresentationData }) 
   return (
     <div className="flex flex-col gap-4">
       {dossier.summary && (
-        <p className="whitespace-pre-line break-words text-base text-foreground">{dossier.summary}</p>
+        <p className="whitespace-pre-line wrap-anywhere text-base text-foreground">{dossier.summary}</p>
       )}
       {(amount || types.length > 0) && (
         <div className="flex flex-wrap items-center gap-2">
@@ -33,7 +33,7 @@ export function RequestPresentation({ dossier }: { dossier: PresentationData }) 
       {dossier.objective && (
         <div>
           <h3 className="text-sm font-medium text-muted-foreground">Objectif du financement</h3>
-          <p className="mt-1 whitespace-pre-line break-words text-sm text-foreground">
+          <p className="mt-1 whitespace-pre-line wrap-anywhere text-sm text-foreground">
             {dossier.objective}
           </p>
         </div>
@@ -41,7 +41,7 @@ export function RequestPresentation({ dossier }: { dossier: PresentationData }) 
       {dossier.description && (
         <div>
           <h3 className="text-sm font-medium text-muted-foreground">Description</h3>
-          <p className="mt-1 whitespace-pre-line break-words text-sm text-foreground">
+          <p className="mt-1 whitespace-pre-line wrap-anywhere text-sm text-foreground">
             {dossier.description}
           </p>
         </div>

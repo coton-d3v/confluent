@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { listMyWorkspaceMemberships } from '@/features/workspaces/api'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 // The workspaces the signed-in person belongs to (ROADMAP E05.02), with their role in each: each one
 // opens (E05.03); the ones they manage also lead to their settings and members.
@@ -37,7 +39,11 @@ export default function MyWorkspacesRoute() {
       {memberships.isLoading && !memberships.data ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : memberships.error ? (
-        <p className="mt-8 text-sm text-destructive">Impossible de charger vos workspaces.</p>
+        <LoadError
+          className="mt-8"
+          message={readFailure(memberships.error, 'Vos workspaces n’ont pas pu être chargés.')}
+          onRetry={memberships.refetch}
+        />
       ) : memberships.data?.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">
           Vous n’êtes membre d’aucun workspace pour l’instant.

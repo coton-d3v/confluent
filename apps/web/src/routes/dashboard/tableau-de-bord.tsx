@@ -1,8 +1,10 @@
 import { MetricCard } from '@/components/confluent/MetricCard'
 import { useDossiers } from '@/features/dossiers/hooks'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 export default function TableauDeBordRoute() {
-  const { data, isLoading, error } = useDossiers()
+  const { data, isLoading, error, refetch } = useDossiers()
   const dossiers = data ?? []
   const submitted = dossiers.filter((d) => d.submittedAt !== null).length
   const drafts = dossiers.length - submitted
@@ -19,9 +21,11 @@ export default function TableauDeBordRoute() {
       {isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : error ? (
-        <p className="mt-8 text-sm text-destructive">
-          Impossible de charger vos dossiers.
-        </p>
+        <LoadError
+          className="mt-8"
+          message={readFailure(error, 'Vos dossiers n’ont pas pu être chargés.')}
+          onRetry={refetch}
+        />
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
           <MetricCard label="Dossiers total" value={dossiers.length.toString()} />

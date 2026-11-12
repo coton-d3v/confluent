@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
+// E10.07: 44 px high on a touch screen.
 const LINK_CLASS =
-  'underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]'
+  'pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]'
 
 export function LegalLinks({ className }: { className?: string }) {
   return (

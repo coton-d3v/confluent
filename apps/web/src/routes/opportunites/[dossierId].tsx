@@ -8,6 +8,8 @@ import { sourceLabel } from '@/features/opportunities/presentation'
 import { RecipientDossierView } from '@/features/share-access/components/RecipientDossierView'
 import { useReadingTracker } from '@/features/reading/useReadingTracker'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -52,17 +54,23 @@ export default function OpportunityRoute() {
       {query.isLoading && !data ? (
         <p className="text-sm text-muted-foreground">Chargement…</p>
       ) : !data ? (
-        <div role="alert" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           <h1 className="font-heading text-2xl font-semibold text-foreground">
             {status === 404 || status === 400
               ? 'Cette opportunité ne vous est pas accessible'
               : 'Impossible de charger cette opportunité'}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            {status === 404 || status === 400
-              ? 'Le partage a pu être révoqué, la publication retirée du vivier ou mise en pause, ou votre accès à la structure terminé.'
-              : 'Vérifiez votre connexion puis réessayez.'}
-          </p>
+          {status === 404 || status === 400 ? (
+            <p className="text-sm text-muted-foreground">
+              Le partage a pu être révoqué, la publication retirée du vivier ou mise en pause, ou
+              votre accès à la structure terminé.
+            </p>
+          ) : (
+            <LoadError
+              message={readFailure(query.error, 'L’opportunité n’a pas pu être chargée.')}
+              onRetry={query.refetch}
+            />
+          )}
           <Link
             to="/opportunites"
             className="self-start text-sm font-medium text-foreground underline underline-offset-4"

@@ -8,6 +8,8 @@ import {
 } from '@/features/workspaces/components/WorkspacePageHeader'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { adminFailure } from '@/features/admin/failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 // The categories of sources of a workspace's financing plans (ROADMAP E06.02), configured by
 // Confluent administrators and the workspace's managers; the API decides who may, at each request.
@@ -23,12 +25,18 @@ function WorkspaceSources({ workspaceId }: { workspaceId: string }) {
 
   if (error) {
     if (error.status === 403) return <WorkspaceNotManaged />
+    if (error.status === 404 || error.status === 400) {
+      return <p className="pt-8 text-sm text-destructive">Workspace introuvable.</p>
+    }
     return (
-      <p className="pt-8 text-sm text-destructive">
-        {error.status === 404 || error.status === 400
-          ? 'Workspace introuvable.'
-          : 'Impossible de charger les sources de financement du workspace.'}
-      </p>
+      <LoadError
+        className="mt-8"
+        message={adminFailure(error, 'Les sources de financement du workspace n’ont pas pu être chargées.')}
+        onRetry={() => {
+          workspace.refetch()
+          categories.refetch()
+        }}
+      />
     )
   }
   if (!workspace.data || !categories.data) {

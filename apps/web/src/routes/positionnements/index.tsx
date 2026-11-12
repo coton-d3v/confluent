@@ -16,6 +16,8 @@ import { withdrawPledge } from '@/features/pledges/api'
 import { getMyPositions, withdrawDisclosure } from '@/features/positions/api'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR')
 
@@ -77,9 +79,11 @@ export default function PositionsRoute() {
       {query.isLoading && !data ? (
         <p className="text-sm text-muted-foreground">Chargement…</p>
       ) : !data ? (
-        <p role="alert" className="text-sm text-destructive">
-          Impossible de charger vos positionnements. Vérifiez votre connexion puis réessayez.
-        </p>
+        <LoadError
+          message={readFailure(query.error, 'Vos positionnements n’ont pas pu être chargés.')}
+          onRetry={query.refetch}
+          retrying={query.isLoading}
+        />
       ) : data.items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center">
           <h2 className="text-base font-medium text-foreground">

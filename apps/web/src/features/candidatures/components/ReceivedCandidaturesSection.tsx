@@ -295,7 +295,7 @@ function Results({
               <li key={c.id} className="rounded-lg border border-border bg-card px-4 py-3">
                 <Link
                   to={`/workspaces/${workspaceId}/candidatures/${c.id}`}
-                  className="min-w-0 break-words text-base font-medium text-foreground underline-offset-4 hover:underline"
+                  className="min-w-0 wrap-anywhere text-base font-medium text-foreground underline-offset-4 hover:underline"
                 >
                   {c.company.name} — {c.dossier.name}
                 </Link>
