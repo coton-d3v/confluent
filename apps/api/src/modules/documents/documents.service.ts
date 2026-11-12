@@ -129,12 +129,20 @@ export class DocumentsService {
   // A new document is selected by the dossier it is deposited through, following its latest version
   // (E05.07: what is deposited for a request reaches its shares, as before); the company's other
   // dossiers select it only if their owner chooses to. A new version changes no selection.
+  //
+  // E10.05: deposited by an administrator (`byAdministrator`, their account) through a request, the
+  // file goes through the same library and versions — a new document, or a new version replacing the
+  // one in force — and is journaled on that request in the same transaction (`admin_uploaded_document`,
+  // shown to its owner as an intervention of the administration): no version without its entry, and
+  // the stored object is deleted if either fails. A new document is not selected: only its owner
+  // decides what their requests present to their shares.
   async upload(params: {
     dossier: DossierRef
     filename: string
     buffer: Buffer
     fieldId?: string | null
     type?: DocumentType
+    byAdministrator?: string
   }): Promise<StoredVersion> {
     // Normally enforced earlier by the multipart limit; kept for callers other than the controller.
     if (params.buffer.byteLength > MAX_UPLOAD_BYTES) {
@@ -168,13 +176,16 @@ export class DocumentsService {
         let document = await tx.libraryDocument.findFirst({
           where: { companyId, fieldId, filename },
         })
+        const newDocument = !document
         if (!document) {
           document = await tx.libraryDocument.create({
             data: { companyId, fieldId, filename, type: params.type ?? 'other' },
           })
-          await tx.dossierDocument.create({
-            data: { dossierId: params.dossier.id, companyId, libraryDocumentId: document.id },
-          })
+          if (!params.byAdministrator) {
+            await tx.dossierDocument.create({
+              data: { dossierId: params.dossier.id, companyId, libraryDocumentId: document.id },
+            })
+          }
         }
         const version = await this.nextVersion(tx, document.id)
         const created = await tx.document.create({
@@ -188,6 +199,24 @@ export class DocumentsService {
             version,
           },
         })
+        if (params.byAdministrator) {
+          await this.audit.recordIn(tx, {
+            actionType: 'admin_uploaded_document',
+            actorId: params.byAdministrator,
+            dossierId: params.dossier.id,
+            metadata: {
+              documentId: document.id,
+              versionId: created.id,
+              filename,
+              version,
+              newDocument,
+              fieldId,
+              type: documentTypeOf(document.type),
+              size: created.size,
+              mimetype,
+            },
+          })
+        }
         return storedVersion(created, document, null)
       })
     } catch (err) {

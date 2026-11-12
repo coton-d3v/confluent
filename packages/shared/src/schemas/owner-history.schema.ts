@@ -10,7 +10,7 @@ import { readingChannelSchema } from './reading.schema.js'
 //    their page and active time — never a reading through pools alone, not even counted), what
 //    happened to its shares (opened, level changed, revoked — by the owner or by the administration),
 //    what the administration changed on it (an answer edited, a reclassification after new rules, a
-//    document added) and the steps of the request itself (submitted, published, back to draft,
+//    document deposited or replaced in the library, E10.05) and the steps of the request itself (submitted, published, back to draft,
 //    archived, unarchived — with the AI application that asked, when one did).
 //  * Read from the journal through a closed list: each journal action is classified once, shown or
 //    hidden with its reason; an action nobody classified is hidden (and the API's tests fail until it

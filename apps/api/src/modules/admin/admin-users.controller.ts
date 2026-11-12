@@ -75,6 +75,7 @@ export class AdminUsersController {
   @ApiParam({ name: 'id', description: 'UUID de l’utilisateur' })
   @ApiOkResponse({ description: 'User désactivé.' })
   @ApiNotFoundResponse({ description: 'User inexistant.' })
+  @ApiConflictResponse({ description: 'Son propre compte : jamais désactivé (E10.05).' })
   deactivate(@Req() req: Request, @Param('id') id: string) {
     return this.service.deactivate(id, currentUser(req).id)
   }

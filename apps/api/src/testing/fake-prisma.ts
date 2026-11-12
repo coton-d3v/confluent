@@ -5,13 +5,23 @@ import { DEFAULT_PUBLIC_PAGE_BLOCKS } from '@confluent/shared'
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
 // Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
 // updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ gte }`, `{ lt }`, `{ lte }`,
-// `{ not }`, `{ in }`, `{ notIn }`, `{ equals, mode: 'insensitive' }`, `OR`; `take` on findMany.
+// `{ not }`, `{ in }`, `{ notIn }`, `{ equals, mode: 'insensitive' }`, `{ contains, mode }`, `OR`,
+// a to-one relation's columns (TO_ONE); `skip` and `take` on findMany.
 type Row = Record<string, unknown> & { id: string }
 type Where = Record<string, unknown>
+// The row a to-one relation of `row` points at, or undefined when `field` is not one.
+type Related = (field: string, row: Row) => Row | null | undefined
 
-function matches(row: Row, where: Where = {}): boolean {
+// To-one relations a `where` may filter on, e.g. { company: { name: { contains } } } on dossiers.
+const TO_ONE: Record<string, Record<string, [table: string, foreignKey: string]>> = {
+  dossier: { user: ['user', 'userId'], company: ['company', 'companyId'] },
+}
+
+function matches(row: Row, where: Where = {}, related?: Related): boolean {
   return Object.entries(where).every(([k, cond]) => {
-    if (k === 'OR') return (cond as Where[]).some((w) => matches(row, w))
+    if (k === 'OR') return (cond as Where[]).some((w) => matches(row, w, related))
+    const target = related?.(k, row)
+    if (target !== undefined) return target !== null && matches(target, cond as Where)
     const v = row[k]
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
       const c = cond as {
@@ -23,7 +33,16 @@ function matches(row: Row, where: Where = {}): boolean {
         in?: unknown[]
         notIn?: unknown[]
         equals?: unknown
+        contains?: string
         mode?: 'insensitive'
+      }
+      if ('contains' in c) {
+        if (typeof v !== 'string') return false
+        // LIKE's escapes (`\%`, `\_`, `\\`) stand for the character itself.
+        const part = c.contains!.replace(/\\(.)/g, '$1')
+        return c.mode === 'insensitive'
+          ? v.toLowerCase().includes(part.toLowerCase())
+          : v.includes(part)
       }
       if ('equals' in c) {
         if (c.mode !== 'insensitive' || typeof v !== 'string') return v === c.equals
@@ -144,23 +163,39 @@ export function createFakePrisma() {
         where,
         include,
         orderBy,
+        skip,
         take,
       }: {
         where?: Where
         include?: Record<string, unknown>
         orderBy?: unknown
+        skip?: number
         take?: number
       } = {}) =>
         Promise.resolve(
           sorted(name, filtered(name, where), orderBy)
             .filter((r) => relationsMatch(name, r, where))
-            .slice(0, take ?? Infinity)
+            .slice(skip ?? 0, (skip ?? 0) + (take ?? Infinity))
             .map((r) => withInclude(name, r, include)),
         ),
     ),
     count: jest.fn(({ where }: { where?: Where } = {}) =>
-      Promise.resolve([...table(name).values()].filter((r) => matches(r, where)).length),
+      Promise.resolve(filtered(name, where).length),
     ),
+    // `groupBy({ by: [column], _count: { _all: true } })`.
+    groupBy: jest.fn(({ by, where }: { by: string[]; where?: Where }) => {
+      const groups = new Map<string, Row[]>()
+      for (const row of filtered(name, where)) {
+        const key = JSON.stringify(by.map((k) => row[k] ?? null))
+        groups.set(key, [...(groups.get(key) ?? []), row])
+      }
+      return Promise.resolve(
+        [...groups.values()].map((rows) => ({
+          ...Object.fromEntries(by.map((k) => [k, rows[0][k] ?? null])),
+          _count: { _all: rows.length },
+        })),
+      )
+    }),
     create: jest.fn(
       ({ data, include }: { data: Record<string, unknown>; include?: Record<string, unknown> }) => {
         const row = {
@@ -276,8 +311,14 @@ export function createFakePrisma() {
     if (name !== 'dossier' || !some) return true
     return filtered('shareLink', { ...some, dossierId: row.id }).length > 0
   }
+  const relatedOf =
+    (name: string): Related =>
+    (field, row) => {
+      const relation = TO_ONE[name]?.[field]
+      return relation ? (get(relation[0], row[relation[1]]) ?? null) : undefined
+    }
   const filtered = (name: string, where?: Where) =>
-    [...table(name).values()].filter((r) => matches(r, where))
+    [...table(name).values()].filter((r) => matches(r, where, relatedOf(name)))
   // orderBy on columns and on one level of to-one relation, e.g. { section: { orderIndex: 'asc' } }.
   const sorted = (name: string, rows: Row[], orderBy: unknown): Row[] => {
     const keys = (Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []) as Array<
@@ -290,14 +331,23 @@ export function createFakePrisma() {
       }
       return [row[field], dir]
     }
+    const inserted = new Map(rows.map((r, i) => [r, i]))
     return [...rows].sort((a, b) => {
+      // Rows written in the same millisecond would have distinct instants in PostgreSQL: dates tied
+      // on every key are ordered as written, in the direction of the first date key.
+      let dateTie: unknown = null
       for (const k of keys) {
         const [field, dir] = Object.entries(k)[0]
-        const [av, d] = valueOf(a, field, dir)
-        const [bv] = valueOf(b, field, dir)
+        // Dates by their instant: two equal dates are a tie, broken by the next key.
+        const [ar, d] = valueOf(a, field, dir)
+        const [br] = valueOf(b, field, dir)
+        const av = ar instanceof Date ? ar.getTime() : ar
+        const bv = br instanceof Date ? br.getTime() : br
         if (av !== bv) return ((av as number) < (bv as number) ? -1 : 1) * (d === 'desc' ? -1 : 1)
+        if (ar instanceof Date && dateTie === null) dateTie = d
       }
-      return 0
+      if (dateTie === null) return 0
+      return (inserted.get(a)! - inserted.get(b)!) * (dateTie === 'desc' ? -1 : 1)
     })
   }
 
