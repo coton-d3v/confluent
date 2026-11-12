@@ -55,9 +55,10 @@ function valuesOf(committee?: Committee): Values {
 // A committee as its managers plan or edit it (ROADMAP E08.01, E08.02): name, date and time in a
 // named time zone, place and/or link, and two texts side by side — the internal notes, for the
 // conseillers only, and the information shared with candidates and investors. Both are always sent
-// (blank removes them). Checked here with the API's own rules for
-// immediate feedback — a time skipped or repeated by a change of offset included —; the API stays
-// authoritative and its field errors are shown the same way.
+// (blank removes them), and so is whether it is offered on the public participation form (E08.04).
+// Checked here with the API's own rules for immediate feedback — a time skipped or repeated by a
+// change of offset included —; the API stays authoritative and its field errors are shown the same
+// way.
 export function CommitteeForm({
   committee,
   submitLabel,
@@ -73,6 +74,8 @@ export function CommitteeForm({
   onCancel: () => void
 }) {
   const [values, setValues] = useState<Values>(() => valuesOf(committee))
+  // E08.04: offered on the workspace's public participation form.
+  const [requestsOpen, setRequestsOpen] = useState(committee?.participationRequestsOpen ?? false)
   const [errors, setErrors] = useState<Errors>({})
   const [failure, setFailure] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -94,7 +97,10 @@ export function CommitteeForm({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFailure(null)
-    const parsed = createCommitteeSchema.safeParse(values)
+    const parsed = createCommitteeSchema.safeParse({
+      ...values,
+      participationRequestsOpen: requestsOpen,
+    })
     if (!parsed.success) {
       const found: Errors = {}
       for (const issue of parsed.error.issues) {
@@ -260,6 +266,29 @@ export function CommitteeForm({
             {...invalid('sharedInfo', errors)}
           />
         </Field>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="flex min-h-11 items-start gap-3 text-sm text-foreground">
+          <input
+            id="committee-participationRequestsOpen"
+            type="checkbox"
+            className="mt-0.5 size-4 shrink-0"
+            checked={requestsOpen}
+            aria-describedby="committee-participationRequestsOpen-help"
+            onChange={(e) => {
+              setRequestsOpen(e.target.checked)
+              setFailure(null)
+            }}
+          />
+          <span className="font-medium">Ouvert aux demandes de participation</span>
+        </label>
+        <p id="committee-participationRequestsOpen-help" className="text-xs text-muted-foreground">
+          Proposé sur le formulaire public du workspace, où investisseurs et invités demandent à
+          participer, tant qu’il est programmé et pas encore commencé. Le public n’y voit que son
+          nom, sa date et son heure : ni le lieu, ni le lien, ni les informations diffusées, ni les
+          notes internes. Une demande n’accorde aucun accès.
+        </p>
       </div>
 
       <div aria-live="assertive">

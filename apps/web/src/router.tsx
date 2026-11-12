@@ -45,6 +45,7 @@ import NotFoundRoute from '@/routes/not-found'
 import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
 import ConfidentialiteRoute from '@/routes/legal/confidentialite'
 import OAuthConsentRoute from '@/routes/oauth/consent'
+import ParticipationRoute from '@/routes/w/participer'
 
 export const router = createBrowserRouter([
   {
@@ -199,4 +200,6 @@ export const router = createBrowserRouter([
   { path: '/mentions-legales', element: <MentionsLegalesRoute /> },
   { path: '/confidentialite', element: <ConfidentialiteRoute /> },
   { path: '/oauth/consent', element: <OAuthConsentRoute /> },
+  // E08.04: a workspace's public participation form, signed in or not.
+  { path: '/w/:slug/participer', element: <ParticipationRoute /> },
 ])

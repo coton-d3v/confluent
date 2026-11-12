@@ -41,6 +41,10 @@ export default function ConfidentialiteRoute() {
             dates d&apos;autorisation et de dernière utilisation, et journal de ses appels (outil
             utilisé, dossier concerné, résultat).
           </li>
+          <li>
+            Demandes de participation à un comité, envoyées sans compte depuis le formulaire public
+            d&apos;une structure : nom, organisation, adresse email, message et sessions choisies.
+          </li>
         </ul>
       </LegalSection>
 
@@ -55,6 +59,11 @@ export default function ConfidentialiteRoute() {
           <li>
             Transmettre vos dossiers aux applications d&apos;IA que vous connectez vous-même, à
             votre demande et dans les limites que vous accordez (exécution du service).
+          </li>
+          <li>
+            Transmettre une demande de participation à un comité à la seule structure concernée, qui
+            l&apos;étudie ; aucun compte n&apos;est créé et aucun email n&apos;est envoyé avant
+            qu&apos;elle l&apos;accepte (mesures prises à votre demande).
           </li>
         </ul>
       </LegalSection>
