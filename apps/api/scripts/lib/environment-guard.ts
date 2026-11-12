@@ -14,3 +14,18 @@ export function refuseInProduction(action: string): void {
   )
   process.exit(1)
 }
+
+// Exit status of a command refused outside development (see refuseOutsideDevelopment).
+export const REFUSED_OUTSIDE_DEVELOPMENT = 4
+
+// Acting as another account (ROADMAP E10.06) is for development and tests only: closed unless
+// NODE_ENV says so explicitly — unset, production or any other value refuses — and no override,
+// since the production image ships these scripts.
+export function refuseOutsideDevelopment(action: string): void {
+  const env = process.env.NODE_ENV
+  if (env === 'development' || env === 'test') return
+  console.error(
+    `✗ ${action} : réservé au développement et aux tests (NODE_ENV=${env ?? 'non défini'}).`,
+  )
+  process.exit(REFUSED_OUTSIDE_DEVELOPMENT)
+}

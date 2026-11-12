@@ -1,6 +1,6 @@
-// CLI — issue a JWT access token for an existing user.
-// Works wherever JWT_SECRET + DATABASE_URL are exposed (dev local, CI, preprod).
-// NOT deployed to prod runtime; lives in scripts/, excluded from the Docker image.
+// CLI — issue a JWT access token for an existing user: acting as that user, so development and tests
+// only (ROADMAP E10.06). The production image ships scripts/ and runs with NODE_ENV=production: the
+// command is refused there, with no override.
 //
 // Contract:
 //   stdout     = raw token only
@@ -9,14 +9,17 @@
 //   exit 1     = user not found (invalid argument)
 //   exit 2     = config invalid (JWT_SECRET missing / too short)
 //   exit 3     = user inactive (JWT issuance refused by policy)
+//   exit 4     = refused: NODE_ENV is not development or test
 
 import { PrismaClient } from '@prisma/client'
 import { config as loadEnv } from 'dotenv'
 import jwt from 'jsonwebtoken'
+import { refuseOutsideDevelopment } from './lib/environment-guard'
 
 async function main(): Promise<void> {
   loadEnv({ path: '.env', quiet: true })
   loadEnv({ path: '.env.local', override: false, quiet: true })
+  refuseOutsideDevelopment('Émission d’un jeton au nom d’un compte')
 
   const ACCESS_TOKEN_TTL_SECONDS = 15 * 60
 

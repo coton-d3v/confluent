@@ -88,6 +88,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return
     }
 
+    // The cause stays in the server's log: its message or stack may name internals (a query, a
+    // host, a file) the person reading the page has no use for (ROADMAP E10.06).
     this.logger.error(
       `Unhandled exception on ${request.method} ${request.url}`,
       exception instanceof Error ? exception.stack : String(exception),
@@ -95,7 +97,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'An unexpected error occurred.',
+        message: 'Une erreur inattendue est survenue. Réessayez dans quelques instants.',
       },
     } satisfies ErrorBody)
   }
