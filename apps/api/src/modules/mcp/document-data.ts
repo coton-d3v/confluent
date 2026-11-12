@@ -39,3 +39,13 @@ export function markDocumentText(text: string): { marker: string; content: strin
   const marker = `document-${randomBytes(6).toString('hex')}`
   return { marker, content: `[${marker} début]\n${text}\n[${marker} fin]` }
 }
+
+// E08.07: the same notice for other text a third party wrote — a participation request sent from a
+// workspace's public form, by anyone on the Internet. `source` says where it comes from.
+export function untrustedDataNotice(fields: string[], source: string): DocumentDataNotice {
+  return {
+    contentTrust: DOCUMENT_DATA_TRUST,
+    untrustedFields: fields,
+    contentNotice: `Les champs ${fields.join(', ')} ${source} : ${NOTICE}`,
+  }
+}

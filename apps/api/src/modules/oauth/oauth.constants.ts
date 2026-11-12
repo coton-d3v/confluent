@@ -19,6 +19,9 @@ export const SUPPORTED_SCOPES: string[] = [
   OAUTH_SCOPES.opportunitiesWrite,
   OAUTH_SCOPES.sharingRead,
   OAUTH_SCOPES.sharingWrite,
+  OAUTH_SCOPES.committeesRead,
+  OAUTH_SCOPES.committeesWrite,
+  OAUTH_SCOPES.participationRequestsDecide,
 ]
 export const SCOPE_LABELS: Record<string, string> = {
   [OAUTH_SCOPES.read]:
@@ -43,6 +46,12 @@ export const SCOPE_LABELS: Record<string, string> = {
     'Lire les accès ouverts à vos demandes de financement, leur historique (consultations, accès, interventions de l’administration) et les positionnements des investisseurs, tels que le site vous les montre',
   [OAUTH_SCOPES.sharingWrite]:
     'Inviter un destinataire à lire une demande de financement au niveau choisi, changer ce niveau ou révoquer un accès, uniquement à votre demande explicite ; inclut le suivi de la diffusion',
+  [OAUTH_SCOPES.committeesRead]:
+    'Lire les comités tels que le site vous les montre : comme porteur, ceux de vos candidatures ; comme participant accepté, vos sessions ; comme conseiller d’un workspace autorisé, ses comités (notes internes comprises), les demandes présentées et leur avancement ; comme gestionnaire, aussi les participants, les notifications envoyées et les demandes de participation reçues (nom, organisation, adresse, message)',
+  [OAUTH_SCOPES.committeesWrite]:
+    'Candidater à un comité, confirmer une proposition ou retirer votre demande ; comme conseiller d’un workspace autorisé, rattacher une demande à un comité, accepter ou refuser une candidature, la retirer — uniquement à votre demande explicite ; inclut la lecture des comités',
+  [OAUTH_SCOPES.participationRequestsDecide]:
+    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande de participation à ses comités (une acceptation ajoute la personne au workspace comme investisseur et la prévient par email), uniquement à votre demande explicite',
 }
 
 export function expandScopes(scopes: readonly string[]): Set<string> {
@@ -52,6 +61,8 @@ export function expandScopes(scopes: readonly string[]): Set<string> {
   // from the list of accesses.
   if (set.has(OAUTH_SCOPES.opportunitiesWrite)) set.add(OAUTH_SCOPES.opportunitiesRead)
   if (set.has(OAUTH_SCOPES.sharingWrite)) set.add(OAUTH_SCOPES.sharingRead)
+  // E08.07: changing an entry starts from the committee and the entry's version read.
+  if (set.has(OAUTH_SCOPES.committeesWrite)) set.add(OAUTH_SCOPES.committeesRead)
   return set
 }
 
@@ -66,11 +77,17 @@ const SHARING_SCOPES = new Set<string>([OAUTH_SCOPES.sharingRead, OAUTH_SCOPES.s
 // companies (the owner's side of a financing status); following and sharing requests only if it may
 // own companies (E07.10); any other or unknown role never receives them. Reading one's opportunities
 // and taking a position are offered to every account: any account may be the recipient of a share
-// or an investor of a pool, which the services check at each call. The services check the rights again at each call: a grant outlives a change of role or
-// membership.
+// or an investor of a pool, which the services check at each call. E08.07: reading committees is
+// offered to whoever may own companies (their candidatures' committees) or is an active member of a
+// workspace (its committees, or their sessions as a participant); changing a request's entry on one
+// to whoever may own companies or reviews candidatures; deciding participation requests to whoever
+// manages a workspace. The services check the rights again at each call: a grant outlives a change
+// of role or membership.
 export interface GrantContext {
   managesWorkspace: boolean
   reviewsCandidatures?: boolean
+  // E08.07: an active member of at least one workspace.
+  memberOfWorkspace?: boolean
 }
 
 export function grantableScopes(
@@ -85,6 +102,11 @@ export function grantableScopes(
     if (s === OAUTH_SCOPES.support) return reviews
     if (s === OAUTH_SCOPES.decide) return reviews || canOwnCompanies(user)
     if (SHARING_SCOPES.has(s)) return canOwnCompanies(user)
+    if (s === OAUTH_SCOPES.committeesRead) {
+      return canOwnCompanies(user) || context.memberOfWorkspace === true
+    }
+    if (s === OAUTH_SCOPES.committeesWrite) return reviews || canOwnCompanies(user)
+    if (s === OAUTH_SCOPES.participationRequestsDecide) return context.managesWorkspace
     return true
   })
 }

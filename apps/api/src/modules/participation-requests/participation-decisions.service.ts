@@ -9,6 +9,7 @@ import {
 } from '@confluent/shared'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, channelMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { scheduleOf } from '../committees/committee-views'
@@ -58,7 +59,9 @@ export interface ParticipationDecisionResult {
 //
 // Journal: `participation_request_decided` in the transaction — the decision, what the acceptance
 // did, the sessions; never the name, address nor message (they stay in the request). Kept out of
-// every request owner's history.
+// every request owner's history. E08.07: a decision asked through MCP is this same operation, its
+// entry naming the channel and the application (`origin`), never the manager's words, which may
+// name the person (they stay in the call's own entry, `mcp_tool_called`).
 @Injectable()
 export class ParticipationDecisionsService {
   private readonly logger = new Logger(ParticipationDecisionsService.name)
@@ -78,6 +81,7 @@ export class ParticipationDecisionsService {
     workspaceId: string,
     requestId: string,
     input: DecideInput,
+    origin?: ActionOrigin,
   ): Promise<ParticipationDecisionResult> {
     const outcome = await this.prisma.$transaction(async (tx) => {
       await lockWorkspaceRow(tx, workspaceId)
@@ -138,6 +142,7 @@ export class ParticipationDecisionsService {
           admission,
           memberUserId,
           committeeIds,
+          ...(origin ? channelMetadata(origin) : {}),
         },
       })
       return { request, decided: { workspace, committeeIds } }

@@ -63,6 +63,9 @@ export interface ToolTrace {
   workspaceId?: string
   companyId?: string
   candidatureId?: string
+  // E08.07: the committee or the participation request reached.
+  committeeId?: string
+  participationRequestId?: string
   // E04.08: the person's request reported for a submission or a publication, even when refused.
   instruction?: string
 }

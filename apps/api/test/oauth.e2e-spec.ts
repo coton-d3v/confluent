@@ -250,6 +250,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
     const forEntrepreneur = await request()
     expect(await shown(forEntrepreneur, userJwt)).toEqual([
       'candidatures:decide',
+      'committees:read',
+      'committees:write',
       'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
@@ -268,6 +270,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
     const forAdmin = await request()
     expect(await shown(forAdmin, adminJwt)).toEqual([
       'candidatures:decide',
+      'committees:read',
+      'committees:write',
       'dossiers:present',
       'dossiers:read',
       'dossiers:submit',
@@ -376,9 +380,13 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       ])
       // A manager designs the forms of their workspace: offered; presenting and sharing requests
       // are not (a financeur owns no company); reading and taking positions on opportunities are.
+      // E08.07: reading committees and changing a request's entry (a conseiller), deciding
+      // participation requests (a manager).
       expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
         'candidatures:decide',
         'candidatures:support',
+        'committees:read',
+        'committees:write',
         'dossiers:read',
         'dossiers:submit',
         'dossiers:write',
@@ -386,6 +394,7 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'forms:write',
         'opportunities:read',
         'opportunities:write',
+        'participation-requests:decide',
       ])
 
       // A deactivated membership, a workspace one is not in, an unknown one: refused, nothing kept,
@@ -497,6 +506,9 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'opportunities:write',
         'sharing:read',
         'sharing:write',
+        'committees:read',
+        'committees:write',
+        'participation-requests:decide',
       ],
     })
   })
@@ -600,6 +612,43 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'opportunities:write',
       'sharing:read',
       'sharing:write',
+    ]) {
+      const widened = await refresh(
+        tokens.body.refresh_token,
+        `dossiers:read dossiers:write ${extra}`,
+      ).expect(400)
+      expect([extra, widened.body.error]).toEqual([extra, 'invalid_scope'])
+    }
+    const refreshed = await refresh(tokens.body.refresh_token).expect(200)
+    expect(refreshed.body.scope).toBe('dossiers:read dossiers:write')
+    const info = await app
+      .get(ConfluentOAuthProvider)
+      .verifyAccessToken(refreshed.body.access_token)
+    expect(info.scopes).toEqual(['dossiers:read', 'dossiers:write'])
+  })
+
+  // E08.07 (R52): the committees' permissions are of their own. A connection authorized without
+  // them never obtains them by refreshing, alone or together.
+  it('a connection authorized before the E08.07 permissions cannot gain them by refreshing', async () => {
+    const clientId = await registerClient()
+    const { code, verifier } = await authorize(clientId)
+    const tokens = await exchange(clientId, code, verifier).expect(200)
+    expect(tokens.body.scope).toBe('dossiers:read dossiers:write')
+    const refresh = (refreshToken: string, scope?: string) =>
+      http()
+        .post('/token')
+        .type('form')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: refreshToken,
+          ...(scope ? { scope } : {}),
+        })
+    for (const extra of [
+      'committees:read',
+      'committees:write',
+      'participation-requests:decide',
+      'committees:read committees:write participation-requests:decide',
     ]) {
       const widened = await refresh(
         tokens.body.refresh_token,

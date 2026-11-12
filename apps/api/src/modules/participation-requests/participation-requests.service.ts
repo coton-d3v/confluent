@@ -113,7 +113,8 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // request, which E08.05 will keep or delete). Kept out of every request owner's history.
 //
 // The queue is read by the workspace's managers (`canManageWorkspace`): pending requests, or decided
-// ones (E08.05, `ParticipationDecisionsService`). No MCP tool (E08.07).
+// ones (E08.05, `ParticipationDecisionsService`), through MCP too (E08.07); submitting one is
+// public, never through MCP.
 @Injectable()
 export class ParticipationRequestsService {
   constructor(

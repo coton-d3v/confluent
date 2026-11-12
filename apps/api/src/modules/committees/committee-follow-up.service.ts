@@ -43,7 +43,8 @@ export interface CommitteeParticipantView {
 //  * A participant's sessions: the committees of the workspace the signed-in account was accepted
 //    for and still is an active member of, as their shared view (link included); nothing of the
 //    agenda nor of the other participants; an empty list for anyone else in the workspace.
-// Outside the workspace, the guard's `404` comes first. No MCP tool (E08.07).
+// Outside the workspace, the guard's `404` comes first. MCP (E08.07): the same operations, read
+// with `committees:read`.
 @Injectable()
 export class CommitteeFollowUpService {
   constructor(

@@ -15,6 +15,6 @@ import { ParticipationRequestsService } from './participation-requests.service'
   imports: [WorkspacesModule, AuthModule],
   controllers: [PublicParticipationController, ParticipationRequestsController],
   providers: [ParticipationRequestsService, ParticipationDecisionsService, ParticipationFormTokens],
-  exports: [ParticipationRequestsService],
+  exports: [ParticipationRequestsService, ParticipationDecisionsService],
 })
 export class ParticipationRequestsModule {}

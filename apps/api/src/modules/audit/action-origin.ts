@@ -20,3 +20,14 @@ export function originMetadata(origin: ActionOrigin): Record<string, string> {
   const { channel, clientId, clientName, grantId, instruction } = origin
   return { channel, clientId, clientName, grantId, instruction }
 }
+
+// E06.09, E08.07: what a structure's entry keeps of a request made through MCP — the channel, the
+// application and its authorization, never the person's words: those of a conseiller or a manager
+// stay in the call's own entry (`mcp_tool_called`, attached to the workspace), so that an entry of a
+// request's journal never holds the structure's words, nor one about a participation request a
+// name or an address the person may have typed.
+export function channelMetadata(origin: ActionOrigin): Record<string, string> {
+  if (origin.channel === 'site') return { channel: 'site' }
+  const { channel, clientId, clientName, grantId } = origin
+  return { channel, clientId, clientName, grantId }
+}

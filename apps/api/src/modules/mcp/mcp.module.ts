@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AnswersModule } from '../answers/answers.module'
 import { CandidaturesModule } from '../candidatures/candidatures.module'
+import { CommitteesModule } from '../committees/committees.module'
 import { CompaniesModule } from '../companies/companies.module'
 import { CompanyTransfersModule } from '../company-transfers/company-transfers.module'
 import { DocumentsModule } from '../documents/documents.module'
@@ -11,11 +12,13 @@ import { InterventionsModule } from '../interventions/interventions.module'
 import { OAuthModule } from '../oauth/oauth.module'
 import { OpportunitiesModule } from '../opportunities/opportunities.module'
 import { OwnerHistoryModule } from '../owner-history/owner-history.module'
+import { ParticipationRequestsModule } from '../participation-requests/participation-requests.module'
 import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { ShareLinksModule } from '../share-links/share-links.module'
 import { SupportPathsModule } from '../support-paths/support-paths.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
 import { CandidatureTools } from './candidature.tools'
+import { CommitteeTools } from './committee.tools'
 import { ConversationGuidesController } from './conversation-guides.controller'
 import { FinancingTools } from './financing.tools'
 import { FollowUpTools } from './follow-up.tools'
@@ -48,6 +51,9 @@ import { WorkspaceTools } from './workspace.tools'
     OpportunitiesModule,
     ShareLinksModule,
     OwnerHistoryModule,
+    // E08.07: committees, the requests presented at them and the participation requests.
+    CommitteesModule,
+    ParticipationRequestsModule,
   ],
   controllers: [ConversationGuidesController],
   providers: [
@@ -61,6 +67,7 @@ import { WorkspaceTools } from './workspace.tools'
     StructureTools,
     OpportunityTools,
     SharingTools,
+    CommitteeTools,
   ],
   exports: [McpToolsFactory],
 })

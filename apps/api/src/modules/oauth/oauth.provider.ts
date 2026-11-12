@@ -300,6 +300,8 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
       ),
       // E06.09: a conseiller of a workspace it may allow (an administrator member of one included).
       reviewsCandidatures: memberships.some((m) => canReviewCandidatures(user, m)),
+      // E08.07: committees are read by members of a workspace (conseillers, participants).
+      memberOfWorkspace: memberships.length > 0,
     }
   }
 

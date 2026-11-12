@@ -55,7 +55,7 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // every write locks the workspace row first and reads the right again after the lock (code review
 // R53): a manager deprived of the right or deactivated while the request waited writes nothing. A
 // write starts from the version the client read (`409` otherwise) and is journaled in the same
-// transaction. MCP: no tool yet (E08.07).
+// transaction. MCP (E08.07): read only, by the same rule; no tool creates, edits or cancels one.
 //
 // Two texts (E08.02): `internalNotes` for the conseillers only, `sharedInfo` for the committee's
 // candidates and investors, edited alike; a journal entry names a changed text, never copies it.

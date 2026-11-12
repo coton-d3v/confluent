@@ -17,7 +17,7 @@ import { AdminCommitteesController, CommitteesController } from './committees.co
 import { CommitteesService } from './committees.service'
 
 // ROADMAP E08.01: the committees each workspace organises; E08.03: the requests presented at them;
-// E08.06: their lists, progress and notices.
+// E08.06: their lists, progress and notices; E08.07: the same through MCP.
 @Module({
   imports: [WorkspacesModule, CandidaturesModule, AuthModule],
   controllers: [
@@ -34,6 +34,6 @@ import { CommitteesService } from './committees.service'
     CommitteeNoticesService,
     CommitteeFollowUpService,
   ],
-  exports: [CommitteesService, CommitteeApplicationsService],
+  exports: [CommitteesService, CommitteeApplicationsService, CommitteeFollowUpService],
 })
 export class CommitteesModule {}
