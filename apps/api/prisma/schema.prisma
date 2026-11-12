@@ -115,6 +115,12 @@ enum audit_action {
   investor_position_disclosed
   // E07.07: an investor withdrew that consent.
   investor_position_disclosure_withdrawn
+  // E08.01: a workspace manager created a committee.
+  committee_created
+  // E08.01: a manager edited a committee (name, schedule, place or information).
+  committee_updated
+  // E08.01: a manager cancelled a committee, marked it held, or put it back to planned.
+  committee_status_changed
 
   @@map("audit_action")
 }
@@ -909,6 +915,8 @@ model Workspace {
   supportSteps        SupportStep[]
   // E07.07: the positions its investors consented to show it.
   positionDisclosures InvestorPositionDisclosure[]
+  // E08.01: the committees it organises.
+  committees          Committee[]
 
   @@map("workspaces")
 }
@@ -1297,4 +1305,37 @@ model WorkspaceMembership {
   @@unique([workspaceId, userId])
   @@index([userId])
   @@map("workspace_memberships")
+}
+
+// ROADMAP E08.01: a committee (pitch session) a workspace organises — rules in @confluent/shared
+// `committee.schema.ts`. When: the wall-clock start as typed (`localStart`, minute precision, no time
+// zone) in the IANA zone `timeZone`, and the instant it designates (`startsAt`), derived by the API
+// at each write of the schedule — a time skipped or repeated by a change of offset is refused.
+// `status` planned / held / cancelled: cancelling is a status, a committee is never deleted, so its
+// `version` (grows at each change, a change made meanwhile is refused) is never reused.
+// `internalNotes`: the workspace's own information, read only by those who read its committees.
+// CHECK: closed status, trimmed bounded texts, https link, zone name, minute precision, years
+// 2000–2099, `startsAt` within the offsets of a real zone (migration 20261201000000_committees).
+model Committee {
+  id            String   @id @default(uuid())
+  workspaceId   String   @map("workspace_id")
+  name          String
+  localStart    DateTime @map("local_start") @db.Timestamp(0)
+  timeZone      String   @map("time_zone")
+  startsAt      DateTime @map("starts_at")
+  location      String?
+  meetingUrl    String?  @map("meeting_url")
+  status        String   @default("planned")
+  internalNotes String?  @map("internal_notes")
+  version       Int      @default(1)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Target of the composite foreign keys that will keep what joins a committee (E08.03) inside its
+  // workspace.
+  @@unique([id, workspaceId])
+  @@index([workspaceId, startsAt])
+  @@map("committees")
 }

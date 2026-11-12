@@ -70,6 +70,9 @@ export const auditActionSchema = z.enum([
   'investor_pledge_withdrawn',
   'investor_position_disclosed',
   'investor_position_disclosure_withdrawn',
+  'committee_created',
+  'committee_updated',
+  'committee_status_changed',
 ]);
 
 export const auditLogSchema = z.object({

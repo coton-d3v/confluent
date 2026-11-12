@@ -27,6 +27,7 @@ import { InterventionsModule } from './modules/interventions/interventions.modul
 import { PoolPublicationsModule } from './modules/pool-publications/pool-publications.module'
 import { OpportunitiesModule } from './modules/opportunities/opportunities.module'
 import { OwnerHistoryModule } from './modules/owner-history/owner-history.module'
+import { CommitteesModule } from './modules/committees/committees.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -61,6 +62,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     PoolPublicationsModule,
     OpportunitiesModule,
     OwnerHistoryModule,
+    CommitteesModule,
   ],
   controllers: [AppController],
   providers: [

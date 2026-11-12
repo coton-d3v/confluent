@@ -114,6 +114,10 @@ export const OWNER_HISTORY_RULES = {
   investor_pledge_withdrawn: INVESTOR,
   investor_position_disclosed: INVESTOR,
   investor_position_disclosure_withdrawn: INVESTOR,
+  // E08.01: a workspace's committees, read by its conseillers; no request is attached to one yet.
+  committee_created: PLATFORM,
+  committee_updated: PLATFORM,
+  committee_status_changed: PLATFORM,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a

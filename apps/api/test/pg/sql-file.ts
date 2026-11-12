@@ -233,3 +233,16 @@ export function fundingPlanPledgesDown(): string[] {
 export function fundingPlanPledgesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261130000000_funding_plan_pledges/migration.sql'))
 }
+
+// The revert of E08.01 (committees): it accepts that the committees and their journal are lost (SET
+// LOCAL, test transactions only).
+export function committeesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_committees_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261201000000_committees.down.sql')),
+  ]
+}
+
+export function committeesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261201000000_committees/migration.sql'))
+}
