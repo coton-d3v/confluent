@@ -13,7 +13,15 @@ import { Textarea } from '@/components/ui/textarea'
 import type { ApiError } from '@/lib/api-client'
 import { COMMON_TIME_ZONES, browserTimeZone, otherTimeZones } from '../format'
 
-type FieldName = 'name' | 'date' | 'time' | 'timeZone' | 'location' | 'meetingUrl' | 'internalNotes'
+type FieldName =
+  | 'name'
+  | 'date'
+  | 'time'
+  | 'timeZone'
+  | 'location'
+  | 'meetingUrl'
+  | 'internalNotes'
+  | 'sharedInfo'
 type Values = Record<FieldName, string>
 type Errors = Partial<Record<FieldName, string>>
 
@@ -25,6 +33,7 @@ const FIELDS: FieldName[] = [
   'location',
   'meetingUrl',
   'internalNotes',
+  'sharedInfo',
 ]
 const isField = (key: unknown): key is FieldName => FIELDS.includes(key as FieldName)
 
@@ -39,11 +48,14 @@ function valuesOf(committee?: Committee): Values {
     location: committee?.location ?? '',
     meetingUrl: committee?.meetingUrl ?? '',
     internalNotes: committee?.internalNotes ?? '',
+    sharedInfo: committee?.sharedInfo ?? '',
   }
 }
 
-// A committee as its managers plan or edit it (ROADMAP E08.01): name, date and time in a named time
-// zone, place and/or link, internal information. Checked here with the API's own rules for
+// A committee as its managers plan or edit it (ROADMAP E08.01, E08.02): name, date and time in a
+// named time zone, place and/or link, and two texts side by side — the internal notes, for the
+// conseillers only, and the information shared with candidates and investors. Both are always sent
+// (blank removes them). Checked here with the API's own rules for
 // immediate feedback — a time skipped or repeated by a change of offset included —; the API stays
 // authoritative and its field errors are shown the same way.
 export function CommitteeForm({
@@ -185,7 +197,7 @@ export function CommitteeForm({
         id="location"
         label="Lieu"
         error={errors.location}
-        help="Adresse ou salle, sur une ligne. Laissez vide si le lieu reste à préciser."
+        help="Adresse ou salle, sur une ligne. Laissez vide si le lieu reste à préciser. Diffusé aux candidats et investisseurs."
       >
         <Input
           id="committee-location"
@@ -201,7 +213,7 @@ export function CommitteeForm({
         id="meetingUrl"
         label="Lien de visioconférence"
         error={errors.meetingUrl}
-        help="Adresse complète en https://, si le comité se tient (aussi) en ligne."
+        help="Adresse complète en https://, si le comité se tient (aussi) en ligne. Diffusé aux candidats et investisseurs."
       >
         <Input
           id="committee-meetingUrl"
@@ -216,21 +228,39 @@ export function CommitteeForm({
         />
       </Field>
 
-      <Field
-        id="internalNotes"
-        label="Informations utiles (internes)"
-        error={errors.internalNotes}
-        help="Visibles des seuls conseillers de ce workspace et des administrateurs de Confluent : ni des candidats, ni des investisseurs. Texte simple."
-      >
-        <Textarea
-          id="committee-internalNotes"
-          rows={5}
-          value={values.internalNotes}
-          maxLength={COMMITTEE_LIMITS.internalNotes}
-          onChange={(e) => set('internalNotes', e.target.value)}
-          {...invalid('internalNotes', errors)}
-        />
-      </Field>
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field
+          id="internalNotes"
+          label="Notes internes — visibles des seuls conseillers"
+          error={errors.internalNotes}
+          help="Lues par les conseillers de ce workspace et les administrateurs de Confluent : jamais diffusées aux candidats ni aux investisseurs. Texte simple."
+        >
+          <Textarea
+            id="committee-internalNotes"
+            rows={6}
+            value={values.internalNotes}
+            maxLength={COMMITTEE_LIMITS.internalNotes}
+            onChange={(e) => set('internalNotes', e.target.value)}
+            {...invalid('internalNotes', errors)}
+          />
+        </Field>
+
+        <Field
+          id="sharedInfo"
+          label="Informations diffusées — visibles des candidats et investisseurs"
+          error={errors.sharedInfo}
+          help="Accueil, déroulé, consignes : montrées aux candidats et aux investisseurs du comité avec son nom, sa date, son lieu et son lien. Texte simple."
+        >
+          <Textarea
+            id="committee-sharedInfo"
+            rows={6}
+            value={values.sharedInfo}
+            maxLength={COMMITTEE_LIMITS.sharedInfo}
+            onChange={(e) => set('sharedInfo', e.target.value)}
+            {...invalid('sharedInfo', errors)}
+          />
+        </Field>
+      </div>
 
       <div aria-live="assertive">
         {failure && (

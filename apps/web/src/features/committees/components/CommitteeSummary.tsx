@@ -14,7 +14,11 @@ export function CommitteeStatusBadge({ status }: { status: CommitteeStatus }) {
 }
 
 // When a committee takes place, in its own zone (named), then at the reader's if it differs.
-export function CommitteeWhen({ committee }: { committee: Committee }) {
+export function CommitteeWhen({
+  committee,
+}: {
+  committee: Pick<Committee, 'date' | 'time' | 'timeZone' | 'startsAt'>
+}) {
   const reader = readerWhen(committee)
   return (
     <div className="flex flex-col gap-0.5">
