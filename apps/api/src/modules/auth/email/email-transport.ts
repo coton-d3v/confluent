@@ -76,6 +76,18 @@ export interface CommitteeMoment {
   timeZone: string
 }
 
+// ROADMAP E09.05: an entrepreneur's access request accepted by a workspace's manager — an invitation
+// to sign in and present a request to the workspace. The link opens the sign-in page (magic link),
+// never a session by itself. Nothing was created on the person's behalf.
+export interface SendEntrepreneurAccessAcceptedInput {
+  to: string
+  workspaceName: string
+  // What the acceptance did to the address's account (ENTREPRENEUR_ACCESS_ADMISSIONS).
+  admission: 'account_created' | 'account_existing'
+  signInUrl: string
+  locale: Locale
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
@@ -83,4 +95,5 @@ export interface EmailTransport {
   sendCompanyTransferInvite(input: SendCompanyTransferInviteInput): Promise<void>
   sendParticipationAccepted(input: SendParticipationAcceptedInput): Promise<void>
   sendCommitteeChanged(input: SendCommitteeChangedInput): Promise<void>
+  sendEntrepreneurAccessAccepted(input: SendEntrepreneurAccessAcceptedInput): Promise<void>
 }

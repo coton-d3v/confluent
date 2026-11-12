@@ -126,6 +126,24 @@ describe('template-renderer', () => {
     }
   })
 
+  it('renders an accepted access request (E09.05): an invitation to present a request, nothing created on the person’s behalf', () => {
+    const result = render('entrepreneur-access-accepted', 'fr', {
+      workspaceName: 'CCI <Touraine>',
+      accountLine: templateString('entrepreneur-access-accepted', 'fr', 'accountCreated'),
+      signInUrl: 'https://confluent.example/auth',
+    })
+    expect(result.subject).toBe('Votre demande d’accès a été acceptée')
+    expect(result.html).toContain('CCI &lt;Touraine&gt;')
+    expect(result.html).toContain('href="https://confluent.example/auth"')
+    expect(result.html).toContain('compte Confluent de porteur de projet a été ouvert')
+    expect(result.html).toContain('Présenter la demande à une structure')
+    expect(result.text).toContain('Rien n’a été créé ni envoyé à votre place')
+    expect(result.text).toContain('Se connecter à Confluent : https://confluent.example/auth')
+    expect(templateString('entrepreneur-access-accepted', 'fr', 'accountExisting')).toMatch(
+      /existant, inchangé/,
+    )
+  })
+
   it('renders a committee change (E08.06): the committee by name and when, escaped, the previous date on its own line', () => {
     expect(
       committeeMomentLine({ date: '2099-06-11', time: '09:30', timeZone: 'Europe/Paris' }),

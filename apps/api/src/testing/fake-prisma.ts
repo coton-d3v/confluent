@@ -86,6 +86,7 @@ const UPDATED_AT = new Set([
   'committeeApplication',
   'participationRequest',
   'showcaseCard',
+  'entrepreneurAccessRequest',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -459,6 +460,7 @@ export function createFakePrisma() {
     user: model('user', () => ({ isActive: true, locale: 'fr', firstName: null, lastName: null })),
     auditLog: model('auditLog'),
     refreshSession: model('refreshSession', () => ({ revokedAt: null })),
+    magicLinkToken: model('magicLinkToken', () => ({ consumedAt: null })),
     oAuthClient: model('oAuthClient', () => ({ fetchedAt: null, clientSecret: null })),
     oAuthAuthorizationRequest: model('oAuthAuthorizationRequest', () => ({ decidedAt: null })),
     oAuthGrant: model('oAuthGrant', () => ({
@@ -618,6 +620,18 @@ export function createFakePrisma() {
       invitationEmailAt: null,
     })),
     participationRequestCommittee: model('participationRequestCommittee'),
+    entrepreneurAccessRequest: model('entrepreneurAccessRequest', () => ({
+      message: null,
+      status: 'pending',
+      submissionCount: 1,
+      version: 1,
+      decidedAt: null,
+      decidedById: null,
+      admission: null,
+      accountUserId: null,
+      invitationEmail: null,
+      invitationEmailAt: null,
+    })),
     committeeApplication: model('committeeApplication', () => ({
       statusActorId: null,
       version: 1,

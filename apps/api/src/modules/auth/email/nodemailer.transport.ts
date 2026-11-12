@@ -8,6 +8,7 @@ import type {
   SendCommitteeChangedInput,
   SendCompanyTransferInviteInput,
   SendMagicLinkInput,
+  SendEntrepreneurAccessAcceptedInput,
   SendParticipationAcceptedInput,
   SendShareInviteInput,
   SendWorkspaceInviteInput,
@@ -114,6 +115,19 @@ export class NodemailerTransport implements EmailTransport {
       html: rendered.html,
       text: rendered.text,
     })
+  }
+
+  async sendEntrepreneurAccessAccepted(input: SendEntrepreneurAccessAcceptedInput): Promise<void> {
+    const { subject, html, text } = render('entrepreneur-access-accepted', input.locale, {
+      workspaceName: input.workspaceName,
+      accountLine: templateString(
+        'entrepreneur-access-accepted',
+        input.locale,
+        input.admission === 'account_created' ? 'accountCreated' : 'accountExisting',
+      ),
+      signInUrl: input.signInUrl,
+    })
+    await this.send({ to: input.to, subject, html, text })
   }
 
   private async send(payload: {

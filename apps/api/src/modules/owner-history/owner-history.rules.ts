@@ -135,6 +135,11 @@ export const OWNER_HISTORY_RULES = {
   // (« masquée par la structure »), never naming who.
   showcase_card_hidden: CANDIDATURE,
   showcase_card_unhidden: CANDIDATURE,
+  // E09.05: an entrepreneur without an account asked a workspace, from its public page, for access to
+  // its candidature path; its managers decided. It concerns no request of an owner (none exists yet).
+  entrepreneur_access_request_received: PLATFORM,
+  entrepreneur_access_request_discarded: SECURITY,
+  entrepreneur_access_request_decided: PLATFORM,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a

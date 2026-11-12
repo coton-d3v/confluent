@@ -356,3 +356,19 @@ export function workspacePageBlocksDown(): string[] {
 export function workspacePageBlocksUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261210000000_workspace_page_blocks/migration.sql'))
 }
+
+// The revert of E09.05 (entrepreneurs' access requests), as the tests of earlier migrations that drop
+// what its table references (workspaces) run it before their own: it accepts that the requests,
+// their decisions and their journal are lost (SET LOCAL, test transactions only).
+export function entrepreneurAccessRequestsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_entrepreneur_access_requests_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261211000000_entrepreneur_access_requests.down.sql')),
+  ]
+}
+
+export function entrepreneurAccessRequestsUp(): string[] {
+  return sqlStatements(
+    join(MIGRATIONS, '20261211000000_entrepreneur_access_requests/migration.sql'),
+  )
+}
