@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { getWorkspace } from '@/features/admin/workspaces.api'
+import { ShowcaseCardModeration } from '@/features/showcase-cards/components/ShowcaseCardModeration'
 import { getWorkspacePage, updateWorkspacePage } from '@/features/workspace-pages/api'
 import { PublicWorkspaceContent } from '@/features/workspace-pages/components/PublicWorkspaceContent'
 import {
@@ -29,7 +30,7 @@ const isField = (key: unknown): key is FieldName => FIELDS.includes(key as Field
 // ROADMAP E09.01: a workspace's public page, set by Confluent administrators and the workspace's
 // managers (the API decides who may, at each request): published or not — unpublished by default —,
 // criteria and contact, with a preview of the saved page as the public sees it. Blocks, their order
-// and a richer preview come with E09.04.
+// and a richer preview come with E09.04. E09.03: the projects' cards, hidden or restored.
 export default function AdminWorkspacePublicPageRoute() {
   const { workspaceId = '' } = useParams()
   return <WorkspacePublicPage key={workspaceId} workspaceId={workspaceId} />
@@ -81,6 +82,8 @@ function WorkspacePublicPage({ workspaceId }: { workspaceId: string }) {
           }}
           onStale={reload}
         />
+        <Separator />
+        <ShowcaseCardModeration workspaceId={workspaceId} refreshKey={revision} onChanged={reload} />
         <Separator />
         <section aria-labelledby="ws-page-preview-title" className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
@@ -261,7 +264,8 @@ function PublicPageForm({
           connexion le nom, le programme, la couleur, le logo et la présentation du workspace, les
           critères et le contact ci-dessous, et les prochains comités ouverts aux demandes de
           participation (nom, date et heure seulement). Ni les membres, ni l’email de contact des
-          réglages, ni les dossiers n’y figurent.
+          réglages, ni les dossiers n’y figurent, hors les cartes anonymes que les entreprises
+          choisissent d’y afficher.
         </p>
       </div>
 
