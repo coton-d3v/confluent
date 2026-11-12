@@ -13,6 +13,7 @@ import { useCurrentUser } from '@/features/current-user/context'
 import { PreparedCompaniesSection } from '@/features/company-transfers/components/PreparedCompaniesSection'
 import { ReceivedCandidaturesSection } from '@/features/candidatures/components/ReceivedCandidaturesSection'
 import { FundingSourcesSection } from '@/features/funding-sources/components/FundingSourcesSection'
+import { WorkspacePositionsSection } from '@/features/positions/components/WorkspacePositionsSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
 import { useWorkspaceMemberships } from '@/features/workspaces/memberships-context'
@@ -163,6 +164,11 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
         {/* E05.09: the candidatures it receives, for its conseillers. */}
         {canReviewCandidatures(me, membership) && (
           <ReceivedCandidaturesSection workspaceId={workspace.id} />
+        )}
+
+        {/* E07.07: the positions its investors chose to show it, for its conseillers. */}
+        {canReviewCandidatures(me, membership) && (
+          <WorkspacePositionsSection workspaceId={workspace.id} />
         )}
 
         {/* E06.02: the sources its financing plans are split into, for its conseillers. */}

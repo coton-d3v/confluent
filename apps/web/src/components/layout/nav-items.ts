@@ -1,6 +1,7 @@
 import {
   Building2,
   ClipboardList,
+  Handshake,
   FolderOpen,
   Inbox,
   LayoutDashboard,
@@ -37,6 +38,13 @@ export const OPPORTUNITIES_NAV_ITEM: NavItemSpec = {
   to: '/opportunites',
   label: 'Opportunités',
   icon: Inbox,
+}
+
+// ROADMAP E07.07: shown with the opportunities — the investor's own marks of interest and pledges.
+export const POSITIONS_NAV_ITEM: NavItemSpec = {
+  to: '/positionnements',
+  label: 'Mes positionnements',
+  icon: Handshake,
 }
 
 export const ADMIN_NAV_ITEMS: NavItemSpec[] = [
