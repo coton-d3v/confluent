@@ -36,6 +36,8 @@ export interface WorkspacePageInput {
   contact: string | null
   // Absent: kept as they are.
   blocks?: PublicPageBlock[]
+  // E09.06. Absent: kept as it is.
+  indexable?: boolean
   version: number
 }
 
@@ -61,6 +63,7 @@ export interface WorkspacePageSettingsView {
   criteria: string | null
   contact: string | null
   blocks: PublicPageBlock[]
+  indexable: boolean
   version: number
   preview: PublicWorkspacePageView
   content: PublicPageContentView
@@ -83,10 +86,10 @@ const PAGE_FIELDS = {
 // anonymous cards its candidates consented to show there (`ShowcaseCardsService.publicCards`).
 // E09.04: all of it in blocks its managers show or not, in their order, through one projection
 // (@confluent/shared `toPublicWorkspacePage`): a block not shown sends nothing, its data not even
-// read.
+// read. E09.06: and whether search engines may index it — only if its managers allowed it.
 //
 // Its managers (`canManageWorkspace`) read and write the page's settings — published or not,
-// criteria, contact, blocks — under the workspace's lock, the right read again after it (R53), from
+// criteria, contact, blocks, indexing — under the workspace's lock, the right read again after it (R53), from
 // the version they read (`409`, never reused: R63), journaled in the same transaction
 // (`workspace_updated`, fields named, texts never copied). They read what the public sees, or would
 // see once published, built by the same projection, and what every block may show (`content`) for
@@ -108,7 +111,11 @@ export class WorkspacePagesService {
   async publicPage(slug: string): Promise<PublicWorkspacePageView> {
     const workspace = await this.published(slug)
     const blocks = readPublicPageBlocks(workspace.publicPageBlocks)
-    return toPublicWorkspacePage(await this.contentOf(workspace, Date.now(), blocks), blocks)
+    return toPublicWorkspacePage(
+      await this.contentOf(workspace, Date.now(), blocks),
+      blocks,
+      workspace.publicPageIndexable,
+    )
   }
 
   // The logo of a published page, read from the private bucket by the API, its format recognised
@@ -157,6 +164,10 @@ export class WorkspacePagesService {
       const blocksAfter = input.blocks ?? blocksBefore
       const blocksChanged = blocksAfter.join() !== blocksBefore.join()
       if (blocksChanged) changes.push('publicPageBlocks')
+      const indexableBefore = current.publicPageIndexable
+      const indexable = input.indexable ?? indexableBefore
+      const indexableChanged = indexable !== indexableBefore
+      if (indexableChanged) changes.push('publicPageIndexable')
       if (changes.length === 0) return current
       const wasPublished = current.publicPagePublished
       const row = await tx.workspace.update({
@@ -166,6 +177,7 @@ export class WorkspacePagesService {
           publicCriteria: input.criteria,
           publicContact: input.contact,
           ...(blocksChanged ? { publicPageBlocks: blocksAfter } : {}),
+          publicPageIndexable: indexable,
           publicPageVersion: current.publicPageVersion + 1,
         },
       })
@@ -184,6 +196,9 @@ export class WorkspacePagesService {
             : {}),
           // The blocks' names only, in their order.
           ...(blocksChanged ? { publicPageBlocks: { from: blocksBefore, to: blocksAfter } } : {}),
+          ...(indexableChanged
+            ? { publicPageIndexable: { from: indexableBefore, to: indexable } }
+            : {}),
         },
       })
       return row
@@ -233,8 +248,10 @@ export class WorkspacePagesService {
       criteria: workspace.publicCriteria,
       contact: workspace.publicContact,
       blocks,
+      indexable: workspace.publicPageIndexable,
       version: workspace.publicPageVersion,
-      preview: toPublicWorkspacePage(content, blocks),
+      // What the public would see once published, indexing included.
+      preview: toPublicWorkspacePage(content, blocks, workspace.publicPageIndexable),
       content,
     }
   }

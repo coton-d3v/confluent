@@ -10,6 +10,7 @@ import helmet from 'helmet'
 import { AppModule } from './app.module'
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { corsOptions } from './common/http/cors'
+import { noIndex } from './common/http/no-index'
 import { mountOAuthServer } from './modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './modules/mcp/mcp.http'
 import type { AppConfig } from './config/config.schema'
@@ -20,6 +21,9 @@ async function bootstrap(): Promise<void> {
 
   app.set('trust proxy', 1)
   app.use(helmet())
+  // E09.06: every answer, ahead of everything (OAuth, MCP and the documentation are served outside
+  // Nest's routes; a wildcard Nest middleware would be narrowed to `/` by the prefix's exclusion).
+  app.use(noIndex)
   app.use(cookieParser())
   // OAuth 2.1 server for MCP clients, at the root (not under /v1) as clients discover it there.
   mountOAuthServer(app)

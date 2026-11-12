@@ -372,3 +372,17 @@ export function entrepreneurAccessRequestsUp(): string[] {
     join(MIGRATIONS, '20261211000000_entrepreneur_access_requests/migration.sql'),
   )
 }
+
+// The revert of E09.06 (indexing of the public page), as the tests of earlier migrations that drop the
+// columns beside it (E09.01's) run it before their own: it accepts that the managers' choice to let
+// search engines index their page is lost (SET LOCAL, test transactions only).
+export function workspacePageIndexingDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_workspace_page_indexing_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261212000000_workspace_page_indexing.down.sql')),
+  ]
+}
+
+export function workspacePageIndexingUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261212000000_workspace_page_indexing/migration.sql'))
+}

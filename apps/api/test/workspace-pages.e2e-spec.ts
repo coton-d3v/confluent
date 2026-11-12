@@ -232,6 +232,8 @@ describe('workspace public page (e2e)', () => {
       receivesParticipationRequests: true,
       // E09.02: no owner consented to a card (test/showcase-cards.e2e-spec.ts).
       cards: [],
+      // E09.06: closed to search engines until its managers allow it.
+      indexable: false,
     })
     expect(Object.keys(res.body.workspace)).toEqual([...PUBLIC_WORKSPACE_FIELDS])
     const text = JSON.stringify(res.body)
@@ -438,6 +440,10 @@ describe('workspace public page (e2e)', () => {
       { ...PAGE, version: 1, blocks: 'contact' },
       { ...PAGE, version: 1, blocks: null },
       { ...PAGE, version: 1, blocks: [{ type: 'contact', enabled: true }] },
+      // E09.06: a boolean only.
+      { ...PAGE, version: 1, indexable: 'oui' },
+      { ...PAGE, version: 1, indexable: null },
+      { ...PAGE, version: 1, indexable: 1 },
     ]) {
       const res = await write(body)
       expect([JSON.stringify(body).slice(0, 60), res.status]).toEqual([
@@ -451,6 +457,8 @@ describe('workspace public page (e2e)', () => {
       { published: true },
       { publicPageBlocks: ['contact'] },
       { blocks: ['contact'] },
+      { publicPageIndexable: true },
+      { indexable: true },
     ]) {
       await call('patch', `/admin/workspaces/${cci}`, 'manager').send(body).expect(400)
     }
@@ -460,6 +468,7 @@ describe('workspace public page (e2e)', () => {
       publicContact: null,
       publicPageVersion: 1,
       publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
+      publicPageIndexable: false,
     })
     expect(journal()).toEqual([])
   })
@@ -480,6 +489,7 @@ describe('workspace public page (e2e)', () => {
       const wrote = await call('put', settingsPath(workspaceId), as).send({
         ...PAGE,
         blocks: ['contact'],
+        indexable: true,
         version: 1,
       })
       // An invalid body changes nothing to the answer of whoever is outside the workspace.
@@ -503,12 +513,15 @@ describe('workspace public page (e2e)', () => {
     )!
     membership.canManageWorkspace = false
     await write({ ...PAGE, blocks: ['contact'], version: 1 }).expect(403)
+    await write({ ...PAGE, indexable: true, version: 1 }).expect(403)
     membership.canManageWorkspace = true
     membership.deactivatedAt = new Date()
     await write({ ...PAGE, blocks: ['contact'], version: 1 }).expect(404)
+    await write({ ...PAGE, indexable: true, version: 1 }).expect(404)
     expect(fake.table('workspace').get(cci)).toMatchObject({
       publicPageVersion: 1,
       publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
+      publicPageIndexable: false,
     })
     expect(journal()).toEqual([])
   })
@@ -556,6 +569,7 @@ describe('workspace public page (e2e)', () => {
       receivesCandidatures: false,
       receivesParticipationRequests: true,
       cards: [],
+      indexable: false,
     })
     const text = JSON.stringify(page.body)
     for (const hidden of [june.id, 'Comité de juin', 'accompagne', '2099-06-10']) {
@@ -607,6 +621,135 @@ describe('workspace public page (e2e)', () => {
       },
     ])
     expect(JSON.stringify(entries)).not.toMatch(/innovantes|vitrine@|juin/)
+  })
+
+  // ROADMAP E09.06: indexing by search engines, closed until the managers allow it.
+  it('keeps a page closed to search engines until its managers allow it; the public reads it only once published', async () => {
+    const initial = (await readSettings().expect(200)).body
+    expect(initial).toMatchObject({ indexable: false, preview: { indexable: false } })
+
+    // Allowed before publication: stored, shown in the preview, the page still the same 404.
+    const allowed = await write({
+      ...PAGE,
+      published: false,
+      indexable: true,
+      version: 1,
+    }).expect(200)
+    expect(workspacePageSettingsSchema.parse(allowed.body)).toEqual(allowed.body)
+    expect(allowed.body).toMatchObject({
+      published: false,
+      indexable: true,
+      version: 2,
+      preview: { indexable: true },
+    })
+    const unknown = await visitor().page('inconnu').expect(404)
+    const unpublished = await visitor().page('cci-touraine').expect(404)
+    expect(unpublished.body).toEqual(unknown.body)
+
+    // Published: the public reads it.
+    await write({ ...PAGE, indexable: true, version: 2 }).expect(200)
+    const page = await visitor().page('cci-touraine').expect(200)
+    expect(publicWorkspacePageSchema.parse(page.body)).toEqual(page.body)
+    expect(page.body.indexable).toBe(true)
+    expect((await readSettings().expect(200)).body.preview).toEqual(page.body)
+
+    // Left out: kept as it is. The same value: nothing written.
+    const kept = await write({ ...PAGE, criteria: 'Autres critères.', version: 3 }).expect(200)
+    expect(kept.body).toMatchObject({ indexable: true, version: 4 })
+    await write({ ...PAGE, criteria: 'Autres critères.', indexable: true, version: 4 }).expect(200)
+    expect(fake.table('workspace').get(cci)!.publicPageVersion).toBe(4)
+
+    // Withdrawn: closed at the next read. From a stale version: refused, nothing written.
+    await write({ ...PAGE, indexable: true, version: 3 }).expect(409)
+    const closed = await write({
+      ...PAGE,
+      criteria: 'Autres critères.',
+      indexable: false,
+      version: 4,
+    })
+    expect(closed.status).toBe(200)
+    expect((await visitor().page('cci-touraine').expect(200)).body.indexable).toBe(false)
+    expect(fake.table('workspace').get(cci)).toMatchObject({
+      publicPageIndexable: false,
+      publicPageVersion: 5,
+    })
+
+    // Unpublished again with indexing allowed: nothing for the public.
+    await write({ ...PAGE, published: false, indexable: true, version: 5 }).expect(200)
+    expect((await visitor().page('cci-touraine').expect(404)).body).toEqual(unknown.body)
+
+    expect(journal().map((e) => [e.actorId, e.metadata])).toEqual([
+      [
+        'manager',
+        {
+          workspaceId: cci,
+          changes: ['publicCriteria', 'publicContact', 'publicPageIndexable'],
+          publicPageVersion: 2,
+          publicPageIndexable: { from: false, to: true },
+        },
+      ],
+      [
+        'manager',
+        {
+          workspaceId: cci,
+          changes: ['publicPagePublished'],
+          publicPageVersion: 3,
+          publicPagePublished: { from: false, to: true },
+        },
+      ],
+      ['manager', { workspaceId: cci, changes: ['publicCriteria'], publicPageVersion: 4 }],
+      [
+        'manager',
+        {
+          workspaceId: cci,
+          changes: ['publicPageIndexable'],
+          publicPageVersion: 5,
+          publicPageIndexable: { from: true, to: false },
+        },
+      ],
+      [
+        'manager',
+        {
+          workspaceId: cci,
+          changes: ['publicPagePublished', 'publicCriteria', 'publicPageIndexable'],
+          publicPageVersion: 6,
+          publicPagePublished: { from: true, to: false },
+          publicPageIndexable: { from: false, to: true },
+        },
+      ],
+    ])
+  })
+
+  it('marks every public answer `noindex, nofollow`, refusals included, whether the page is indexable or not', async () => {
+    const robots = (res: request.Response) => [res.status, res.headers['x-robots-tag']]
+    const read = async () => [
+      await visitor().page('cci-touraine'),
+      await visitor().page('inconnu'),
+      await visitor().logo('cci-touraine'),
+      await request(app.getHttpServer()).get(
+        '/v1/public/workspaces/cci-touraine/participation-form',
+      ),
+    ]
+    expect((await read()).map(robots)).toEqual([
+      [404, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+    ])
+    await publish({ indexable: true })
+    const answers = await read()
+    expect(answers.map(robots)).toEqual([
+      [200, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+      [404, 'noindex, nofollow'],
+    ])
+    // The page says it may be indexed: the site tells search engines (`publicPageRobots`), the JSON
+    // itself is never a page to index.
+    expect(answers[0].body.indexable).toBe(true)
+    const busy = visitor('198.51.100.9')
+    for (let i = 0; i < WORKSPACE_PAGE_RATE_LIMITS.page; i++) await busy.page('cci-touraine')
+    expect(robots(await busy.page('cci-touraine'))).toEqual([429, 'noindex, nofollow'])
   })
 
   it('ignores at read a stored block no longer known, and a block stored twice', async () => {

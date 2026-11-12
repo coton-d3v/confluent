@@ -136,6 +136,7 @@ describe('public page blocks', () => {
       receivesCandidatures: true,
       receivesParticipationRequests: true,
       cards: CONTENT.cards,
+      indexable: false,
     })
   })
 

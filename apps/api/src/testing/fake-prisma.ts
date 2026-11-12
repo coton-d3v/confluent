@@ -548,6 +548,7 @@ export function createFakePrisma() {
       publicContact: null,
       publicPageVersion: 1,
       publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
+      publicPageIndexable: false,
     })),
     fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     fundingPlanLine: model('fundingPlanLine', () => ({ version: 1, label: null })),
