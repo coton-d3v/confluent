@@ -1,24 +1,63 @@
 import type {
   ActiveQuestionnaire,
   AdminDossierList,
+  AdminDossierListItem,
   AnswerInput,
   AuditLog,
   CompanySummary,
   AccessLevel,
   Dossier,
+  DocumentGroup,
+  DocumentType,
   DossierDocumentSelected,
   ShareAccess,
   ShareLink,
   SharePreview,
+  UploadedDocument,
 } from '@confluent/shared'
-import { apiRequest } from '@/lib/api-client'
+import { apiRequest, apiUpload, type UploadOptions } from '@/lib/api-client'
 
-export function listAdminDossiers(page = 1, pageSize = 20): Promise<AdminDossierList> {
+// E10.05: every request of the platform, or those `q` finds (searched by the server: title, company,
+// owner's email, slug or identifier), a page at a time.
+export function listAdminDossiers(
+  params: { page?: number; pageSize?: number; q?: string } = {},
+): Promise<AdminDossierList> {
   const search = new URLSearchParams({
-    page: String(page),
-    pageSize: String(pageSize),
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? 20),
   })
+  if (params.q) search.set('q', params.q)
   return apiRequest<AdminDossierList>(`/v1/admin/dossiers?${search.toString()}`)
+}
+
+// E10.05 « aller à » : the request whose slug or identifier is exactly `ref` (404 otherwise).
+export function lookupAdminDossier(ref: string): Promise<AdminDossierListItem> {
+  return apiRequest<AdminDossierListItem>(
+    `/v1/admin/dossiers/lookup?${new URLSearchParams({ ref }).toString()}`,
+  )
+}
+
+// E10.05: the company's library as the request presents it, read by an administrator.
+export function listAdminDocuments(dossierId: string): Promise<DocumentGroup[]> {
+  return apiRequest<DocumentGroup[]>(`/v1/admin/dossiers/${encodeURIComponent(dossierId)}/documents`)
+}
+
+// E10.05: a document deposited by an administrator — a new document, or a new version of the
+// document of that name and question (`filename`, `fieldId`), journaled and shown to the owner.
+export function uploadAdminDocument(
+  dossierId: string,
+  file: File,
+  opts: UploadOptions & { filename?: string; fieldId?: string | null; type?: DocumentType } = {},
+): Promise<UploadedDocument> {
+  const formData = new FormData()
+  if (opts.fieldId) formData.append('fieldId', opts.fieldId)
+  if (opts.type) formData.append('type', opts.type)
+  formData.append('file', file, opts.filename ?? file.name)
+  return apiUpload<UploadedDocument>(
+    `/v1/admin/dossiers/${encodeURIComponent(dossierId)}/documents`,
+    formData,
+    opts,
+  )
 }
 
 export interface AdminDossierDetail extends Dossier {

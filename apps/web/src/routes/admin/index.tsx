@@ -3,6 +3,8 @@ import { MetricCard } from '@/components/confluent/MetricCard'
 import { useCurrentUser } from '@/features/current-user/context'
 import { getPlatformAnalytics } from '@/features/analytics/api'
 import { useAsync } from '@/lib/useAsync'
+import { LoadError } from '@/components/confluent/LoadError'
+import { adminFailure } from '@/features/admin/failure'
 
 export default function AdminRoute() {
   const user = useCurrentUser()
@@ -12,7 +14,7 @@ export default function AdminRoute() {
 
 // Its own component: the analytics are requested for an admin only, hooks in the same order.
 function AdminPipeline() {
-  const { data, isLoading, error } = useAsync(() => getPlatformAnalytics(), [])
+  const { data, isLoading, error, refetch } = useAsync(() => getPlatformAnalytics(), [])
 
   return (
     <>
@@ -21,14 +23,20 @@ function AdminPipeline() {
         Pipeline
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Vue d&apos;ensemble du pipeline régional.
+        Vue d&apos;ensemble du pipeline régional : toutes les demandes de la plateforme, réservée aux
+        administrateurs.
       </p>
 
-      {isLoading ? (
-        <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
-      ) : error || !data ? (
-        <p className="mt-8 text-sm text-destructive">
-          Impossible de charger le pipeline.
+      {error ? (
+        <LoadError
+          className="mt-8"
+          message={adminFailure(error, 'Les statistiques n’ont pas pu être chargées.')}
+          onRetry={refetch}
+          retrying={isLoading}
+        />
+      ) : !data ? (
+        <p className="mt-8 text-sm text-muted-foreground" role="status">
+          Chargement…
         </p>
       ) : (
         <>
@@ -64,7 +72,7 @@ function AdminPipeline() {
                         {row.sector ?? 'Non classifié'}
                       </span>
                       <span className="text-muted-foreground tabular-nums">
-                        {row.count} dossiers
+                        {row.count} dossier{row.count > 1 ? 's' : ''}
                       </span>
                     </li>
                   ))}
@@ -93,7 +101,7 @@ function AdminPipeline() {
                         {row.stage ?? 'Non classifié'}
                       </span>
                       <span className="text-muted-foreground tabular-nums">
-                        {row.count} dossiers
+                        {row.count} dossier{row.count > 1 ? 's' : ''}
                       </span>
                     </li>
                   ))}

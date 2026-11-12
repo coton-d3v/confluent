@@ -20,9 +20,14 @@ export interface SendOptions {
   type?: DocumentType
 }
 
-// Uploads of the Documents tab and of the attachment step: one file at a time, each with its own
-// progress and its own error, checked here first and then by the API.
-export function useDocumentUploads(dossierId: string, onUploaded: () => void) {
+// Uploads of the Documents tab and of the attachment step (and of the administrators' page of a
+// request, E10.05, through their own route): one file at a time, each with its own progress and its
+// own error, checked here first and then by the API.
+export function useDocumentUploads(
+  dossierId: string,
+  onUploaded: () => void,
+  upload: typeof uploadDocument = uploadDocument,
+) {
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const nextId = useRef(0)
 
@@ -38,7 +43,7 @@ export function useDocumentUploads(dossierId: string, onUploaded: () => void) {
         setUploads((items) => [...items, { id, name, progress: 0, error: problem }])
         if (problem) continue
         try {
-          await uploadDocument(dossierId, file, {
+          await upload(dossierId, file, {
             filename: opts.filename,
             fieldId: opts.fieldId,
             type: opts.type,
@@ -52,7 +57,7 @@ export function useDocumentUploads(dossierId: string, onUploaded: () => void) {
         }
       }
     },
-    [dossierId, onUploaded],
+    [dossierId, onUploaded, upload],
   )
 
   const dismiss = useCallback(
