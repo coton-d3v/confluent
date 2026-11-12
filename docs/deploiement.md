@@ -89,6 +89,15 @@ Les images API publiées **avant** E02.09 contenaient le jeton Doppler dans leur
 
 Les connexions des navigateurs et des clients MCP passent par Traefik en HTTPS (certificats Let's Encrypt) ; l'API et le web écoutent en HTTP uniquement sur le réseau Docker.
 
+## Indexation par les moteurs de recherche (E09.06)
+
+Aucune page n'est indexée, sauf la page publique d'un workspace (`/w/<slug>`) dont les gestionnaires ont coché « Autoriser l'indexation par les moteurs de recherche » et tant qu'elle est publiée.
+
+- Le site (`apps/web/nginx.conf`) envoie `X-Robots-Tag: noindex, nofollow` sur toutes ses réponses, et `index.html` porte `<meta name="robots" content="noindex, nofollow">` avant tout script. Seule l'adresse `/w/<slug>` (pas ses formulaires `/w/<slug>/…`) sert `public-page.html`, produit par le build sans cette balise ni en-tête : la page indique elle-même `index, follow` ou `noindex, nofollow` une fois l'API lue.
+- L'API envoie `X-Robots-Tag: noindex, nofollow` sur toutes ses réponses ; elle n'a pas de `robots.txt`, pour que les moteurs puissent lire la page publique autorisée.
+- `apps/web/public/robots.txt` n'ouvre que `/w/`, les fichiers nécessaires à l'affichage et les pages liées depuis les pages publiques ; aucun sitemap.
+- Le proxy devant le site (Traefik) ne doit ni ajouter ni retirer d'en-tête `X-Robots-Tag`, ni réécrire `/w/<slug>` vers `index.html`.
+
 ## Stockage des documents
 
 Les documents des dossiers sont stockés dans un bucket S3-compatible privé (Garage), hors du serveur applicatif et hors de Coder (ROADMAP E02.03/E02.04). Chaque environnement a son serveur, son bucket et ses identifiants : `confluent-dev` pour le développement, `confluent-production` pour la production. Les identifiants de dev n'ont aucun droit sur la production.

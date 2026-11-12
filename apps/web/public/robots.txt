@@ -1,0 +1,12 @@
+# Confluent — no page is indexed by search engines (each says `noindex`), but a workspace's public page
+# (/w/<slug>) whose managers allowed it. Crawled: the public pages, what they need to be shown, and the
+# pages they link to (to read their `noindex`). Nothing else. No sitemap: no directory of workspaces.
+User-agent: *
+Allow: /w/
+Allow: /assets/
+Allow: /favicon.svg
+Allow: /$
+Allow: /auth$
+Allow: /confidentialite$
+Allow: /mentions-legales$
+Disallow: /
