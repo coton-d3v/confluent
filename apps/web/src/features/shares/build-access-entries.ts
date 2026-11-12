@@ -1,5 +1,6 @@
-import type { PerRecipientAnalytics, ShareAccess } from '@confluent/shared'
-import { deriveInitials, type AccessEntry } from './access-entry'
+import type { PerRecipientAnalytics, ReadingSessionSummary, ShareAccess } from '@confluent/shared'
+import { formatActiveTime, formatConsultedAt } from '@/features/analytics/format'
+import { deriveInitials, type AccessConsultation, type AccessEntry } from './access-entry'
 
 function formatRevokedAt(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', {
@@ -9,18 +10,31 @@ function formatRevokedAt(iso: string): string {
   })
 }
 
+// E07.08: a consultation is a reading session — reloads and redirections within 30 minutes count once.
 function formatLastSeen(analytics: PerRecipientAnalytics | undefined, status: string): string {
   if (analytics && analytics.viewCount > 0 && analytics.lastViewedAt) {
-    const date = new Date(analytics.lastViewedAt)
-    const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
-    const views = `${analytics.viewCount} vue${analytics.viewCount > 1 ? 's' : ''}`
-    if (days <= 0) return `Vu aujourd'hui · ${views}`
-    if (days === 1) return `Vu hier · ${views}`
-    return `Vu il y a ${days} jours · ${views}`
+    const views = `${analytics.viewCount} consultation${analytics.viewCount > 1 ? 's' : ''}`
+    return `${views} · dernière le ${formatConsultedAt(analytics.lastViewedAt)}`
   }
   if (status === 'pending') return 'Invitation envoyée'
   if (status === 'revoked') return 'Accès révoqué'
   return 'Invitation envoyée, pas encore consulté'
+}
+
+const PAGES: Record<ReadingSessionSummary['channel'], string> = {
+  share: 'par le lien',
+  opportunity: 'depuis ses opportunités',
+}
+
+function consultationsOf(analytics: PerRecipientAnalytics): AccessConsultation[] {
+  return analytics.sessions.map((s) => ({
+    key: s.startedAt,
+    label:
+      `${formatConsultedAt(s.startedAt)} ${PAGES[s.channel] ?? PAGES.share} · ` +
+      (s.activeSeconds === null
+        ? 'durée non mesurée'
+        : `${formatActiveTime(s.activeSeconds)} de temps actif`),
+  }))
 }
 
 // Who revoked an access (E07.01), named for whoever reads the list: its owner, or an administrator.
@@ -46,8 +60,14 @@ export function buildAccessEntries(
       email: s.recipientEmail,
       initials: deriveInitials(s.recipientEmail),
       lastSeen,
-      sessionDuration: '—',
+      sessionDuration: formatActiveTime(a?.activeSeconds ?? null),
       accessLevel: s.accessLevel,
+      ...(a && a.viewCount > 0
+        ? {
+            consultations: consultationsOf(a),
+            firstSeen: a.firstViewedAt ? formatConsultedAt(a.firstViewedAt) : undefined,
+          }
+        : {}),
     }
     if (s.status === 'revoked') {
       const revokedIso = s.revokedAt ?? new Date().toISOString()
