@@ -63,7 +63,9 @@ const { write: WRITE } = OAUTH_SCOPES
 // structure's internal notes. Listed here before the API offers them (E05.10, E06.09, E07.10): an
 // unknown permission would otherwise join the access level. E07.10: following and sharing one's
 // requests, reading one's opportunities and positions and taking a position start unticked too —
-// they read or show what others see (investors' names and amounts, readers, pledges).
+// they read or show what others see (investors' names and amounts, readers, pledges). E08.07: the
+// committees too — reading them (internal notes, participants, the public form's requests),
+// changing a request's entry on one, deciding a participation request (which adds a member).
 const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
   { scope: OAUTH_SCOPES.formsWrite, title: 'Concevoir des formulaires', ticked: true },
   { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
@@ -92,6 +94,17 @@ const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolea
   {
     scope: OAUTH_SCOPES.decide,
     title: 'Décider du suivi des candidatures',
+    ticked: false,
+  },
+  { scope: OAUTH_SCOPES.committeesRead, title: 'Lire les comités', ticked: false },
+  {
+    scope: OAUTH_SCOPES.committeesWrite,
+    title: 'Présenter des demandes aux comités',
+    ticked: false,
+  },
+  {
+    scope: OAUTH_SCOPES.participationRequestsDecide,
+    title: 'Décider des demandes de participation',
     ticked: false,
   },
   { scope: OAUTH_SCOPES.formsPublish, title: 'Publier un formulaire', ticked: false },

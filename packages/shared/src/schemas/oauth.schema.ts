@@ -20,6 +20,14 @@ import { workspaceMemberRoleSchema } from './workspace-member.schema.js'
 // structure then sees —; so are the diffusion of the owner's requests — following it (accesses,
 // history, investors' positions) and sharing (inviting at a chosen level, changing it, revoking).
 // Writing implies reading in both pairs. None is gained by an earlier authorization (R52).
+// E08.07: a workspace's committees are permissions of their own — reading them as the site shows
+// them to each role (conseillers: the committees, the requests presented and their progress;
+// managers: also the participants, the notices and the participation requests of the public form;
+// entrepreneurs: the committees of their candidatures; accepted participants: their sessions),
+// changing a request's entry on a committee (applying, confirming, withdrawing; attaching,
+// accepting, refusing), which implies reading, and deciding the participation requests (managers:
+// an acceptance adds the person to the workspace as an investor). None is gained by an earlier
+// authorization (R52).
 export const OAUTH_SCOPES = {
   read: 'dossiers:read',
   write: 'dossiers:write',
@@ -33,6 +41,9 @@ export const OAUTH_SCOPES = {
   opportunitiesWrite: 'opportunities:write',
   sharingRead: 'sharing:read',
   sharingWrite: 'sharing:write',
+  committeesRead: 'committees:read',
+  committeesWrite: 'committees:write',
+  participationRequestsDecide: 'participation-requests:decide',
 } as const
 
 // ROADMAP E05.10: a connection reaches a workspace only if the person ticked it on the consent
