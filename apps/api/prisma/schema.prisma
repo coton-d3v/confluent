@@ -818,6 +818,9 @@ model AuditLog {
   @@index([dossierId])
   @@index([actorId])
   @@index([createdAt])
+  // E10.08: a request's revoked shares and who revoked them are read by share (`accessList`, at
+  // every load of the owner's page and after each revocation): without it, the whole journal is read.
+  @@index([shareLinkId])
   @@map("audit_log")
 }
 
@@ -1585,6 +1588,9 @@ model Notification {
   application          CommitteeApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   participationRequest ParticipationRequest? @relation(fields: [participationRequestId], references: [id], onDelete: Cascade)
 
+  // E10.08: the bell's unread count (read every minute by every open page) uses the partial index
+  // `notifications_unread_recipient_id_idx` (`WHERE read_at IS NULL`, in the migration only: Prisma
+  // cannot express it), whose size is the unread notifications, never the history.
   @@unique([recipientId, dedupKey])
   @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([committeeId, workspaceId])

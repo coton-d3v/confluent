@@ -73,6 +73,21 @@ export class DossiersController {
     return this.service.listForUser(currentUser(req))
   }
 
+  @Get('by-slug/:slug')
+  @ApiOperation({
+    summary: 'Détail d’un dossier par l’adresse de sa page (E10.08)',
+    description:
+      'Même réponse et mêmes droits que `GET /v1/dossiers/:id`, le dossier étant désigné par son ' +
+      '`slug` : la page d’un dossier n’a plus à lire la liste entière des dossiers du compte pour ' +
+      'le trouver. `404` identique pour un slug inconnu et pour un dossier que le compte ne lit pas.',
+  })
+  @ApiParam({ name: 'slug', description: 'Slug du dossier (adresse de sa page)' })
+  @ApiOkResponse({ description: 'Dossier + snapshot de la version questionnaire.' })
+  @ApiNotFoundResponse({ description: 'Slug inconnu, ou dossier que le compte ne lit pas.' })
+  getBySlug(@Req() req: Request, @Param('slug') slug: string) {
+    return this.service.getBySlugWithQuestionnaire(slug, currentUser(req))
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Détail d’un dossier',

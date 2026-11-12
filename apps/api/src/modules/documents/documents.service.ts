@@ -15,6 +15,7 @@ import {
 import type { Document, LibraryDocument, Prisma } from '@prisma/client'
 import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
+  MAX_COMPANY_DOCUMENTS_BYTES,
   MAX_DOCUMENT_BYTES,
   documentTypeOf,
   grantsAccess,
@@ -173,6 +174,7 @@ export class DocumentsService {
       // is NULL).
       return await this.prisma.$transaction(async (tx) => {
         await lockProfile(tx, params.dossier)
+        await assertCompanyRoom(tx, companyId, params.buffer.byteLength)
         let document = await tx.libraryDocument.findFirst({
           where: { companyId, fieldId, filename },
         })
@@ -702,4 +704,32 @@ async function mapWithConcurrency<T, R>(
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return results
+}
+
+// ROADMAP E10.08 (U10): what a company's documents hold in all stays under MAX_COMPANY_DOCUMENTS_BYTES
+// — every version deposited, whoever deposits it (owner, administrator, MCP client). Read under the
+// profile's lock, which every deposit of the company takes (R67): two uploads racing for the last
+// room never both pass. A restored version adds nothing (the same stored file). `507`, like a full
+// storage: the file is not kept (the caller deletes the object already stored).
+async function assertCompanyRoom(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  adding: number,
+): Promise<void> {
+  const stored = await tx.document.findMany({
+    where: { companyId, restoredFromId: null },
+    select: { size: true },
+  })
+  const used = stored.reduce((sum, d) => sum + d.size, 0)
+  if (used + adding > MAX_COMPANY_DOCUMENTS_BYTES) {
+    throw new HttpException(
+      {
+        code: 'COMPANY_DOCUMENTS_FULL',
+        message:
+          'Les documents de l’entreprise atteignent la limite de 500 Mo (toutes versions comprises) : ' +
+          'le fichier n’a pas été enregistré. Contactez l’équipe Confluent.',
+      },
+      507,
+    )
+  }
 }

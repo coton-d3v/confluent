@@ -151,6 +151,37 @@ describe('Dossiers and companies (e2e)', () => {
     await as(SOPHIE).get(`/v1/dossiers/${other.id}`).expect(404)
   })
 
+  // E10.08: the page of a dossier finds it by its address, without reading the account's list.
+  it('reads a dossier by its slug as by its id, with the same rights and the same 404', async () => {
+    const own = await create(SOPHIE, 'Biosensio')
+    const other = await create(MARC, 'Agrotech')
+    const byId = (await as(SOPHIE).get(`/v1/dossiers/${own.id}`).expect(200)).body
+    const bySlug = (await as(SOPHIE).get(`/v1/dossiers/by-slug/${own.slug}`).expect(200)).body
+    expect(bySlug).toEqual(byId)
+
+    // Another account's dossier answers like an unknown address.
+    const theirs = await as(SOPHIE).get(`/v1/dossiers/by-slug/${other.slug}`).expect(404)
+    const unknown = await as(SOPHIE).get('/v1/dossiers/by-slug/inconnu').expect(404)
+    expect(theirs.body).toEqual(unknown.body)
+    await as(FINANCEUR).get(`/v1/dossiers/by-slug/${own.slug}`).expect(404)
+    await as(ADMIN).get(`/v1/dossiers/by-slug/${own.slug}`).expect(404)
+
+    // The recipient of an active share reads it at its level, as by its id.
+    await fake.prisma.shareLink.create({
+      data: {
+        dossierId: own.id,
+        recipientEmail: FINANCEUR.email,
+        token: 'tok-e1008',
+        status: 'active',
+        accessLevel: 'public',
+      },
+    })
+    const shared = (await as(FINANCEUR).get(`/v1/dossiers/by-slug/${own.slug}`).expect(200)).body
+    expect(shared).toEqual((await as(FINANCEUR).get(`/v1/dossiers/${own.id}`).expect(200)).body)
+    expect(shared.company).toBeUndefined()
+    await request(app.getHttpServer()).get(`/v1/dossiers/by-slug/${own.slug}`).expect(401)
+  })
+
   it('shows the owner their companies and their dossiers, never another account’s', async () => {
     const own = await create(SOPHIE, 'Biosensio')
     const other = await create(MARC, 'Agrotech')

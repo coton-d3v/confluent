@@ -52,6 +52,7 @@ import {
   type MulterFile,
 } from '../documents/upload-request'
 import { UploadSizeGuard } from '../documents/upload-size.guard'
+import { UploadSlotsInterceptor } from '../documents/upload-slots.interceptor'
 import {
   AdminDossiersService,
   type AdminDossierList,
@@ -166,7 +167,7 @@ export class AdminDossiersController {
 
   @Post(':id/documents')
   @UseGuards(UploadSizeGuard)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
+  @UseInterceptors(UploadSlotsInterceptor, FileInterceptor('file', UPLOAD_OPTIONS))
   @ApiOperation({
     summary: 'Admin — déposer ou remplacer un document (E10.05)',
     description:
@@ -201,7 +202,18 @@ export class AdminDossiersController {
   @ApiNotFoundResponse({ description: 'Dossier inexistant.' })
   @ApiPayloadTooLargeResponse({ description: 'Fichier > 20 Mo.' })
   @ApiUnsupportedMediaTypeResponse({ description: 'Format de fichier non accepté.' })
-  @ApiResponse({ status: 507, description: 'Espace de stockage plein : fichier non enregistré.' })
+  @ApiResponse({
+    status: 507,
+    description:
+      'Espace de stockage plein, ou documents de l’entreprise à 500 Mo toutes versions comprises ' +
+      '(E10.08) : fichier non enregistré.',
+  })
+  @ApiResponse({
+    status: 429,
+    description:
+      'Trop d’envois en cours pour ce compte (3) ou pour le serveur (8) : `Retry-After`, fichier ' +
+      'ni conservé en mémoire ni enregistré (E10.08).',
+  })
   @ApiServiceUnavailableResponse({
     description: 'Stockage momentanément injoignable : fichier non enregistré, réessayer.',
   })

@@ -16,6 +16,8 @@ import {
   type StorageAdapter,
 } from './../src/modules/documents/storage/storage.adapter'
 import { createFakePrisma, seedDocument } from '../src/testing/fake-prisma'
+import { MAX_COMPANY_DOCUMENTS_BYTES } from '@confluent/shared'
+import { uploadSlots } from './../src/modules/documents/upload-slots.interceptor'
 
 describe('Document upload (e2e)', () => {
   let app: INestApplication<App>
@@ -89,6 +91,81 @@ describe('Document upload (e2e)', () => {
         .expect(201)
       expect(res.body).toMatchObject({ filename: 'bp.pdf', version: expected })
     }
+  })
+
+  // E10.08 (U10): a received file is held in memory; an account receives 3 at most at once.
+  it('refuses a 4th simultaneous upload of an account with 429, before buffering it, until one ends', async () => {
+    const upload = jest.spyOn(DocumentsService.prototype, 'upload')
+    const held = [1, 2, 3].map(() => uploadSlots.acquire('u-1')!)
+    try {
+      await occupiedSlots(held, upload)
+    } finally {
+      held.forEach((release) => release())
+      upload.mockRestore()
+    }
+    expect(uploadSlots.inFlight).toBe(0)
+  })
+
+  async function occupiedSlots(held: Array<() => void>, upload: jest.SpyInstance) {
+    const refused = await request(app.getHttpServer())
+      .post('/v1/dossiers/d-1/documents')
+      .set('Authorization', `Bearer ${jwt}`)
+      .attach('file', Buffer.from('%PDF-1.4 test'), 'bp.pdf')
+    expect(refused.status).toBe(429)
+    expect(refused.body.error).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    expect(refused.body.error.message).toMatch(/Trop de fichiers en cours d’envoi/)
+    expect(refused.headers['retry-after']).toBe('5')
+    expect(upload).not.toHaveBeenCalled()
+
+    held[0]()
+    await request(app.getHttpServer())
+      .post('/v1/dossiers/d-1/documents')
+      .set('Authorization', `Bearer ${jwt}`)
+      .attach('file', Buffer.from('%PDF-1.4 test'), 'bp.pdf')
+      .expect(201)
+    // The slot of the accepted upload is given back with its response.
+    for (let i = 0; i < 50 && uploadSlots.inFlight !== 2; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(uploadSlots.inFlight).toBe(2)
+  }
+
+  // E10.08 (U10): what a company's documents hold in all is bounded, restored versions aside.
+  it('refuses a file beyond the company’s 500 MB with 507, and keeps nothing of it', async () => {
+    const big = await seedDocument(fake.prisma, {
+      companyId: 'c-d-1',
+      filename: 'gros.pdf',
+      size: MAX_COMPANY_DOCUMENTS_BYTES - 20,
+    })
+    await fake.prisma.document.create({
+      data: {
+        libraryDocumentId: big.libraryDocumentId,
+        companyId: 'c-d-1',
+        filename: 'gros.pdf',
+        version: 2,
+        storageKey: big.storageKey,
+        mimetype: 'application/pdf',
+        size: big.size,
+        restoredFromId: big.id,
+      },
+    })
+    await request(app.getHttpServer())
+      .post('/v1/dossiers/d-1/documents')
+      .set('Authorization', `Bearer ${jwt}`)
+      .attach('file', Buffer.from('%PDF-1.4 a'), 'a.pdf')
+      .expect(201)
+    const res = await request(app.getHttpServer())
+      .post('/v1/dossiers/d-1/documents')
+      .set('Authorization', `Bearer ${jwt}`)
+      .attach('file', Buffer.from('%PDF-1.4 bb'), 'b.pdf')
+    expect(res.status).toBe(507)
+    expect(res.body.error).toMatchObject({ code: 'INSUFFICIENT_STORAGE' })
+    expect(res.body.error.message).toMatch(/500 Mo/)
+    expect([...fake.table('document').values()].map((d) => d.filename).sort()).toEqual([
+      'a.pdf',
+      'gros.pdf',
+      'gros.pdf',
+    ])
   })
 
   it('refuses a file whose content is not an accepted format with 415, and stores nothing', async () => {
