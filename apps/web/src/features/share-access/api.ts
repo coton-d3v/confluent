@@ -1,5 +1,6 @@
 import type { FinanceurShareResponse } from '@confluent/shared'
 import { getAuthState, sessionGeneration } from '@/features/auth/auth-store'
+import { markLinksReceived } from '@/features/documents/link-lifetime'
 import { apiRequest, publicApiRequest, type ApiError } from '@/lib/api-client'
 
 // Each reading of a share opens or resumes a consultation (E07.08: the API counts loads within 30
@@ -14,9 +15,9 @@ export function getSharedDossier(token: string): Promise<FinanceurShareResponse>
   const key = `${sessionGeneration()}:${getAuthState().user?.id ?? ''}:${token}`
   let request = inFlight.get(key)
   if (!request) {
-    request = apiRequest<FinanceurShareResponse>(`/v1/shares/${encodeURIComponent(token)}`).finally(
-      () => inFlight.delete(key),
-    )
+    request = apiRequest<FinanceurShareResponse>(`/v1/shares/${encodeURIComponent(token)}`)
+      .then(markLinksReceived)
+      .finally(() => inFlight.delete(key))
     inFlight.set(key, request)
   }
   return request

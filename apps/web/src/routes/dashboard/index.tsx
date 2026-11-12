@@ -10,11 +10,13 @@ import { useCurrentUser } from '@/features/current-user/context'
 import { listCompanies } from '@/features/companies/api'
 import { listCompanyOffers } from '@/features/company-transfers/api'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 
 export default function DashboardRoute() {
   const navigate = useNavigate()
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const { data: dossiers, isLoading, error } = useDossiers()
+  const { data: dossiers, isLoading, error, refetch } = useDossiers()
   const currentUser = useCurrentUser()
 
   useEffect(() => {
@@ -115,9 +117,11 @@ export default function DashboardRoute() {
       {isLoading ? (
         <p className="mt-8 text-sm text-muted-foreground">Chargement…</p>
       ) : error ? (
-        <p className="mt-8 text-sm text-destructive">
-          Impossible de charger vos dossiers. Réessayez plus tard.
-        </p>
+        <LoadError
+          className="mt-8"
+          message={readFailure(error, 'Vos dossiers n’ont pas pu être chargés.')}
+          onRetry={refetch}
+        />
       ) : list.length > 0 ? (
         <ul
           role="list"

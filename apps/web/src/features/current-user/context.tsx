@@ -1,47 +1,11 @@
-// Current user resolution: prefers the real JWT session from `authStore` (Epic 6.6),
-// falls back to the dev-only `?as=...` impersonation fixture for demo/offline flows.
+// Current user resolution: the real session from `authStore`, restored at start from the refresh
+// cookie. No other source: the early demo fixture that let a `?as=` parameter pose as an account was
+// removed (ROADMAP E10.06).
 
-import { createContext, use, useEffect, useState, type ReactNode } from 'react'
+import { createContext, use, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CurrentUser } from '@confluent/shared'
 import { getAuthState, subscribeAuth, type AuthUser } from '@/features/auth/auth-store'
 import { initAuth } from '@/features/auth/api'
-
-export const MOCK_ENTREPRENEUR_USER: CurrentUser = {
-  id: 'mock-entrepreneur-1',
-  name: 'Sophie Moreau',
-  firstName: 'Sophie',
-  email: 'sophie@biosensio.fr',
-  role: 'entrepreneur',
-}
-
-export const MOCK_ADMIN_USER: CurrentUser = {
-  id: 'mock-admin-1',
-  name: 'Claire Martin',
-  firstName: 'Claire',
-  email: 'claire@frenchtech-cvl.fr',
-  role: 'admin',
-}
-
-export const DEV_ROLE_STORAGE_KEY = 'confluent_dev_role'
-
-function resolveImpersonatedUser(): CurrentUser | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const url = new URL(window.location.href)
-    const as = url.searchParams.get('as')
-    if (as === 'admin' || as === 'entrepreneur') {
-      window.sessionStorage.setItem(DEV_ROLE_STORAGE_KEY, as)
-      url.searchParams.delete('as')
-      window.history.replaceState(null, '', url.pathname + url.search + url.hash)
-    }
-    const stored = window.sessionStorage.getItem(DEV_ROLE_STORAGE_KEY)
-    if (stored === 'admin') return MOCK_ADMIN_USER
-    if (stored === 'entrepreneur') return MOCK_ENTREPRENEUR_USER
-    return null
-  } catch {
-    return null
-  }
-}
 
 function fromAuth(authUser: AuthUser): CurrentUser {
   const first = authUser.firstName?.trim() ?? ''
@@ -58,12 +22,17 @@ function fromAuth(authUser: AuthUser): CurrentUser {
 
 function resolveCurrentUser(): CurrentUser | null {
   const { user } = getAuthState()
-  return user ? fromAuth(user) : resolveImpersonatedUser()
+  return user ? fromAuth(user) : null
 }
 
 interface AuthContextValue {
   user: CurrentUser | null
   loading: boolean
+  // ROADMAP E10.06: the session could not be restored for want of an answer from the server (offline,
+  // server restarting): neither signed in nor known to be signed out.
+  unreachable: boolean
+  // Tries again to restore the session; also done when the browser comes back online.
+  retry: () => void
 }
 
 const CurrentUserContext = createContext<AuthContextValue | undefined>(undefined)
@@ -71,18 +40,50 @@ const CurrentUserContext = createContext<AuthContextValue | undefined>(undefined
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [unreachable, setUnreachable] = useState(false)
+  const restoring = useRef(false)
+
+  // One restoration at a time: they share the single refresh call anyway (api-client).
+  const run = useCallback(() => {
+    if (restoring.current) return
+    restoring.current = true
+    initAuth()
+      .then((outcome) => {
+        setUser(resolveCurrentUser())
+        setUnreachable(outcome === 'unreachable' && getAuthState().user === null)
+      })
+      .finally(() => {
+        restoring.current = false
+        setLoading(false)
+      })
+  }, [])
+  const retry = useCallback(() => {
+    setLoading(true)
+    run()
+  }, [run])
 
   useEffect(() => {
-    initAuth()
-      .then(() => setUser(resolveCurrentUser()))
-      .finally(() => setLoading(false))
-    const unsubscribe = subscribeAuth(() => setUser(resolveCurrentUser()))
+    run()
+    const unsubscribe = subscribeAuth(() => {
+      setUser(resolveCurrentUser())
+      if (getAuthState().user) setUnreachable(false)
+    })
     return () => {
       unsubscribe()
     }
-  }, [])
+  }, [run])
 
-  return <CurrentUserContext value={{ user, loading }}>{children}</CurrentUserContext>
+  useEffect(() => {
+    if (!unreachable) return
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [unreachable, retry])
+
+  return (
+    <CurrentUserContext value={{ user, loading, unreachable, retry }}>
+      {children}
+    </CurrentUserContext>
+  )
 }
 
 export function useCurrentUser(): CurrentUser {

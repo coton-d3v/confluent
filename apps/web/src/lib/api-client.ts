@@ -19,6 +19,19 @@ function retryAfterOf(res: Response): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined
 }
 
+// ROADMAP E10.06: no answer from the server (offline, connection refused or reset, or a session that
+// could not be renewed for that reason), said in French. It carries no `status`, as a failed `fetch`
+// did: every check that reads a missing status as « network » keeps doing so.
+export class NetworkError extends Error {
+  readonly code = 'NETWORK_ERROR'
+  constructor() {
+    super(
+      'Le serveur Confluent ne répond pas pour le moment : vérifiez votre connexion internet, puis réessayez.',
+    )
+    this.name = 'NetworkError'
+  }
+}
+
 // The request may succeed if repeated later: no answer (network), overload or server failure.
 // Refusals (4xx other than 429) are final.
 export function isTemporaryFailure(err: unknown): boolean {
@@ -52,7 +65,13 @@ async function doFetch(path: string, init: RequestInit, withAuth: boolean): Prom
     const { accessToken } = getAuthState()
     if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   }
-  return fetch(`${API_BASE_URL}${path}`, { ...init, credentials: 'include', headers })
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: 'include', headers })
+  } catch (err) {
+    // `fetch` rejects with a TypeError when no answer came; an abort stays an AbortError.
+    if (err instanceof TypeError) throw new NetworkError()
+    throw err
+  }
 }
 
 export async function apiRequest<T>(
@@ -66,9 +85,12 @@ export async function apiRequest<T>(
   const account = getAuthState().user?.id ?? null
   let res = await doFetch(path, init, true)
   if (res.status === 401 && opts.retryOn401 && account !== null) {
-    const refreshed = await refreshSession()
-    if (refreshed && getAuthState().user?.id === account) {
+    const outcome = await refreshSession()
+    if (outcome === 'renewed' && getAuthState().user?.id === account) {
       res = await doFetch(path, init, true)
+    } else if (outcome === 'unreachable') {
+      // The session was kept: this request failed for want of an answer, not of a session.
+      throw new NetworkError()
     }
   }
   if (!res.ok) throw await parseError(res)
@@ -88,10 +110,12 @@ export async function apiUpload<T>(path: string, body: FormData, opts: UploadOpt
   const account = getAuthState().user?.id ?? null
   let res = await sendUpload(path, body, opts)
   if (res.status === 401 && account !== null) {
-    const refreshed = await refreshSession()
-    if (refreshed && getAuthState().user?.id === account) {
+    const outcome = await refreshSession()
+    if (outcome === 'renewed' && getAuthState().user?.id === account) {
       opts.onProgress?.(0)
       res = await sendUpload(path, body, opts)
+    } else if (outcome === 'unreachable') {
+      throw new NetworkError()
     }
   }
   if (!res.ok) throw await parseError(res)
@@ -116,7 +140,7 @@ function sendUpload(path: string, body: FormData, opts: UploadOptions): Promise<
       resolve(new Response(xhr.status === 204 ? null : xhr.responseText, { status: xhr.status, headers }))
     }
     // No answer: same as a failed `fetch` (network error), the upload may be retried.
-    xhr.onerror = () => reject(new TypeError('Network request failed'))
+    xhr.onerror = () => reject(new NetworkError())
     xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
     if (opts.signal) {
       if (opts.signal.aborted) return xhr.abort()
@@ -129,27 +153,33 @@ function sendUpload(path: string, body: FormData, opts: UploadOptions): Promise<
 // Refresh tokens are single-use server-side (rotation). Concurrent 401s — or the boot loader racing a
 // request — must share ONE refresh call: a second call with the same cookie would be refused and log
 // the user out.
-let refreshInFlight: Promise<boolean> | null = null
+// `renewed`: a new access token; `refused`: no session (signed out); `unreachable` (ROADMAP E10.06): no
+// answer, or an overloaded or failing server — nothing says the session ended, so it is kept and the
+// next request, or the next try, decides.
+export type RenewalOutcome = 'renewed' | 'refused' | 'unreachable'
 
-export function refreshSession(): Promise<boolean> {
+let refreshInFlight: Promise<RenewalOutcome> | null = null
+
+export function refreshSession(): Promise<RenewalOutcome> {
   refreshInFlight ??= doRefresh().finally(() => {
     refreshInFlight = null
   })
   return refreshInFlight
 }
 
-async function doRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<RenewalOutcome> {
   // A sign-out or another sign-in while this refresh is in flight wins: its answer is then ignored.
   const startedAt = sessionGeneration()
   const stillCurrent = () => sessionGeneration() === startedAt
   // Superseded: report the session as it now is (signed in by another event, or signed out).
-  const current = () => getAuthState().accessToken !== null
+  const current = (): RenewalOutcome => (getAuthState().accessToken !== null ? 'renewed' : 'refused')
   try {
     const res = await doFetch('/v1/auth/refresh', { method: 'POST' }, false)
     if (!stillCurrent()) return current()
     if (!res.ok) {
+      if (isTemporaryFailure({ status: res.status })) return 'unreachable'
       setAuth(null)
-      return false
+      return 'refused'
     }
     const body = (await res.json()) as {
       accessToken: string
@@ -157,11 +187,10 @@ async function doRefresh(): Promise<boolean> {
     }
     if (!stillCurrent()) return current()
     setAuth({ accessToken: body.accessToken, user: body.user })
-    return true
+    return 'renewed'
   } catch {
     if (!stillCurrent()) return current()
-    setAuth(null)
-    return false
+    return 'unreachable'
   }
 }
 

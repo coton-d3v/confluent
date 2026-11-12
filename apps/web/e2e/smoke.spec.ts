@@ -121,6 +121,68 @@ test('lien de connexion invalide ou sans jeton', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Lien invalide ou expiré' })).toBeVisible()
 })
 
+// ROADMAP E10.06: error screens, network recovery, no impersonation.
+test('adresse inconnue : page 404, connecté ou non', async ({ page }) => {
+  await page.goto('/page-inconnue-smoke')
+  await expect(page.getByRole('heading', { level: 1, name: 'Page introuvable' })).toBeVisible()
+  await expect(page.getByText('Erreur 404')).toBeVisible()
+  await page.goto('/dashboard/inconnue-smoke/encore')
+  await expect(page.getByRole('heading', { level: 1, name: 'Page introuvable' })).toBeVisible()
+  await page.getByRole('link', { name: 'Retour à l’accueil' }).click()
+  await expect(page.getByRole('heading', { name: 'Connexion' })).toBeVisible()
+})
+
+test('page en erreur : écran d’erreur en français, sans détail technique', async ({ page }) => {
+  // A page the API answers with something it cannot render.
+  await page.route(`**/v1/public/workspaces/${FIXTURES.slug}`, (route) =>
+    route.fulfill({ status: 200, json: {} }),
+  )
+  await page.goto(`/w/${FIXTURES.slug}`)
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Cette page n’a pas pu s’afficher' }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Recharger la page' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Retour à l’accueil' })).toBeVisible()
+  await expect(page.getByText('Détails techniques')).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText('TypeError')
+  await page.unroute(`**/v1/public/workspaces/${FIXTURES.slug}`)
+  await page.getByRole('button', { name: 'Recharger la page' }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(FIXTURES.structure)
+})
+
+test('aucune usurpation d’identité par l’adresse : ?as=admin reste sans session', async ({
+  page,
+}) => {
+  await page.goto('/admin?as=admin')
+  await expect(page.getByRole('heading', { name: 'Connexion' })).toBeVisible()
+  await expect(page).toHaveURL(/\/auth$/)
+  await page.goto('/dashboard?as=entrepreneur')
+  await expect(page).toHaveURL(/\/auth$/)
+})
+
+test('serveur injoignable au démarrage : pas de déconnexion, reprise au clic', async ({ page }) => {
+  await page.route('**/v1/auth/refresh', (route) => route.abort('internetdisconnected'))
+  await page.goto('/dashboard')
+  await expect(page.getByRole('heading', { name: 'Confluent ne répond pas' })).toBeVisible()
+  await expect(page).toHaveURL(/\/dashboard$/)
+  // The server answers again: without a session, the sign-in page.
+  await page.unroute('**/v1/auth/refresh')
+  await page.getByRole('button', { name: 'Réessayer' }).click()
+  await expect(page.getByRole('heading', { name: 'Connexion' })).toBeVisible()
+})
+
+test('hors ligne : bandeau non bloquant, puis connexion rétablie', async ({ context, page }) => {
+  await page.goto('/auth')
+  await expect(page.getByRole('heading', { name: 'Connexion' })).toBeVisible()
+  await context.setOffline(true)
+  await expect(page.getByText('Vous êtes hors ligne')).toBeVisible()
+  // Nothing on the page is covered: the form can still be filled in.
+  await page.getByLabel('Adresse email').fill('hors-ligne@smoke.test')
+  await context.setOffline(false)
+  await expect(page.getByText('Connexion rétablie.')).toBeVisible()
+  await expect(page.getByText('Vous êtes hors ligne')).toHaveCount(0)
+})
+
 test('en-têtes du serveur web : noindex partout sauf l’adresse d’une page publique', async ({
   request,
 }) => {
@@ -136,4 +198,10 @@ test('en-têtes du serveur web : noindex partout sauf l’adresse d’une page p
 
   const form = await request.get(`/w/${FIXTURES.slug}/candidater`)
   expect(form.headers()['x-robots-tag']).toBe(ROBOTS_CLOSED)
+
+  // E10.06: the pages are revalidated at each load, so that none names a former version's assets.
+  expect(home.headers()['cache-control']).toBe('no-cache')
+  expect(publicPage.headers()['cache-control']).toBe('no-cache')
+  const unknown = await request.get('/page-inconnue-smoke')
+  expect(unknown.headers()['cache-control']).toBe('no-cache')
 })

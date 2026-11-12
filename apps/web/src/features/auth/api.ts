@@ -1,4 +1,4 @@
-import { publicApiRequest, apiRequest, refreshSession } from '@/lib/api-client'
+import { publicApiRequest, apiRequest, refreshSession, type RenewalOutcome } from '@/lib/api-client'
 import { setAuth, getAuthState, type AuthUser } from './auth-store'
 
 interface SessionResponse {
@@ -34,8 +34,9 @@ export async function updateProfile(firstName: string, lastName: string): Promis
 }
 
 // Restores the session from the refresh cookie; shares the in-flight refresh with apiRequest.
-export async function initAuth(): Promise<void> {
-  await refreshSession()
+// `unreachable`: no answer, so whether there is a session is not known yet.
+export function initAuth(): Promise<RenewalOutcome> {
+  return refreshSession()
 }
 
 export async function logout(): Promise<void> {

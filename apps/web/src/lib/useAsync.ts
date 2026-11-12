@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isTemporaryFailure } from './api-client'
 
 export interface QueryState<T> {
   data: T | undefined
@@ -36,5 +37,14 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): QueryState<T
   }, [...deps, tick])
 
   const refetch = useCallback(() => setTick((n) => n + 1), [])
+
+  // ROADMAP E10.06: a reading that failed for want of an answer is tried again once when the browser
+  // comes back online — on that event only, never on a timer.
+  useEffect(() => {
+    if (!error || !isTemporaryFailure(error)) return
+    window.addEventListener('online', refetch)
+    return () => window.removeEventListener('online', refetch)
+  }, [error, refetch])
+
   return { data, isLoading, error, refetch }
 }
