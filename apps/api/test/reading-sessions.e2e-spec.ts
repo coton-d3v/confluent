@@ -417,9 +417,16 @@ describe('Reading sessions (e2e)', () => {
     expect(of(read, bio.toBob.id)?.viewCount).toBe(0)
     expect(JSON.stringify(read)).not.toContain(IVY.id)
     expect(JSON.stringify(read)).not.toContain(IVY.email)
-    // Nor in the owner's journal (E07.03); the administrators' raw journal keeps it.
-    const owner = (await sophie.get(`/v1/dossiers/${bio.id}/audit-log`).expect(200)).body
+    // Nor in the owner's history (E07.03, E07.09): Claire's consultation only; the administrators'
+    // raw journal keeps Ivy's reading.
+    const owner = (await sophie.get(`/v1/dossiers/${bio.id}/history`).expect(200)).body
     expect(JSON.stringify(owner)).not.toContain(IVY.id)
+    expect(JSON.stringify(owner)).not.toContain(IVY.email)
+    expect(
+      owner.items
+        .filter((e: { kind: string }) => e.kind === 'consultation')
+        .map((e: { recipientEmail: string }) => e.recipientEmail),
+    ).toEqual([CLAIRE.email])
     const admin = (await as(ADMIN).get(`/v1/admin/dossiers/${bio.id}/audit-log`).expect(200)).body
     expect(admin.map((e: { actorId: string }) => e.actorId)).toContain(IVY.id)
   })

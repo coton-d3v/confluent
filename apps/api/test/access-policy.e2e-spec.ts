@@ -725,6 +725,118 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
   })
 
+  // E07.09: between financeurs. Bob and Eve read the request through their own direct shares, Ivy
+  // through the CCI's pool; each marks, pledges or consents. Every route and tool a reader reaches
+  // shows them their own accesses, readings and positions only — never another reader's address,
+  // account, reading session or amount —, and the owner's history names the direct shares' readers
+  // only, never the pool's.
+  it('keeps each reader’s accesses, readings and positions from every other reader', async () => {
+    const dossier = await biosensio('complet')
+    const toBob = await invite(dossier.id, 'complet')
+    const toEve = (
+      await sophie
+        .post(`/v1/dossiers/${dossier.id}/shares`, {
+          recipientEmail: EVE.email,
+          accessLevel: 'partiel',
+        })
+        .expect(201)
+    ).body as { id: string; token: string }
+    const readShare = async (u: { id: string }, token: string) =>
+      (await as(u).get(`/v1/shares/${token}`).expect(200)).body.share.reading.id as string
+    const bobSession = await readShare(BOB, toBob.token)
+    const eveSession = await readShare(EVE, toEve.token)
+    const ivyReading = (await as(IVY).get(`/v1/opportunities/${dossier.id}`).expect(200)).body
+    expect(ivyReading.opportunity.reading).toBeNull()
+    const pledge = (amountEur: number, show: boolean) => ({
+      intention: 'likely',
+      amountEur,
+      showName: show,
+      showAmount: show,
+      version: null,
+    })
+    await as(BOB).put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: true }).expect(200)
+    await as(BOB).put(`/v1/opportunities/${dossier.id}/pledge`, pledge(40_404, true)).expect(200)
+    await as(EVE).put(`/v1/opportunities/${dossier.id}/pledge`, pledge(61_616, false)).expect(200)
+    await as(IVY)
+      .put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false })
+      .expect(200)
+    await as(IVY)
+      .put(`/v1/opportunities/${dossier.id}/structures/${cci}`, { consent: true })
+      .expect(200)
+
+    // A reader's session is theirs alone: another reader's heartbeat finds nothing.
+    await as(EVE)
+      .post(`/v1/reading-sessions/${bobSession}/heartbeat`, { activeMs: 1000 })
+      .expect(404)
+    await as(IVY)
+      .post(`/v1/reading-sessions/${eveSession}/heartbeat`, { activeMs: 1000 })
+      .expect(404)
+
+    const traces = {
+      [BOB.id]: [BOB.email, BOB.id, bobSession, toBob.token, toBob.id, '40404'],
+      [EVE.id]: [EVE.email, EVE.id, eveSession, toEve.token, toEve.id, '61616'],
+      [IVY.id]: [IVY.email, IVY.id, consentId()],
+    }
+    function consentId() {
+      return [...fake.table('investorPositionDisclosure').values()][0].id
+    }
+    for (const reader of [BOB, EVE, IVY]) {
+      const own = reader === BOB ? toBob : reader === EVE ? toEve : null
+      const reads = [
+        ...(own ? [`/v1/shares/${own.token}`, `/v1/dossiers/${dossier.id}`] : []),
+        ...(own
+          ? [`/v1/dossiers/${dossier.id}/answers`, `/v1/dossiers/${dossier.id}/documents`]
+          : []),
+        '/v1/dossiers',
+        '/v1/opportunities',
+        `/v1/opportunities/${dossier.id}`,
+        '/v1/positions',
+      ]
+      const seen: string[] = []
+      for (const url of reads) {
+        const res = await as(reader).get(url)
+        expect([reader.email, url, res.status]).toEqual([reader.email, url, 200])
+        seen.push(JSON.stringify(res.body))
+      }
+      const call = await mcp(reader)
+      for (const [tool, args] of [
+        ['list_dossiers', {}],
+        ['get_dossier', { dossier: dossier.slug }],
+        ['list_documents', { dossier: dossier.slug }],
+      ] as const) {
+        const res = await call(tool, args)
+        seen.push(JSON.stringify(res.result ?? res.error))
+      }
+      const text = seen.join('\n')
+      for (const other of [BOB, EVE, IVY].filter((o) => o !== reader)) {
+        for (const trace of traces[other.id]) {
+          expect([reader.email, trace, text.includes(trace)]).toEqual([reader.email, trace, false])
+        }
+      }
+    }
+
+    // The owner's history: Bob's and Eve's consultations, none of Ivy, no investor's choice.
+    const history = (await sophie.get(`/v1/dossiers/${dossier.id}/history`).expect(200)).body
+    expect(
+      history.items
+        .filter((e: { kind: string }) => e.kind === 'consultation')
+        .map((e: { recipientEmail: string }) => e.recipientEmail)
+        .sort(),
+    ).toEqual([BOB.email, EVE.email])
+    const ownerText = JSON.stringify(history)
+    for (const trace of [
+      ...traces[IVY.id],
+      BOB.id,
+      EVE.id,
+      bobSession,
+      eveSession,
+      '40404',
+      '61616',
+    ]) {
+      expect([trace, ownerText.includes(trace)]).toEqual([trace, false])
+    }
+  })
+
   it('opens nothing else of the request to its readers: neither the structure’s follow-up nor the owner’s tools', async () => {
     const dossier = await biosensio('complet')
     const link = await invite(dossier.id, 'complet')
@@ -734,6 +846,13 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     const refused = [
       `/v1/dossiers/${dossier.id}/analytics`,
       `/v1/dossiers/${dossier.id}/audit-log`,
+      // E07.09: the request's history, every filter.
+      `/v1/dossiers/${dossier.id}/history`,
+      `/v1/dossiers/${dossier.id}/history?filter=consultations`,
+      `/v1/dossiers/${dossier.id}/history?filter=access`,
+      `/v1/dossiers/${dossier.id}/history?filter=administration`,
+      `/v1/admin/dossiers/${dossier.id}/audit-log`,
+      `/v1/admin/dossiers/${dossier.id}/shares`,
       `/v1/dossiers/${dossier.id}/candidatures`,
       `/v1/dossiers/${dossier.id}/shares`,
       `/v1/dossiers/${dossier.id}/share-preview?level=public`,

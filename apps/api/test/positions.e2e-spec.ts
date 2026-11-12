@@ -450,9 +450,10 @@ describe('Positions (e2e)', () => {
       [BOB.id, 'investor_position_disclosed'],
       [CLAIRE.id, 'investor_position_disclosure_withdrawn'],
     ])
-    // The consents stay out of the owner's journal.
-    const ownerJournal = (await sophie.get(`/v1/dossiers/${bio.id}/audit-log`).expect(200)).body
-    expect(JSON.stringify(ownerJournal)).not.toMatch(/investor_position_/)
+    // The consents stay out of the owner's history (E07.09).
+    const ownerHistory = (await sophie.get(`/v1/dossiers/${bio.id}/history`).expect(200)).body
+    expect(JSON.stringify(ownerHistory)).not.toMatch(/investor_position_|disclos/)
+    expect(JSON.stringify(ownerHistory)).not.toContain(cci)
   })
 
   it('shows a consented position only while the investor reads the request through that structure’s pool', async () => {

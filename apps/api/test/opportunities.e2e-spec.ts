@@ -365,11 +365,15 @@ describe('Opportunities (e2e)', () => {
     expect(
       analytics.perRecipient.find((r: { shareLinkId: string }) => r.shareLinkId === toClaire.id),
     ).toMatchObject({ viewCount: 1 })
-    // Never named to the owner (D05); administrators see it.
-    const journal = (await sophie.get(`/v1/dossiers/${bio.id}/audit-log`).expect(200)).body
-    expect(journal.map((e: { actionType: string }) => e.actionType)).not.toContain(
-      'opportunity_viewed',
-    )
+    // In the owner's history (E07.09), the share's consultation, without its journal entry; the
+    // administrators keep the entry.
+    const history = (await sophie.get(`/v1/dossiers/${bio.id}/history`).expect(200)).body
+    expect(
+      history.items
+        .filter((e: { kind: string }) => e.kind === 'consultation')
+        .map((e: { recipientEmail: string }) => e.recipientEmail),
+    ).toEqual([CLAIRE.email])
+    expect(JSON.stringify(history)).not.toMatch(/opportunity_viewed|shareLinkIds|workspaceIds/)
     const adminJournal = (await as(ADMIN).get(`/v1/admin/dossiers/${bio.id}/audit-log`).expect(200))
       .body
     expect(adminJournal.map((e: { actionType: string }) => e.actionType)).toContain(
