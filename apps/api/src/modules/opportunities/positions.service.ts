@@ -7,6 +7,7 @@ import {
 } from '@confluent/shared'
 import type { InvestorInterest, InvestorPledge } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { CandidaturesService } from '../candidatures/candidatures.service'
 import { DossiersService } from '../dossiers/dossiers.service'
@@ -210,10 +211,12 @@ export class PositionsService {
   // The reader consents to show a structure their position on a request. Only on a request they
   // read now (the opportunity's `404`) through that structure's pool (`409` otherwise: another
   // structure, a direct share alone). Given again, nothing changes and nothing is journaled.
+  // `origin` (E07.10): the application and the request it reported, when an assistant asked (MCP).
   async disclose(
     reader: OpportunityReader,
     dossierId: string,
     workspaceId: string,
+    origin?: ActionOrigin,
   ): Promise<PositionDisclosureView> {
     return this.prisma.$transaction(async (tx) => {
       await lockRequest(tx, dossierId)
@@ -235,7 +238,11 @@ export class PositionsService {
         actionType: 'investor_position_disclosed',
         actorId: reader.id,
         dossierId,
-        metadata: { workspaceId, accessLevel: found.accessLevel },
+        metadata: {
+          workspaceId,
+          accessLevel: found.accessLevel,
+          ...(origin ? originMetadata(origin) : {}),
+        },
       })
       return { id: created.id, workspace: source.workspace, disclosedAt: created.createdAt }
     })
@@ -244,7 +251,11 @@ export class PositionsService {
   // Withdraws one of the reader's consents, by its id, whether they still read the request or are
   // still in the structure or not — a consent stays revocable at any time: the same `204` for their
   // own consent, one already withdrawn, another account's or an unknown one.
-  async withdrawDisclosure(reader: OpportunityReader, disclosureId: string): Promise<void> {
+  async withdrawDisclosure(
+    reader: OpportunityReader,
+    disclosureId: string,
+    origin?: ActionOrigin,
+  ): Promise<void> {
     const found = await this.prisma.investorPositionDisclosure.findUnique({
       where: { id: disclosureId },
     })
@@ -260,7 +271,10 @@ export class PositionsService {
         actionType: 'investor_position_disclosure_withdrawn',
         actorId: reader.id,
         dossierId: current.dossierId,
-        metadata: { workspaceId: current.workspaceId },
+        metadata: {
+          workspaceId: current.workspaceId,
+          ...(origin ? originMetadata(origin) : {}),
+        },
       })
     })
   }

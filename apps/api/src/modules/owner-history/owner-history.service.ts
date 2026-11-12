@@ -71,14 +71,18 @@ function answerText(field: QuestionnaireField | undefined, value: unknown): stri
   return cut(readChoices(field?.choices).find((c) => c.key === value)?.label ?? value)
 }
 
-// What the owner reads of the application that asked for a step of their request (E04.08): its
-// name, never what it was asked.
+// What the owner reads of the application that asked for a step of their request (E04.08) or for a
+// change of its accesses (E07.10): its name, never what it was asked.
 function channelDetail(metadata: Record<string, unknown>) {
   if (metadata.channel === 'mcp') {
     return [{ label: 'Demandé via', value: `l’application ${text(metadata.clientName) ?? 'IA'}` }]
   }
   return metadata.channel === 'site' ? [{ label: 'Demandé via', value: 'le site' }] : []
 }
+
+// The site was the only way to share before E07.10: only an application is named.
+const viaApplication = (metadata: Record<string, unknown>) =>
+  metadata.channel === 'mcp' ? channelDetail(metadata) : []
 
 // ROADMAP E07.09 — the history of a request for its owner (@confluent/shared
 // `owner-history.schema.ts`): the journal through the closed list of `owner-history.rules.ts`, and the
@@ -220,7 +224,10 @@ export class OwnerHistoryService {
           ...base,
           summary: `Accès ouvert à ${recipient}`,
           recipientEmail: email,
-          details: granted ? [{ label: 'Niveau', value: granted }] : [],
+          details: [
+            ...(granted ? [{ label: 'Niveau', value: granted }] : []),
+            ...viaApplication(metadata),
+          ],
         }
       }
       case 'share_level_changed': {
@@ -233,6 +240,7 @@ export class OwnerHistoryService {
           details: [
             ...(from ? [{ label: 'Avant', value: from }] : []),
             ...(to ? [{ label: 'Après', value: to }] : []),
+            ...viaApplication(metadata),
           ],
         }
       }
@@ -243,6 +251,7 @@ export class OwnerHistoryService {
             ? `Accès de ${recipient} révoqué par l’administration`
             : `Accès de ${recipient} révoqué`,
           recipientEmail: email,
+          details: rule.byAdministration ? [] : viaApplication(metadata),
         }
       case 'answer_edited': {
         const field = fields.get(text(metadata.fieldId) ?? '')

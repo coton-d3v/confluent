@@ -20,6 +20,7 @@ import {
 import type { QuestionnaireField, QuestionnaireSection } from '@prisma/client'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
+import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { AuthService } from '../auth/auth.service'
@@ -267,11 +268,14 @@ export class ShareLinksService {
   // closed request is not diffused further; its existing shares stay readable). One active share
   // per recipient and request: the owner changes its level instead (409). Never to oneself (422).
   // Under the dossier's lock, like its archiving, so neither interleaves with the other.
+  // `origin` (E07.10): the application and the request it reported, when an assistant asked (MCP);
+  // the same for a change of level and a revocation.
   async create(params: {
     dossierId: string
     user: { id: string; email: string }
     recipientEmail: string
     accessLevel: AccessLevel
+    origin?: ActionOrigin
   }): Promise<ShareLink & { shareUrl: string }> {
     const held = await this.dossiers.getForDiffusion(params.dossierId, params.user.id)
     const recipientEmail = params.recipientEmail.trim().toLowerCase()
@@ -331,6 +335,7 @@ export class ShareLinksService {
         recipientUserId: recipient.id,
         createdNewUser,
         accessLevel: params.accessLevel,
+        ...(params.origin ? originMetadata(params.origin) : {}),
       },
     })
     try {
@@ -400,6 +405,7 @@ export class ShareLinksService {
     linkId: string
     userId: string
     accessLevel: AccessLevel
+    origin?: ActionOrigin
   }): Promise<ShareAccess> {
     const held = await this.dossiers.getByIdForUser(params.dossierId, params.userId)
     const changed = await this.prisma.$transaction(async (tx) => {
@@ -431,6 +437,7 @@ export class ShareLinksService {
           recipientEmail: changed.link.recipientEmail,
           from: changed.from,
           to: params.accessLevel,
+          ...(params.origin ? originMetadata(params.origin) : {}),
         },
       })
     }
@@ -438,9 +445,14 @@ export class ShareLinksService {
   }
 
   // The owner revokes a share of their request.
-  async revokeAsOwner(dossierId: string, linkId: string, userId: string): Promise<ShareAccess> {
+  async revokeAsOwner(
+    dossierId: string,
+    linkId: string,
+    userId: string,
+    origin?: ActionOrigin,
+  ): Promise<ShareAccess> {
     const held = await this.dossiers.getByIdForUser(dossierId, userId)
-    return this.revoke(held.id, linkId, { id: userId, as: 'owner' })
+    return this.revoke(held.id, linkId, { id: userId, as: 'owner' }, origin)
   }
 
   // An administrator revokes a share of any request.
@@ -456,7 +468,12 @@ export class ShareLinksService {
   // (`revokedBy`, read back from the journal) instead of a share revoked by nobody. The request is
   // locked first, as invitations and level changes do: the journal entry references it, and taking
   // the locks in another order would deadlock with a level change. Access was checked by the caller.
-  private async revoke(dossierId: string, linkId: string, actor: ShareActor) {
+  private async revoke(
+    dossierId: string,
+    linkId: string,
+    actor: ShareActor,
+    origin?: ActionOrigin,
+  ) {
     const link = await this.findLink(this.prisma, dossierId, linkId)
     const revokedAt = new Date()
     await this.prisma.$transaction(async (tx) => {
@@ -475,6 +492,7 @@ export class ShareLinksService {
           recipientEmail: link.recipientEmail,
           accessLevel: grantedLevel(link.accessLevel),
           revokedAt: revokedAt.toISOString(),
+          ...(origin ? originMetadata(origin) : {}),
         },
       })
     })

@@ -9,5 +9,7 @@ import { OwnerHistoryService } from './owner-history.service'
   imports: [DossiersModule, ReadingSessionsModule],
   controllers: [OwnerHistoryController],
   providers: [OwnerHistoryService],
+  // E07.10: the same history through MCP.
+  exports: [OwnerHistoryService],
 })
 export class OwnerHistoryModule {}

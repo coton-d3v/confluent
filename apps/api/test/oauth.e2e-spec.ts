@@ -254,6 +254,10 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'dossiers:read',
       'dossiers:submit',
       'dossiers:write',
+      'opportunities:read',
+      'opportunities:write',
+      'sharing:read',
+      'sharing:write',
     ])
     await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:write']).expect(400)
     await decide(forEntrepreneur, userJwt, ['dossiers:read', 'forms:publish']).expect(400)
@@ -270,6 +274,10 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       'dossiers:write',
       'forms:publish',
       'forms:write',
+      'opportunities:read',
+      'opportunities:write',
+      'sharing:read',
+      'sharing:write',
     ])
     await decide(forAdmin, adminJwt, ['dossiers:read', 'forms:write', 'forms:publish']).expect(200)
     expect(grantsOf('admin-1')).toEqual([['dossiers:read', 'forms:write', 'forms:publish']])
@@ -366,8 +374,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
           role: 'conseiller',
         },
       ])
-      // A manager designs the forms of their workspace: offered; presenting requests is not
-      // (a financeur owns no company).
+      // A manager designs the forms of their workspace: offered; presenting and sharing requests
+      // are not (a financeur owns no company); reading and taking positions on opportunities are.
       expect(shown.body.scopes.map((s: { scope: string }) => s.scope)).toEqual([
         'candidatures:decide',
         'candidatures:support',
@@ -376,6 +384,8 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'dossiers:write',
         'forms:publish',
         'forms:write',
+        'opportunities:read',
+        'opportunities:write',
       ])
 
       // A deactivated membership, a workspace one is not in, an unknown one: refused, nothing kept,
@@ -483,6 +493,10 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
         'forms:publish',
         'candidatures:support',
         'candidatures:decide',
+        'opportunities:read',
+        'opportunities:write',
+        'sharing:read',
+        'sharing:write',
       ],
     })
   })
@@ -562,6 +576,43 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       .get(ConfluentOAuthProvider)
       .verifyAccessToken(refreshed.body.access_token)
     expect(info.scopes).not.toContain('dossiers:submit')
+  })
+
+  // E07.10 (R52): opportunities, positions and the diffusion of requests are permissions of their
+  // own. A connection authorized without them never obtains them by refreshing, alone or together.
+  it('a connection authorized before the E07.10 permissions cannot gain them by refreshing', async () => {
+    const clientId = await registerClient()
+    const { code, verifier } = await authorize(clientId)
+    const tokens = await exchange(clientId, code, verifier).expect(200)
+    expect(tokens.body.scope).toBe('dossiers:read dossiers:write')
+    const refresh = (refreshToken: string, scope?: string) =>
+      http()
+        .post('/token')
+        .type('form')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: refreshToken,
+          ...(scope ? { scope } : {}),
+        })
+    for (const extra of [
+      'opportunities:read',
+      'opportunities:write',
+      'sharing:read',
+      'sharing:write',
+    ]) {
+      const widened = await refresh(
+        tokens.body.refresh_token,
+        `dossiers:read dossiers:write ${extra}`,
+      ).expect(400)
+      expect([extra, widened.body.error]).toEqual([extra, 'invalid_scope'])
+    }
+    const refreshed = await refresh(tokens.body.refresh_token).expect(200)
+    expect(refreshed.body.scope).toBe('dossiers:read dossiers:write')
+    const info = await app
+      .get(ConfluentOAuthProvider)
+      .verifyAccessToken(refreshed.body.access_token)
+    expect(info.scopes).toEqual(['dossiers:read', 'dossiers:write'])
   })
 
   it('a refresh token replayed after the retry window revokes the connection', async () => {

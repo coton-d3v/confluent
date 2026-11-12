@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common'
 import { isArchived, type PledgeInputParsed } from '@confluent/shared'
 import type { InvestorPledge, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import {
@@ -82,10 +83,12 @@ export class PledgesService {
   // nothing (a double click). Otherwise, from the version read (`409 PLEDGE_CHANGED`): hiding one's
   // name or amount is always possible; anything else needs the request read now (the opportunity's
   // `404`) and not archived (`409 PLEDGE_CLOSED`).
+  // `origin` (E07.10): the application and the request it reported, when an assistant asked (MCP).
   async set(
     reader: OpportunityReader,
     dossierId: string,
     input: PledgeInputParsed,
+    origin?: ActionOrigin,
   ): Promise<OpportunityPledgeView> {
     const wanted: Wanted = { ...input, comment: input.comment ?? null }
     return this.prisma.$transaction(async (tx) => {
@@ -140,6 +143,7 @@ export class PledgesService {
           showAmount: pledge.showAmount,
           version: pledge.version,
           accessLevel,
+          ...(origin ? originMetadata(origin) : {}),
         },
       })
       return pledgeView(pledge)
@@ -149,7 +153,11 @@ export class PledgesService {
   // Withdraws the reader's pledge, whether they still read the request or not — it only removes their
   // own data —, until the request is closed (archived: `409 PLEDGE_CLOSED`). The same `204` without
   // a pledge, for any request.
-  async withdraw(reader: OpportunityReader, dossierId: string): Promise<void> {
+  async withdraw(
+    reader: OpportunityReader,
+    dossierId: string,
+    origin?: ActionOrigin,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lockRequest(tx, dossierId)
       const key = { dossierId_investorId: { dossierId, investorId: reader.id } }
@@ -168,6 +176,7 @@ export class PledgesService {
           showName: current.showName,
           showAmount: current.showAmount,
           version: current.version,
+          ...(origin ? originMetadata(origin) : {}),
         },
       })
     })
