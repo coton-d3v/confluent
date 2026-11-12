@@ -19,6 +19,10 @@ import {
   CommitteeStatusBadge,
   CommitteeWhen,
 } from '@/features/committees/components/CommitteeSummary'
+import {
+  CommitteeTexts,
+  SharedCommitteePreview,
+} from '@/features/committees/components/CommitteeTexts'
 import { isOverdue } from '@/features/committees/format'
 import {
   CommitteesTrail,
@@ -34,8 +38,9 @@ const STATUS_DONE: Record<CommitteeStatus, string> = {
   cancelled: 'est annulé',
 }
 
-// One committee of a workspace (ROADMAP E08.01): when (in its zone, named), where, its status and
-// its internal information, for the workspace's conseillers and Confluent's administrators; its
+// One committee of a workspace (ROADMAP E08.01, E08.02): when (in its zone, named), where, its
+// status, its internal notes beside the information shared with its candidates and investors (and a
+// preview of what they will read), for the workspace's conseillers and Confluent's administrators; its
 // managers edit it, cancel it, mark it held or put it back to planned, from the version shown. The
 // API decides, at each request.
 export default function CommitteeRoute() {
@@ -132,7 +137,11 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
             />
           </section>
         ) : (
-          <CommitteeDetails committee={committee} />
+          <>
+            <CommitteeDetails committee={committee} />
+            <CommitteeTexts committee={committee} />
+            <SharedCommitteePreview committee={committee} />
+          </>
         )}
 
         {canManageWorkspace && !editing && (
@@ -254,16 +263,6 @@ function CommitteeDetails({ committee }: { committee: Committee }) {
           </dd>
         </div>
       )}
-      <div className="flex flex-col gap-1">
-        <dt className="text-sm font-medium text-muted-foreground">
-          Informations utiles <span className="font-normal">(internes au workspace)</span>
-        </dt>
-        <dd className="whitespace-pre-line break-words text-sm text-foreground">
-          {committee.internalNotes ?? (
-            <span className="text-muted-foreground">Aucune information.</span>
-          )}
-        </dd>
-      </div>
     </dl>
   )
 }

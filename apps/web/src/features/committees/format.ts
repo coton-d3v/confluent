@@ -138,7 +138,7 @@ export const isUpcoming = (committee: Committee, now: number) =>
 export const isOverdue = (committee: Committee, now: number) =>
   committee.status === 'planned' && Date.parse(committee.startsAt) <= now
 
-export function placeLine(committee: Committee): string {
+export function placeLine(committee: Pick<Committee, 'location' | 'meetingUrl'>): string {
   if (committee.location && committee.meetingUrl) return `${committee.location} · et en ligne`
   if (committee.location) return committee.location
   if (committee.meetingUrl) return 'En ligne'
