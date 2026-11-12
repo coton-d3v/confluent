@@ -32,7 +32,7 @@ import { PublicCardView } from './PublicCardView'
 
 // What a card shows, and what it never shows (@confluent/shared `showcase-card.schema.ts`).
 const SCOPE =
-  'La carte montre à tous : votre pseudonyme, le secteur de la demande, la région que vous choisissez, le montant recherché, le plan de financement de cette candidature en totaux (obtenu, en cours, reste à financer) et son comité (« Prochain comité » une fois la demande retenue, « En attente de comité » sinon). Jamais le nom de l’entreprise, le titre ou la présentation de la demande, vos réponses, documents ou coordonnées, les sources du plan, les promesses, les investisseurs ni les notes de la structure.'
+  'La carte montre à tous : votre pseudonyme, le secteur de la demande, la région que vous choisissez, le montant recherché, le plan de financement de cette candidature en totaux (obtenu, en cours, reste à financer) et son comité (« Prochain comité » une fois la demande retenue, « En attente de comité » sinon). Jamais le nom de l’entreprise, le titre ou la présentation de la demande, vos réponses, documents ou coordonnées, les sources du plan, les promesses, les investisseurs ni les notes de la structure. La structure peut masquer la carte de sa page publique, sans la modifier ; vous pouvez toujours la retirer.'
 
 const dateFr = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -470,6 +470,8 @@ export function ReceivedShowcaseCard({
         secteur, la région choisie, le montant recherché, les totaux du plan (obtenu, en cours,
         reste à financer) et le prochain comité qui a retenu la demande ; jamais le nom de
         l’entreprise, ses réponses, ses documents, les sources du plan, les promesses ni vos notes.
+        Les gestionnaires peuvent la masquer de la page depuis l’onglet « Page publique » du
+        workspace.
       </p>
     </section>
   )

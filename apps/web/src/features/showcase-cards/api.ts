@@ -1,4 +1,5 @@
 import type {
+  ManagedShowcaseCard,
   OwnerShowcaseCard,
   ReceivedShowcaseCard,
   SetShowcaseCardInput,
@@ -29,3 +30,15 @@ export const getReceivedShowcaseCard = (workspaceId: string, candidatureId: stri
   apiRequest<ReceivedShowcaseCard>(
     `/v1/workspaces/${id(workspaceId)}/candidatures/${id(candidatureId)}/showcase-card`,
   )
+
+// E09.03: the cards of a workspace's public page, for its managers, who hide or restore one.
+const managedPath = (workspaceId: string) =>
+  `/v1/admin/workspaces/${id(workspaceId)}/public-page/cards`
+
+export const listManagedShowcaseCards = (workspaceId: string) =>
+  apiRequest<ManagedShowcaseCard[]>(managedPath(workspaceId))
+
+export const setShowcaseCardHidden = (workspaceId: string, candidatureId: string, hidden: boolean) =>
+  apiRequest<ManagedShowcaseCard>(`${managedPath(workspaceId)}/${id(candidatureId)}/hidden`, {
+    method: hidden ? 'PUT' : 'DELETE',
+  })
