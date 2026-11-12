@@ -537,7 +537,13 @@ export function createFakePrisma() {
     libraryDocument: model('libraryDocument', () => ({ fieldId: null, type: 'other' })),
     document: model('document', () => ({ restoredFromId: null })),
     dossierDocument: model('dossierDocument', () => ({ pinnedVersionId: null })),
-    workspace: model('workspace', () => ({ logoKey: null })),
+    workspace: model('workspace', () => ({
+      logoKey: null,
+      publicPagePublished: false,
+      publicCriteria: null,
+      publicContact: null,
+      publicPageVersion: 1,
+    })),
     fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     fundingPlanLine: model('fundingPlanLine', () => ({ version: 1, label: null })),
     fundingPlanPledgeLink: model('fundingPlanPledgeLink', () => ({

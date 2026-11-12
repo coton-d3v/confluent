@@ -234,6 +234,9 @@ describe('workspace isolation (e2e)', () => {
           path: '/admin/workspaces/:workspaceId/committees/:committeeId/participants',
         },
         { method: 'get', path: '/admin/workspaces/:workspaceId/committees/:committeeId/notices' },
+        // E09.01: its public page's settings.
+        { method: 'get', path: '/admin/workspaces/:workspaceId/public-page' },
+        { method: 'put', path: '/admin/workspaces/:workspaceId/public-page' },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

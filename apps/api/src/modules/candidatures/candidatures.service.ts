@@ -182,6 +182,21 @@ export type CandidatureParty =
   | { side: 'owner'; userId: string }
   | { side: 'workspace'; actor: WorkspaceActor; workspaceId: string }
 
+// THE published version of a workspace's candidature form — whether, and with which form, it
+// receives candidatures (E05.09); null: it receives none. Also what its public page says (E09.01).
+export async function openCandidatureFormVersion(
+  db: Pick<Prisma.TransactionClient, 'questionnaire' | 'questionnaireVersion'>,
+  workspaceId: string,
+): Promise<QuestionnaireVersion | null> {
+  const form = await db.questionnaire.findFirst({
+    where: { workspaceId, usage: CANDIDATURE_USAGE, archivedAt: null },
+  })
+  if (!form) return null
+  return db.questionnaireVersion.findFirst({
+    where: { questionnaireId: form.id, status: 'published' },
+  })
+}
+
 // A workspace's public identity, field by field: its settings (email domain, logo key…) and any
 // column added later stay out.
 function identityOf(workspace: CandidatureWorkspaceView): CandidatureWorkspaceView {
@@ -695,17 +710,11 @@ export class CandidaturesService {
   }
 
   // The published version of the form the workspace assigned to its candidatures, if any.
-  private async openFormVersion(
+  private openFormVersion(
     tx: Prisma.TransactionClient,
     workspaceId: string,
   ): Promise<QuestionnaireVersion | null> {
-    const form = await tx.questionnaire.findFirst({
-      where: { workspaceId, usage: CANDIDATURE_USAGE, archivedAt: null },
-    })
-    if (!form) return null
-    return tx.questionnaireVersion.findFirst({
-      where: { questionnaireId: form.id, status: 'published' },
-    })
+    return openCandidatureFormVersion(tx, workspaceId)
   }
 
   // THE owner access to a candidature — its answers, sending, financing status and (E06.03)

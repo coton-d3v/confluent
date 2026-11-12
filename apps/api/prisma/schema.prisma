@@ -905,22 +905,31 @@ model ClassificationRule {
 // (ROADMAP E05.01). Memberships (E05.02) and isolation (E05.03) attach to it later. Formats and
 // closed values are also enforced by CHECK constraints (migration 20261111300000_workspaces).
 model Workspace {
-  id           String   @id @default(uuid())
-  // Public and stable (future `/w/<slug>` page): set at creation, never changed.
-  slug         String   @unique
-  name         String
-  programName  String?  @map("program_name")
+  id                  String   @id @default(uuid())
+  // Public and stable (`/w/<slug>` page, E09.01): set at creation, never changed.
+  slug                String   @unique
+  name                String
+  programName         String?  @map("program_name")
   // `#rrggbb`.
-  color        String?
+  color               String?
   // Plain text, never rendered as HTML or Markdown.
-  presentation String?
-  contactEmail String?  @map("contact_email")
+  presentation        String?
+  contactEmail        String?  @map("contact_email")
   // Lower-case ASCII host name the workspace's invitations are restricted to (applied from E05.02).
-  emailDomain  String?  @map("email_domain")
-  // Opaque key of the logo in the private bucket (`workspaces/<id>/logo/<uuid>`), served by signed URL.
-  logoKey      String?  @map("logo_key")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  emailDomain         String?  @map("email_domain")
+  // Opaque key of the logo in the private bucket (`workspaces/<id>/logo/<uuid>`), served by signed URL
+  // to members, and by the public logo route while the public page is published (E09.01).
+  logoKey             String?  @map("logo_key")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  // E09.01: its public page (`/w/<slug>`), unpublished until a manager turns it on; criteria and
+  // contact in plain text, shown to anyone once published (the presentation above too). The
+  // version counts the page's settings, never reused. What the public reads of each column:
+  // `WORKSPACE_COLUMN_AUDIENCE` (workspace-pages/workspace-page-views.ts).
+  publicPagePublished Boolean  @default(false) @map("public_page_published")
+  publicCriteria      String?  @map("public_criteria")
+  publicContact       String?  @map("public_contact")
+  publicPageVersion   Int      @default(1) @map("public_page_version")
 
   memberships           WorkspaceMembership[]
   preparedCompanies     Company[]
