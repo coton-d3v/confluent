@@ -9,6 +9,7 @@ import type {
   Portfolio,
   PortfolioQuery,
   ReceivedCandidature,
+  ReceivedCandidatureListItem,
 } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
@@ -80,6 +81,11 @@ export const getPortfolio = (workspaceId: string, filter: PortfolioQuery = {}) =
     `/v1/workspaces/${id(workspaceId)}/portfolio${query ? `?${query}` : ''}`,
   )
 }
+
+// Every sent candidature the workspace receives, the latest first (E08.03: to attach one to a
+// committee).
+export const listReceivedCandidatures = (workspaceId: string) =>
+  apiRequest<ReceivedCandidatureListItem[]>(`/v1/workspaces/${id(workspaceId)}/candidatures`)
 
 export const getReceivedCandidature = (workspaceId: string, candidatureId: string) =>
   apiRequest<ReceivedCandidature>(

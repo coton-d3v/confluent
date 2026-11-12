@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { changeCommitteeStatus, getCommittee, updateCommittee } from '@/features/committees/api'
+import { CommitteeApplicationsSection } from '@/features/committees/components/CommitteeApplicationsSection'
 import { CommitteeForm } from '@/features/committees/components/CommitteeForm'
 import {
   CommitteeStatusBadge,
@@ -40,9 +41,10 @@ const STATUS_DONE: Record<CommitteeStatus, string> = {
 
 // One committee of a workspace (ROADMAP E08.01, E08.02): when (in its zone, named), where, its
 // status, its internal notes beside the information shared with its candidates and investors (and a
-// preview of what they will read), for the workspace's conseillers and Confluent's administrators; its
-// managers edit it, cancel it, mark it held or put it back to planned, from the version shown. The
-// API decides, at each request.
+// preview of what they read), for the workspace's conseillers and Confluent's administrators; its
+// managers edit it, cancel it, mark it held or put it back to planned, from the version shown;
+// E08.03: the requests attached to it, which its conseillers follow. The API decides, at each
+// request.
 export default function CommitteeRoute() {
   const { workspaceId = '', committeeId = '' } = useParams()
   return (
@@ -141,6 +143,7 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
             <CommitteeDetails committee={committee} />
             <CommitteeTexts committee={committee} />
             <SharedCommitteePreview committee={committee} />
+            <CommitteeApplicationsSection workspaceId={workspace.id} committee={committee} />
           </>
         )}
 
