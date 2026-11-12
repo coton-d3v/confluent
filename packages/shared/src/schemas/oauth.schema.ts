@@ -14,6 +14,12 @@ import { workspaceMemberRoleSchema } from './workspace-member.schema.js'
 // own, granted to the conseillers of a workspace; deciding the follow-up of a candidature — its
 // financing status, on either side, and as the structure the validation of a support step or the
 // verification of an eligibility — is another, on the person's explicit request.
+// E07.10: an investor's opportunities and positions are permissions of their own — reading them
+// (and, as the conseiller of a workspace, the positions investors chose to show it), and taking a
+// position (marking one's interest, pledging, showing it to a structure), which the owner or the
+// structure then sees —; so are the diffusion of the owner's requests — following it (accesses,
+// history, investors' positions) and sharing (inviting at a chosen level, changing it, revoking).
+// Writing implies reading in both pairs. None is gained by an earlier authorization (R52).
 export const OAUTH_SCOPES = {
   read: 'dossiers:read',
   write: 'dossiers:write',
@@ -23,6 +29,10 @@ export const OAUTH_SCOPES = {
   formsPublish: 'forms:publish',
   support: 'candidatures:support',
   decide: 'candidatures:decide',
+  opportunitiesRead: 'opportunities:read',
+  opportunitiesWrite: 'opportunities:write',
+  sharingRead: 'sharing:read',
+  sharingWrite: 'sharing:write',
 } as const
 
 // ROADMAP E05.10: a connection reaches a workspace only if the person ticked it on the consent
