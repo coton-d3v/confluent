@@ -44,9 +44,13 @@ const ORDER = Object.fromEntries(COMMITTEE_APPLICATION_STATUSES.map((s, i) => [s
 export function CommitteeApplicationsSection({
   workspaceId,
   committee,
+  onChanged,
 }: {
   workspaceId: string
   committee: Committee
+  // After any change made here (attached, accepted, refused, withdrawn): for the sections that count
+  // or list what it changed (code review R70).
+  onChanged?: () => void
 }) {
   const query = useAsync(
     () => listCommitteeApplications(workspaceId, committee.id),
@@ -87,6 +91,7 @@ export function CommitteeApplicationsSection({
       setBusy(false)
       query.refetch()
       received.refetch()
+      onChanged?.()
     }
   }
 

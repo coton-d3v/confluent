@@ -43,10 +43,13 @@ export function ParticipationRequestsSection({
   workspace,
   committee,
   now,
+  onChanged,
 }: {
   workspace: { id: string; slug: string }
   committee: Committee
   now: number
+  // After a decision: for the sections that count participants or list them (code review R70).
+  onChanged?: () => void
 }) {
   const pending = useAsync(
     () => listParticipationRequests(workspace.id, { committeeId: committee.id }),
@@ -82,6 +85,7 @@ export function ParticipationRequestsSection({
       // Whatever happened (decided, changed or decided by someone else meanwhile): as it now is.
       pending.refetch()
       decided.refetch()
+      onChanged?.()
     }
   }
 
@@ -94,7 +98,7 @@ export function ParticipationRequestsSection({
             description:
               `${request.email} rejoindra le workspace comme investisseur — un compte est créé si l’adresse n’en a pas ; une personne déjà membre garde son accès tel quel. ` +
               'Une fois connectée, elle verra ce que le workspace montre à ses investisseurs. ' +
-              `Elle sera prévenue par email. La décision vaut pour toutes les sessions demandées (${sessions}), n’ouvre l’accès à aucun comité et est définitive.`,
+              `Elle sera prévenue par email. La décision vaut pour toutes les sessions demandées (${sessions}) : elle en verra la date, le lieu, le lien et les informations diffusées, jamais les demandes rattachées ni les autres participants, et sera prévenue de leurs changements de date ou annulation. La décision est définitive.`,
             confirmLabel: 'Accepter',
             onConfirm: () => void decide(request, 'accepted'),
           }

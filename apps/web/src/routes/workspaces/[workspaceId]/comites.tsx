@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import type { Committee } from '@confluent/shared'
+import type { Committee, CommitteeProgress } from '@confluent/shared'
 import { buttonVariants } from '@/components/ui/button'
-import { listCommittees } from '@/features/committees/api'
+import { listCommitteeProgress, listCommittees } from '@/features/committees/api'
 import { CommitteeCard } from '@/features/committees/components/CommitteeSummary'
 import { isUpcoming } from '@/features/committees/format'
 import {
@@ -24,6 +24,8 @@ export default function WorkspaceCommitteesRoute() {
 function WorkspaceCommittees({ workspaceId }: { workspaceId: string }) {
   const entered = useAsync(() => enterWorkspace(workspaceId), [workspaceId])
   const committees = useAsync(() => listCommittees(workspaceId), [workspaceId])
+  // E08.06: each committee's progress; the list shows without it if it cannot be read.
+  const progress = useAsync(() => listCommitteeProgress(workspaceId), [workspaceId])
   const [now] = useState(() => Date.now())
   const error = (entered.error ?? committees.error) as ApiError | null
 
@@ -59,7 +61,8 @@ function WorkspaceCommittees({ workspaceId }: { workspaceId: string }) {
       </div>
       <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
         Les sessions de pitch organisées par {workspace.name}. Chaque comité est affiché à l’heure
-        de son fuseau, nommé.{' '}
+        de son fuseau, nommé, avec son avancement : demandes retenues, en attente d’une réponse, et
+        participants acceptés.{' '}
         {canManageWorkspace
           ? 'Vous pouvez les programmer, les modifier et les annuler.'
           : 'Seuls les gestionnaires du workspace les programment, les modifient ou les annulent.'}
@@ -72,10 +75,18 @@ function WorkspaceCommittees({ workspaceId }: { workspaceId: string }) {
           committees={upcoming}
           now={now}
           workspaceId={workspace.id}
+          progress={progress.data}
         >
           Aucun comité programmé à venir.
         </Group>
-        <Group title="Passés" id="past" committees={past} now={now} workspaceId={workspace.id}>
+        <Group
+          title="Passés"
+          id="past"
+          committees={past}
+          now={now}
+          workspaceId={workspace.id}
+          progress={progress.data}
+        >
           Aucun comité passé.
         </Group>
         {cancelled.length > 0 && (
@@ -85,6 +96,7 @@ function WorkspaceCommittees({ workspaceId }: { workspaceId: string }) {
             committees={cancelled}
             now={now}
             workspaceId={workspace.id}
+            progress={progress.data}
           >
             Aucun comité annulé.
           </Group>
@@ -100,6 +112,7 @@ function Group({
   committees,
   workspaceId,
   now,
+  progress,
   children,
 }: {
   title: string
@@ -107,6 +120,7 @@ function Group({
   committees: Committee[]
   workspaceId: string
   now: number
+  progress: CommitteeProgress[] | null | undefined
   children: string
 }) {
   return (
@@ -129,6 +143,7 @@ function Group({
               workspaceId={workspaceId}
               committee={committee}
               now={now}
+              progress={progress?.find((p) => p.committeeId === committee.id)}
             />
           ))}
         </ul>

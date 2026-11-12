@@ -15,6 +15,7 @@ import { PreparedCompaniesSection } from '@/features/company-transfers/component
 import { ReceivedCandidaturesSection } from '@/features/candidatures/components/ReceivedCandidaturesSection'
 import { FundingSourcesSection } from '@/features/funding-sources/components/FundingSourcesSection'
 import { CommitteesSection } from '@/features/committees/components/CommitteesSection'
+import { ParticipantSessionsSection } from '@/features/committees/components/ParticipantSessionsSection'
 import { WorkspacePositionsSection } from '@/features/positions/components/WorkspacePositionsSection'
 import { enterWorkspace } from '@/features/workspaces/api'
 import { forgetWorkspace, rememberWorkspace } from '@/features/workspaces/current-workspace'
@@ -164,8 +165,11 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
         </section>
 
         {/* E08.01: its committees, for its conseillers; planned by its managers. */}
-        {canReadCommittees(me, membership) && (
+        {canReadCommittees(me, membership) ? (
           <CommitteesSection workspaceId={workspace.id} canManage={canManageWorkspace} />
+        ) : (
+          // E08.06: the sessions another member was accepted for, if any.
+          membership && <ParticipantSessionsSection workspaceId={workspace.id} />
         )}
 
         {/* E05.09: the candidatures it receives, for its conseillers. */}

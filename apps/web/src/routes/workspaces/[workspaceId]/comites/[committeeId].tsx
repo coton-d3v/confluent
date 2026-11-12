@@ -15,6 +15,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { changeCommitteeStatus, getCommittee, updateCommittee } from '@/features/committees/api'
 import { CommitteeApplicationsSection } from '@/features/committees/components/CommitteeApplicationsSection'
+import {
+  CommitteeNoticesSection,
+  CommitteeParticipantsSection,
+  CommitteeProgressSection,
+} from '@/features/committees/components/CommitteeFollowUpSections'
 import { CommitteeForm } from '@/features/committees/components/CommitteeForm'
 import {
   CommitteeStatusBadge,
@@ -40,13 +45,20 @@ const STATUS_DONE: Record<CommitteeStatus, string> = {
   cancelled: 'est annulé',
 }
 
+// E08.06: what the managers are told once a change that notifies is recorded.
+// Never « prévenues »: the change is saved whatever becomes of the emails, sent after it; their
+// result is read in « Notifications » (code review R69).
+const NOTIFIED =
+  ' Les emails aux personnes concernées partent ensuite : leur résultat figure dans « Notifications ».'
+
 // One committee of a workspace (ROADMAP E08.01, E08.02): when (in its zone, named), where, its
 // status, its internal notes beside the information shared with its candidates and investors (and a
 // preview of what they read), for the workspace's conseillers and Confluent's administrators; its
 // managers edit it, cancel it, mark it held or put it back to planned, from the version shown;
 // E08.03: the requests attached to it, which its conseillers follow; E08.04: whether it is offered
-// on the public participation form, and the pending requests for it, to its managers. The API
-// decides, at each request.
+// on the public participation form, and the pending requests for it, to its managers; E08.06: its
+// progress for its conseillers, its participants and the notices of its changes for its managers.
+// The API decides, at each request.
 export default function CommitteeRoute() {
   const { workspaceId = '', committeeId = '' } = useParams()
   return (
@@ -62,6 +74,9 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
   const entered = useAsync(() => enterWorkspace(workspaceId), [workspaceId])
   const query = useAsync(() => getCommittee(workspaceId, committeeId), [workspaceId, committeeId])
   const [editing, setEditing] = useState(false)
+  // Bumped after a decision on a request or a participant, so that the counts and lists re-read.
+  const [followUp, setFollowUp] = useState(0)
+  const followUpChanged = () => setFollowUp((n) => n + 1)
   const [cancelling, setCancelling] = useState(false)
   const [busy, setBusy] = useState(false)
   const [now] = useState(() => Date.now())
@@ -87,7 +102,9 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
         status,
         version: committee.version,
       })
-      toast.success(`« ${updated.name} » ${STATUS_DONE[status]}.`)
+      const notifies =
+        status === 'cancelled' || (status === 'planned' && committee.status === 'cancelled')
+      toast.success(`« ${updated.name} » ${STATUS_DONE[status]}.${notifies ? NOTIFIED : ''}`)
     } catch (err) {
       toast.error((err as ApiError)?.message ?? 'Changement de statut impossible.')
     } finally {
@@ -121,6 +138,11 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
             >
               Modifier le comité
             </h2>
+            <p className="text-sm text-muted-foreground">
+              Changer la date, l’heure ou le fuseau prévient par email les porteurs des demandes
+              rattachées et les participants acceptés. Les autres changements ne préviennent
+              personne.
+            </p>
             <CommitteeForm
               committee={committee}
               submitLabel="Enregistrer"
@@ -130,11 +152,16 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
                 query.refetch()
               }}
               onSubmit={async (input) => {
-                await updateCommittee(workspace.id, committee.id, {
+                const updated = await updateCommittee(workspace.id, committee.id, {
                   ...input,
                   version: committee.version,
                 })
-                toast.success('Comité enregistré.')
+                const rescheduled =
+                  updated.startsAt !== committee.startsAt ||
+                  updated.date !== committee.date ||
+                  updated.time !== committee.time ||
+                  updated.timeZone !== committee.timeZone
+                toast.success(`Comité enregistré.${rescheduled ? NOTIFIED : ''}`)
                 setEditing(false)
                 query.refetch()
               }}
@@ -145,9 +172,31 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
             <CommitteeDetails committee={committee} />
             <CommitteeTexts committee={committee} />
             <SharedCommitteePreview committee={committee} />
-            <CommitteeApplicationsSection workspaceId={workspace.id} committee={committee} />
+            <CommitteeProgressSection
+              workspaceId={workspace.id}
+              committee={committee}
+              revision={followUp}
+            />
+            <CommitteeApplicationsSection
+              workspaceId={workspace.id}
+              committee={committee}
+              onChanged={followUpChanged}
+            />
             {canManageWorkspace && (
-              <ParticipationRequestsSection workspace={workspace} committee={committee} now={now} />
+              <>
+                <CommitteeParticipantsSection
+                  workspaceId={workspace.id}
+                  committee={committee}
+                  revision={followUp}
+                />
+                <ParticipationRequestsSection
+                  workspace={workspace}
+                  committee={committee}
+                  now={now}
+                  onChanged={followUpChanged}
+                />
+                <CommitteeNoticesSection workspaceId={workspace.id} committee={committee} />
+              </>
             )}
           </>
         )}
@@ -225,8 +274,10 @@ function CommitteePage({ workspaceId, committeeId }: { workspaceId: string; comm
           <AlertDialogHeader>
             <AlertDialogTitle>Annuler « {committee.name} » ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Le comité reste dans la liste, marqué « Annulé », et n’est plus modifiable. Vous
-              pourrez le rétablir. Personne n’est prévenu automatiquement.
+              Le comité reste dans la liste, marqué « Annulé », et n’est plus modifiable ; ses
+              demandes rattachées restent telles quelles. Vous pourrez le rétablir. Les porteurs des
+              demandes rattachées (candidature, proposition ou demande retenue) et les participants
+              acceptés sont prévenus par email, sans le lieu, le lien ni les notes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

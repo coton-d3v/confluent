@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonVariants } from '@/components/ui/button'
 import { useAsync } from '@/lib/useAsync'
-import { listCommittees } from '../api'
+import { listCommitteeProgress, listCommittees } from '../api'
 import { isUpcoming } from '../format'
 import { CommitteeCard } from './CommitteeSummary'
 
@@ -19,6 +19,8 @@ export function CommitteesSection({
   canManage: boolean
 }) {
   const query = useAsync(() => listCommittees(workspaceId), [workspaceId])
+  // E08.06: their progress; the list shows without it if it cannot be read.
+  const progress = useAsync(() => listCommitteeProgress(workspaceId), [workspaceId])
   const [now] = useState(() => Date.now())
   const upcoming = (query.data ?? []).filter((c) => isUpcoming(c, now))
   return (
@@ -61,6 +63,7 @@ export function CommitteesSection({
                 workspaceId={workspaceId}
                 committee={committee}
                 now={now}
+                progress={progress.data?.find((p) => p.committeeId === committee.id)}
               />
             ))}
           </ul>

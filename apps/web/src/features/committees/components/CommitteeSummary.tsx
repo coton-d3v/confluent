@@ -1,7 +1,19 @@
 import { Link } from 'react-router-dom'
-import { COMMITTEE_STATUS_LABELS, type Committee, type CommitteeStatus } from '@confluent/shared'
+import {
+  COMMITTEE_STATUS_LABELS,
+  type Committee,
+  type CommitteeProgress,
+  type CommitteeStatus,
+} from '@confluent/shared'
 import { Badge } from '@/components/ui/badge'
-import { committeeWhen, committeeZone, isOverdue, placeLine, readerWhen } from '../format'
+import {
+  committeeWhen,
+  committeeZone,
+  isOverdue,
+  placeLine,
+  progressLine,
+  readerWhen,
+} from '../format'
 
 const STATUS_VARIANTS: Record<CommitteeStatus, 'outline' | 'secondary' | 'destructive'> = {
   planned: 'outline',
@@ -35,16 +47,19 @@ export function CommitteeWhen({
   )
 }
 
-// One committee in a list: name, status, when and where; the name leads to its page.
+// One committee in a list: name, status, when and where, and (E08.06) its progress when known; the
+// name leads to its page.
 export function CommitteeCard({
   workspaceId,
   committee,
   now,
+  progress,
 }: {
   workspaceId: string
   committee: Committee
   // When the list was read.
   now: number
+  progress?: CommitteeProgress
 }) {
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
@@ -62,6 +77,11 @@ export function CommitteeCard({
       </div>
       <CommitteeWhen committee={committee} />
       <p className="text-xs text-muted-foreground wrap-anywhere">{placeLine(committee)}</p>
+      {progress && (
+        <p data-testid="committee-progress" className="text-xs text-foreground wrap-anywhere">
+          {progressLine(progress)}
+        </p>
+      )}
     </li>
   )
 }
