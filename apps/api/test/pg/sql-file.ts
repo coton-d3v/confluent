@@ -342,3 +342,17 @@ export function showcaseCardModerationDown(): string[] {
 export function showcaseCardModerationUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261209000000_showcase_card_moderation/migration.sql'))
 }
+
+// The revert of E09.04 (blocks of the public page), as the tests of earlier migrations that drop the
+// columns beside it (E09.01's) run it before their own: it accepts that the managers' choice of
+// blocks is lost (SET LOCAL, test transactions only).
+export function workspacePageBlocksDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_workspace_page_blocks_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261210000000_workspace_page_blocks.down.sql')),
+  ]
+}
+
+export function workspacePageBlocksUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261210000000_workspace_page_blocks/migration.sql'))
+}

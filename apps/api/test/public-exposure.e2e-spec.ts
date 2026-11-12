@@ -4,7 +4,13 @@ import { JwtService } from '@nestjs/jwt'
 import { ZodValidationPipe } from 'nestjs-zod'
 import request from 'supertest'
 import type { App } from 'supertest/types'
-import { PUBLIC_CARD_FIELDS, managedShowcaseCardSchema } from '@confluent/shared'
+import {
+  DEFAULT_PUBLIC_PAGE_BLOCKS,
+  PUBLIC_CARD_FIELDS,
+  PUBLIC_PAGE_BLOCKS,
+  managedShowcaseCardSchema,
+  type PublicPageBlock,
+} from '@confluent/shared'
 import { AppModule } from './../src/app.module'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { PrismaService } from './../src/prisma/prisma.service'
@@ -101,7 +107,9 @@ const SECRET_AMOUNTS = ['123457', '134457', '456791', '112117', '567812', '67892
 // route added later fails this test until it is exercised here) is read and none of these values
 // appears in any body or header; outside the shown states, not even the pseudonym. Every public answer
 // forbids caching (`no-store`), the versioned logo excepted. A future projection that copies one more
-// field fails here.
+// field fails here. E09.04: every block of the catalogue (enumerated from it, so that a block added
+// later fails this test until it is described here), alone, all together, none, in another order —
+// each shows its own content only, nothing private ever.
 describe('Public exposure guard (e2e)', () => {
   let app: INestApplication<App>
   let fake: ReturnType<typeof createFakePrisma>
@@ -675,5 +683,106 @@ describe('Public exposure guard (e2e)', () => {
     await sophie.post(`/v1/dossiers/${bio.dossierId}/archive`).expect(200)
     await expectExposure('archived', [])
     expect(agro.candidatureId).not.toBe(bio.candidatureId)
+  })
+  // What the page sends for each block of the catalogue when it is shown; nothing of it otherwise.
+  // A block added to the catalogue fails to compile here until it is described.
+  const BLOCK_CONTENT = {
+    presentation: (page) => page.workspace.presentation !== null,
+    criteria: (page) => page.workspace.criteria !== null,
+    contact: (page) => page.workspace.contact !== null,
+    committees: (page) => page.committees.length > 0,
+    cards: (page) => page.cards.length > 0,
+    apply: (page) => page.receivesCandidatures === true,
+    participate: (page) => page.receivesParticipationRequests === true,
+  } satisfies Record<PublicPageBlock, (page: PageBody) => boolean>
+  type PageBody = {
+    workspace: Record<string, string | null>
+    blocks: string[]
+    committees: unknown[]
+    cards: unknown[]
+    receivesCandidatures: boolean
+    receivesParticipationRequests: boolean
+  }
+  // The texts of the blocks, found nowhere else in the page.
+  const BLOCK_TEXTS: Partial<Record<PublicPageBlock, string>> = {
+    presentation: 'accompagne les entreprises',
+    criteria: 'moins de 5 ans',
+    contact: 'vitrine@cci.fr',
+  }
+
+  it('shows each block of the page with its own content only, in the managers’ order, and nothing private in any choice of blocks', async () => {
+    const june = await seedWorkspace()
+    const bio = await seededRequest(SOPHIE, 'bio')
+    await seededRequest(MARC, 'agro')
+    await sophie
+      .put(cardOf(bio.candidatureId), {
+        pseudonym: PSEUDONYM,
+        region: 'centre-val-de-loire',
+        consent: true,
+        version: null,
+      })
+      .expect(200)
+    await sophie
+      .post(`/v1/candidatures/${bio.candidatureId}/committees/${june.id}/application`, {
+        to: 'applied',
+        version: null,
+      })
+      .expect(200)
+    await marie
+      .post(`/v1/workspaces/${cci}/committees/${june.id}/applications`, {
+        candidatureId: bio.candidatureId,
+        to: 'accepted',
+        version: 1,
+      })
+      .expect(200)
+    await setPage(true)
+    expect(Object.keys(BLOCK_CONTENT).sort()).toEqual([...PUBLIC_PAGE_BLOCKS].sort())
+
+    const path = `/v1/admin/workspaces/${cci}/public-page`
+    const choices: Array<[string, PublicPageBlock[]]> = [
+      ['default', [...DEFAULT_PUBLIC_PAGE_BLOCKS]],
+      ['reversed', [...PUBLIC_PAGE_BLOCKS].reverse()],
+      ['none', []],
+      ...PUBLIC_PAGE_BLOCKS.map((block): [string, PublicPageBlock[]] => [
+        `${block} alone`,
+        [block],
+      ]),
+      [
+        'all but cards and committees',
+        PUBLIC_PAGE_BLOCKS.filter((b) => b !== 'cards' && b !== 'committees'),
+      ],
+    ]
+    for (const [label, blocks] of choices) {
+      const settings = (await marie.get(path).expect(200)).body
+      const saved = (
+        await marie
+          .put(path, {
+            published: true,
+            criteria: settings.criteria,
+            contact: settings.contact,
+            blocks,
+            version: settings.version,
+          })
+          .expect(200)
+      ).body
+      const reads = await expectExposure(label, blocks.includes('cards') ? [PSEUDONYM] : [])
+      const page = JSON.parse(reads[0].text) as PageBody
+      // Every block of this seed has something to show: all listed, in the managers' order.
+      expect([label, page.blocks]).toEqual([label, blocks])
+      for (const block of PUBLIC_PAGE_BLOCKS) {
+        const shown = blocks.includes(block)
+        expect([label, block, BLOCK_CONTENT[block](page)]).toEqual([label, block, shown])
+        const text = BLOCK_TEXTS[block]
+        if (text)
+          expect([label, block, reads[0].text.includes(text)]).toEqual([label, block, shown])
+      }
+      // The sessions reach the page by the committees block, or as the cards' committee only.
+      if (!blocks.includes('committees') && !blocks.includes('cards')) {
+        expect([label, reads[0].text.includes(june.id)]).toEqual([label, false])
+        expect([label, reads[0].text.includes('Comité de juin')]).toEqual([label, false])
+      }
+      // The managers' preview is this very page.
+      expect([label, saved.preview]).toEqual([label, page])
+    }
   })
 })

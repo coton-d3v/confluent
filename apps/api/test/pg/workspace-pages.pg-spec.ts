@@ -16,7 +16,7 @@ import { WORKSPACE_COLUMN_AUDIENCE } from '../../src/modules/workspace-pages/wor
 import { WorkspacePagesService } from '../../src/modules/workspace-pages/workspace-pages.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { CHECKS, MIGRATIONS, sqlStatements, workspacePageBlocksDown } from './sql-file'
 import { join } from 'node:path'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261207000000_workspace_public_page/migration.sql'))
@@ -166,7 +166,8 @@ describe('workspace public page (PostgreSQL)', () => {
         await expect(run(tx, DOWN)).rejects.toThrow(/would be lost/)
         await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT unpublished')
 
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        // E09.04's revert first, as an operator rolls back.
+        await run(tx, [...workspacePageBlocksDown(), ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(
           await rows(
             tx,

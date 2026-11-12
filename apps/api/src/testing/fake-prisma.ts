@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { DEFAULT_PUBLIC_PAGE_BLOCKS } from '@confluent/shared'
 
 // In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
@@ -544,6 +545,7 @@ export function createFakePrisma() {
       publicCriteria: null,
       publicContact: null,
       publicPageVersion: 1,
+      publicPageBlocks: [...DEFAULT_PUBLIC_PAGE_BLOCKS],
     })),
     fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     fundingPlanLine: model('fundingPlanLine', () => ({ version: 1, label: null })),
