@@ -8,8 +8,7 @@ import {
   createParticipationRequestSchema,
   type ParticipationForm,
 } from '@confluent/shared'
-import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
-import { LegalLinks } from '@/components/confluent/LegalLinks'
+import { PublicShell } from '@/components/confluent/PublicShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -398,21 +397,6 @@ function ParticipationPage({ slug, preselected }: { slug: string; preselected: s
         </Button>
       </form>
     </PublicShell>
-  )
-}
-
-// A signed-out page, readable at 375 px, not indexed.
-function PublicShell({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <>
-      <title>{`${title} · Confluent`}</title>
-      <meta name="robots" content="noindex, nofollow" />
-      <main className="flex min-h-screen flex-col items-center gap-6 bg-background px-4 py-10 sm:px-6">
-        <ConfluentWordmark className="h-7 w-auto text-foreground" />
-        <div className="flex w-full max-w-xl flex-col gap-6">{children}</div>
-        <LegalLinks className="justify-center" />
-      </main>
-    </>
   )
 }
 
