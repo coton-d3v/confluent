@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   CANDIDATURE_STATUS_LABELS,
+  FINANCING_STATUS_LABELS,
+  financingOpenToCommittees,
   missingRequiredAnswers,
   validateAnswerValue,
   type Candidature,
@@ -19,6 +21,7 @@ import {
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
 import { PoolPublicationPanel } from '@/features/candidatures/components/PoolPublicationPanel'
+import { CandidateCommitteesPanel } from '@/features/committees/components/CandidateCommitteesPanel'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
@@ -255,6 +258,22 @@ function CandidatureEditor({
             onStale={() => {
               void getCandidature(candidature.id).then(onChange, () => undefined)
             }}
+          />
+        )}
+
+        {submitted && (
+          <CandidateCommitteesPanel
+            candidatureId={candidature.id}
+            workspaceName={workspace.name}
+            canBringRequest={
+              financingOpenToCommittees(candidature.financingStatus) &&
+              dossier.publicationStatus !== 'archived'
+            }
+            closedReason={
+              dossier.publicationStatus === 'archived'
+                ? 'La demande est archivée : désarchivez-la pour la présenter à un comité. Vous pouvez toujours retirer une participation.'
+                : `La demande est « ${FINANCING_STATUS_LABELS[candidature.financingStatus]} » auprès de ${workspace.name} : elle n’est plus présentée en comité. Vous pouvez toujours retirer une participation.`
+            }
           />
         )}
 

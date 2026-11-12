@@ -1,6 +1,10 @@
 import type {
+  CandidateCommittee,
+  ChangeCommitteeApplicationInput,
   ChangeCommitteeStatusInput,
+  ChangeWorkspaceCommitteeApplicationInput,
   Committee,
+  CommitteeApplication,
   CreateCommitteeInput,
   UpdateCommitteeInput,
 } from '@confluent/shared'
@@ -40,3 +44,33 @@ export const changeCommitteeStatus = (
     method: 'POST',
     body: JSON.stringify(input),
   })
+
+// E08.03: the requests applied to, proposed for and retained at a committee, as its workspace's
+// conseillers follow them; a change (attach, accept, refuse, withdraw) from the version read.
+export const listCommitteeApplications = (workspaceId: string, committeeId: string) =>
+  apiRequest<CommitteeApplication[]>(`${read(workspaceId)}/${id(committeeId)}/applications`)
+
+export const changeCommitteeApplication = (
+  workspaceId: string,
+  committeeId: string,
+  input: ChangeWorkspaceCommitteeApplicationInput,
+) =>
+  apiRequest<CommitteeApplication[]>(`${read(workspaceId)}/${id(committeeId)}/applications`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+// The owner's side, from their candidature: the committees they may apply to or have an entry on
+// (shared view only), and their application, confirmation or withdrawal.
+export const listCandidateCommittees = (candidatureId: string) =>
+  apiRequest<CandidateCommittee[]>(`/v1/candidatures/${id(candidatureId)}/committees`)
+
+export const changeCandidateApplication = (
+  candidatureId: string,
+  committeeId: string,
+  input: ChangeCommitteeApplicationInput,
+) =>
+  apiRequest<CandidateCommittee[]>(
+    `/v1/candidatures/${id(candidatureId)}/committees/${id(committeeId)}/application`,
+    { method: 'POST', body: JSON.stringify(input) },
+  )

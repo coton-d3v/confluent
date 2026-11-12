@@ -45,8 +45,9 @@ export function CommitteeTexts({ committee }: { committee: Committee }) {
   )
 }
 
-// What the committee's candidates and investors will read of it: the shared view of
-// @confluent/shared, the one the API will serve them — never the internal notes.
+// What the committee's candidates read of it (E08.03, the link once retained) and its investors
+// will: the shared view of @confluent/shared, the one the API serves them — never the internal
+// notes.
 export function SharedCommitteePreview({ committee }: { committee: Committee }) {
   const shared = toSharedCommittee(committee)
   return (
@@ -56,8 +57,9 @@ export function SharedCommitteePreview({ committee }: { committee: Committee }) 
       </summary>
       <div className="flex flex-col gap-3 border-t border-border p-4">
         <p className="text-xs text-muted-foreground">
-          Aucun candidat ni investisseur n’a encore accès aux comités : voici ce qui leur sera
-          montré lorsqu’ils y seront rattachés. Les notes internes n’en font jamais partie.
+          Les porteurs de projet dont la candidature est envoyée à ce workspace voient ceci depuis
+          leur candidature, le lien de visioconférence seulement une fois leur participation retenue
+          ; aucun investisseur n’y a encore accès. Les notes internes n’en font jamais partie.
         </p>
         <div
           data-testid="committee-shared-preview"
