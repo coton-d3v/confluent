@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common'
 import {
   ApiBadRequestResponse,
@@ -23,6 +24,7 @@ import {
 } from '@nestjs/swagger'
 import {
   PLEDGE_NON_COMMITMENT,
+  disclosePositionSchema,
   markInterestSchema,
   opportunitiesQuerySchema,
   pledgeInputSchema,
@@ -31,8 +33,10 @@ import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { ACCESS_LEVELS_DOC } from '../dossiers/financeur-access'
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
 import { InterestsService } from './interests.service'
 import { PledgesService } from './pledges.service'
+import { PositionsService, type PositionDisclosureView } from './positions.service'
 import {
   OpportunitiesService,
   type OpportunitiesView,
@@ -44,6 +48,7 @@ import {
 class OpportunitiesQueryDto extends createZodDto(opportunitiesQuerySchema) {}
 class MarkInterestDto extends createZodDto(markInterestSchema) {}
 class PledgeDto extends createZodDto(pledgeInputSchema) {}
+class DisclosePositionDto extends createZodDto(disclosePositionSchema) {}
 
 const uuid = new ParseUUIDPipe()
 
@@ -66,7 +71,9 @@ export const INTEREST_SCOPE =
   'toujours le nombre de marques des investisseurs qui lisent encore la demande, et le nom d’un ' +
   'investisseur seulement si celui-ci l’a choisi (`nameVisible`) : nom du compte et organisation ' +
   'enregistrée dans les structures dont le vivier lui apporte la demande, jamais son adresse. ' +
-  'Personne d’autre ne lit les marques (ni conseillers, ni autres investisseurs). Une marque d’un ' +
+  'Personne d’autre ne lit les marques (ni autres investisseurs, ni conseillers — sauf ceux d’une ' +
+  'structure à laquelle l’investisseur a explicitement choisi de montrer son positionnement, ' +
+  'E07.07). Une marque d’un ' +
   'investisseur qui ne lit plus la demande (partage révoqué, publication retirée ou en pause, ' +
   'adhésion ou compte désactivés) n’est ni comptée ni nommée tant que cela dure.'
 
@@ -83,7 +90,20 @@ export const PLEDGE_SCOPE =
   'toujours possible. Le porteur voit toujours le nombre et le total des promesses des ' +
   'investisseurs qui lisent encore la demande, et pour chacune le nom et le montant que ' +
   'l’investisseur a choisi de montrer — jamais l’intention, le commentaire ni une date. Personne ' +
-  'd’autre ne lit les promesses (ni conseillers, ni autres investisseurs).'
+  'd’autre ne lit les promesses (ni autres investisseurs, ni conseillers — sauf ceux d’une ' +
+  'structure à laquelle l’investisseur a explicitement choisi de montrer son positionnement, ' +
+  'E07.07 : intention et montant, jamais le commentaire).'
+
+// What showing one's position to a structure means (E07.07), said once for every route.
+export const DISCLOSURE_SCOPE =
+  'Un investisseur peut montrer son positionnement sur une demande (sa marque d’intérêt et sa ' +
+  'promesse) à une structure dont le vivier lui apporte cette demande : consentement explicite, ' +
+  'sans valeur par défaut, un par demande et par structure, retirable à tout moment. Les ' +
+  'conseillers de cette structure (et les administrateurs) voient alors son nom, son organisation ' +
+  'dans la structure, la date de sa marque d’intérêt et l’intention, le montant et la date de sa ' +
+  'promesse — jamais son commentaire, ni ce qu’il montre au porteur. Sans ce consentement, la ' +
+  'structure ne voit rien de ses positionnements, pas même un nombre. Le consentement ne vaut que ' +
+  'tant que l’investisseur lit la demande par ce vivier (publication listée, adhésion active).'
 
 // ROADMAP E07.03: the signed-in investor's opportunities (« inbox »), read from their account only.
 @ApiTags('Opportunités')
@@ -95,6 +115,7 @@ export class OpportunitiesController {
     private readonly opportunities: OpportunitiesService,
     private readonly interests: InterestsService,
     private readonly pledges: PledgesService,
+    private readonly positions: PositionsService,
   ) {}
 
   @Get()
@@ -242,5 +263,45 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     return this.pledges.withdraw(user, dossierId)
+  }
+
+  @Put(':dossierId/structures/:workspaceId')
+  // A route naming a workspace: whoever is not in it gets the same `404` as for an unknown one.
+  @UseGuards(WorkspaceAccessGuard)
+  @ApiOperation({
+    summary: 'Montrer mon positionnement à une structure',
+    description:
+      DISCLOSURE_SCOPE +
+      '\n\nCorps `{ consent: true }`. Seulement sur une opportunité que le compte lit maintenant ' +
+      'par le vivier de ce workspace (membre actif) ; se retire par son identifiant ' +
+      '(`DELETE /v1/positions/disclosures/:disclosureId`). Le même consentement déjà donné ne ' +
+      'change rien. Journalisé ' +
+      '(`investor_position_disclosed`, invisible du porteur). Ne compte pas comme une lecture de ' +
+      'l’opportunité.',
+  })
+  @ApiParam({ name: 'dossierId', description: 'UUID de la demande' })
+  @ApiParam({
+    name: 'workspaceId',
+    description: 'UUID du workspace dont le vivier apporte la demande',
+  })
+  @ApiOkResponse({
+    description: 'Le consentement : `id`, `workspace` (`id`, `name`), `disclosedAt`.',
+  })
+  @ApiBadRequestResponse({ description: '`consent` absent ou différent de `true`.' })
+  @ApiNotFoundResponse({
+    description:
+      'Demande que le compte ne lit pas comme opportunité, ou workspace inexistant ou dont le ' +
+      'compte n’est pas membre actif.',
+  })
+  @ApiConflictResponse({
+    description: 'La demande ne parvient pas au compte par le vivier de ce workspace.',
+  })
+  disclose(
+    @Param('dossierId', uuid) dossierId: string,
+    @Param('workspaceId', uuid) workspaceId: string,
+    @Body() _body: DisclosePositionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PositionDisclosureView> {
+    return this.positions.disclose(user, dossierId, workspaceId)
   }
 }

@@ -564,6 +564,7 @@ export function createFakePrisma() {
     })),
     investorInterest: model('investorInterest', () => ({ nameVisible: false })),
     investorPledge: model('investorPledge', () => ({ comment: null, version: 1 })),
+    investorPositionDisclosure: model('investorPositionDisclosure'),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,

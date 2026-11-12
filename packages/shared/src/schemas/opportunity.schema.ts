@@ -171,8 +171,22 @@ export const opportunitiesSchema = z.object({
 // An opportunity: the projection of a nominative share at its level (`recipientViewSchema`) and how
 // it reaches its reader, with who the owner would see should the reader show their name on their mark
 // of interest (E07.05) or their pledge (E07.06). Reading it is journaled once (`opportunity_viewed`).
+//
+// E07.07 (position.schema.ts): each structure whose pool brings the request to the reader, who the
+// reader would be to it — their name and their organization there —, and their consent to show it
+// their position on the request (`null` without one).
+export const opportunityStructureSchema = z.object({
+  workspace: z.object({ id: z.string().uuid(), name: z.string() }),
+  shownAs: interestIdentitySchema,
+  disclosure: z.object({ id: z.string().uuid(), disclosedAt: z.string().datetime() }).nullable(),
+})
+export type OpportunityStructure = z.infer<typeof opportunityStructureSchema>
+
 export const opportunitySchema = recipientViewSchema.extend({
-  opportunity: opportunityAccessSchema.extend({ shownAs: interestIdentitySchema }),
+  opportunity: opportunityAccessSchema.extend({
+    shownAs: interestIdentitySchema,
+    structures: z.array(opportunityStructureSchema),
+  }),
 })
 
 export type OpportunitiesQuery = z.input<typeof opportunitiesQuerySchema>

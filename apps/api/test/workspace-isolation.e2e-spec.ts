@@ -214,6 +214,9 @@ describe('workspace isolation (e2e)', () => {
           method: 'delete',
           path: '/workspaces/:workspaceId/candidatures/:candidatureId/notes/:noteId',
         },
+        // E07.07: the positions its investors consented to show it, and their consent.
+        { method: 'get', path: '/workspaces/:workspaceId/positions' },
+        { method: 'put', path: '/opportunities/:dossierId/structures/:workspaceId' },
       ]),
     )
     await call('post', `/admin/workspaces/${cci}/members/${claireInCci}/deactivate`).expect(201)

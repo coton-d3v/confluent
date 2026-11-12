@@ -29,7 +29,9 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 //    still read the request count (the mark of interest's rule, E07.05): a pledge of an investor who
 //    lost access is neither counted nor shown while that lasts, and stays theirs.
 //  * Nobody else: neither other investors, nor the workspace's conseillers or managers, nor
-//    administrators (outside the raw journal) read the pledges; their follow-up is E07.07.
+//    administrators (outside the raw journal) read the pledges — except a structure the investor
+//    explicitly consented to show their position on that request (E07.07, position.schema.ts), which
+//    then reads its intention and amount, never its comment.
 
 // How firm the intention is — never a commitment, whatever the level.
 export const PLEDGE_INTENTIONS = ['exploring', 'likely', 'strong'] as const

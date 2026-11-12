@@ -193,3 +193,16 @@ export function investorPledgesDown(): string[] {
 export function investorPledgesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261127000000_investor_pledges/migration.sql'))
 }
+
+// The revert of E07.07 (consents to show positions to structures): it accepts that the consents and
+// their journal are lost (SET LOCAL, test transactions only).
+export function positionDisclosuresDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_position_disclosures_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261128000000_position_disclosures.down.sql')),
+  ]
+}
+
+export function positionDisclosuresUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261128000000_position_disclosures/migration.sql'))
+}

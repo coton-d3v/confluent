@@ -620,11 +620,46 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       return [body.count, body.totalEur]
     }
     expect(await pledges()).toEqual([1, 40_000])
+    // E07.07: the owner's one view counts the same; Ivy, of the CCI's pool, marks her interest and
+    // shows her position to the CCI, which then follows it; Bob's positions are his alone.
+    const positions = async () => {
+      const body = (await sophie.get(`/v1/dossiers/${dossier.id}/positions`).expect(200)).body
+      return [body.interests.count, body.pledges.count, body.pledges.totalEur, body.named.length]
+    }
+    expect(await positions()).toEqual([1, 1, 40_000, 1])
+    await as(IVY)
+      .put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false })
+      .expect(200)
+    const consent = (
+      await as(IVY)
+        .put(`/v1/opportunities/${dossier.id}/structures/${cci}`, { consent: true })
+        .expect(200)
+    ).body
+    const followed = async () =>
+      (await as(ADMIN).get(`/v1/workspaces/${cci}/positions`).expect(200)).body.items.map(
+        (i: { investors: unknown[] }) => i.investors.length,
+      )
+    expect(await followed()).toEqual([1])
+    const own = async (u: { id: string }) =>
+      (await as(u).get('/v1/positions').expect(200)).body.items.map(
+        (i: { readable: boolean; interest: unknown; pledge: unknown; disclosures: unknown[] }) => [
+          i.readable,
+          i.interest !== null,
+          i.pledge !== null,
+          i.disclosures.length,
+        ],
+      )
+    expect(await own(BOB)).toEqual([[true, true, true, 0]])
+    expect(await own(IVY)).toEqual([[true, true, false, 1]])
 
     // Revoked by the owner: nothing more for Bob, from the same MCP connection too.
     await sophie.delete(`/v1/dossiers/${dossier.id}/shares/${link.id}`).expect(200)
-    expect(await interests()).toBe(0)
+    expect(await interests()).toBe(1)
     expect(await pledges()).toEqual([0, 0])
+    expect(await positions()).toEqual([1, 0, 0, 0])
+    expect(await own(BOB)).toEqual([[false, true, true, 0]])
+    await as(IVY).delete(`/v1/opportunities/${dossier.id}/interest`).expect(204)
+    expect(await interests()).toBe(0)
     const bob = as(BOB)
     await bob.get(`/v1/shares/${link.token}`).expect(403)
     await bob.get(`/v1/opportunities/${dossier.id}`).expect(404)
@@ -656,7 +691,19 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(200)
 
     // Withdrawn from the pool, then published again.
+    await as(IVY)
+      .put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false })
+      .expect(200)
+    expect(await followed()).toEqual([1])
     await sophie.delete(`/v1/candidatures/${dossier.candidatureId}/pool-publication`).expect(200)
+    // E07.07: the CCI follows it no more, and Ivy gives no new consent on what she no longer reads.
+    expect(await followed()).toEqual([])
+    await ivy
+      .put(`/v1/opportunities/${dossier.id}/structures/${cci}`, { consent: true })
+      .expect(404)
+    expect(await own(IVY)).toEqual([[false, true, false, 1]])
+    await ivy.delete(`/v1/positions/disclosures/${consent.id}`).expect(204)
+    expect(await own(IVY)).toEqual([[false, true, false, 0]])
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
     await ivy.put(`/v1/opportunities/${dossier.id}/interest`, { nameVisible: false }).expect(404)
     await ivy
@@ -694,6 +741,9 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       `/v1/dossiers/${dossier.id}/interests`,
       // E07.06: and so are the pledges.
       `/v1/dossiers/${dossier.id}/pledges`,
+      // E07.07: and their one view of the positions; a structure's follow-up is its conseillers'.
+      `/v1/dossiers/${dossier.id}/positions`,
+      `/v1/workspaces/${cci}/positions`,
       `/v1/companies/${dossier.companyId}`,
       candidature,
       `${candidature}/funding-plan`,
