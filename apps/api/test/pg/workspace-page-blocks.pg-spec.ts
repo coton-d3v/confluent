@@ -16,6 +16,7 @@ import { WorkspacePagesService } from '../../src/modules/workspace-pages/workspa
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
 import { workspacePageBlocksDown, workspacePageBlocksUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = workspacePageBlocksUp()
 // Without the acceptance: what an operator runs first.
@@ -77,13 +78,21 @@ describe('workspace public page blocks (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const pages = new WorkspacePagesService(
     prisma,
     access,
     audit,
     new MemoryStorageAdapter(),
-    new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access),
+    new ShowcaseCardsService(
+      prisma,
+      candidatures,
+      dossiers,
+      audit,
+      access,
+      quietNotifications(prisma),
+    ),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

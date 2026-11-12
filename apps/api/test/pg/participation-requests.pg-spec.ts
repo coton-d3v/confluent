@@ -22,6 +22,7 @@ import {
   participationRequestsDown,
   participationRequestsUp,
 } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = participationRequestsUp()
 // Without the acceptance: what an operator runs first.
@@ -97,7 +98,14 @@ describe('participation requests (PostgreSQL)', () => {
     get: () => 'p'.repeat(32),
   } as unknown as ConfigService<AppConfig, true>)
   const limits = new ThrottlerStorageService()
-  const requests = new ParticipationRequestsService(prisma, access, audit, tokens, limits)
+  const requests = new ParticipationRequestsService(
+    prisma,
+    access,
+    audit,
+    tokens,
+    limits,
+    quietNotifications(prisma),
+  )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   const admin = { id: '', role: 'admin' }

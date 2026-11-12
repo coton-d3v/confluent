@@ -20,6 +20,7 @@ import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { NO_PLEDGES } from '../../testing/no-pledges'
 import { CandidatureNotesService } from './candidature-notes.service'
 import { InterventionJournalService } from './intervention-journal.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E06.08: a workspace's internal notes on a candidature it received — written and read by
 // its conseillers alone, rewritten or deleted by their author only, from the version read — and the
@@ -93,6 +94,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const journal = new InterventionJournalService(prisma, candidatures)
   const notes = new CandidatureNotesService(prisma, candidatures, journal, audit)

@@ -18,6 +18,7 @@ import {
   isActiveMembership,
   type WorkspaceActor,
 } from './workspace-access'
+import { NotificationsService } from '../notifications/notifications.service'
 import { WorkspaceErrors } from './workspace-errors'
 import { lockWorkspaceRow } from './workspaces.service'
 
@@ -85,6 +86,7 @@ export class WorkspaceMembersService {
     private readonly access: WorkspaceAccessService,
     private readonly config: ConfigService<AppConfig, true>,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceMemberView[]> {
@@ -152,6 +154,21 @@ export class WorkspaceMembersService {
           data: newMembership(workspaceId, user.id, actor.id, input),
           include: WITH_PEOPLE,
         })
+        // E10.03: in the site only — the invitation's own email follows.
+        await this.notifications.recordIn(tx, [
+          {
+            recipientId: user.id,
+            kind: 'workspace_invited',
+            key: `workspace_invited:${member.id}`,
+            subject: `workspace_membership:${member.id}`,
+            workspaceId,
+            payload: {
+              workspaceId,
+              workspaceName: workspace.name,
+              role: member.role as WorkspaceMemberRole,
+            },
+          },
+        ])
         return { member, workspace, createdAccount: created }
       })
     } catch (err) {

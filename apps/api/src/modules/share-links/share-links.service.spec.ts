@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { NotificationsService } from '../notifications/notifications.service'
 import { ReadingSessionsService } from '../reading-sessions/reading-sessions.service'
 import { ShareLinksService } from './share-links.service'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -121,6 +122,14 @@ async function instantiate(mocks: ReturnType<typeof buildModule>): Promise<Share
       { provide: EMAIL_TRANSPORT, useValue: mocks.email },
       // E07.08: the sessions of the recipient's readings (reading-sessions e2e and PostgreSQL specs).
       { provide: ReadingSessionsService, useValue: { open: jest.fn().mockResolvedValue(null) } },
+      // E10.03: what the recipient is told (notifications e2e and PostgreSQL specs).
+      {
+        provide: NotificationsService,
+        useValue: {
+          recordIn: jest.fn().mockResolvedValue([]),
+          deliver: jest.fn().mockResolvedValue(undefined),
+        },
+      },
     ],
   }).compile()
   return moduleRef.get(ShareLinksService)

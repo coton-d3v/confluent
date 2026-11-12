@@ -19,6 +19,7 @@ import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-a
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 import { showcaseCardsDown, showcaseCardsUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = showcaseCardsUp()
 // Without the acceptance: what an operator runs first.
@@ -87,8 +88,16 @@ describe('showcase cards (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
-  const cards = new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access)
+  const cards = new ShowcaseCardsService(
+    prisma,
+    candidatures,
+    dossiers,
+    audit,
+    access,
+    quietNotifications(prisma),
+  )
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

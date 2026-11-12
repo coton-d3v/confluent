@@ -25,6 +25,7 @@ import {
   type ParticipationRequestStatus,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { NotificationsService, workspaceManagers } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 import { scheduleOf, toView, type CommitteeView } from '../committees/committee-views'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
@@ -137,6 +138,7 @@ export class ParticipationRequestsService {
     private readonly audit: AuditService,
     private readonly tokens: ParticipationFormTokens,
     @Inject(ThrottlerStorage) private readonly limits: ThrottlerStorage,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The public ───────────────────────────────────────────────────────────────────────────────
@@ -372,7 +374,33 @@ export class ParticipationRequestsService {
           committeeIds: added,
         },
       })
+      await this.notifyManagers(tx, workspaceId, request.id)
     })
+  }
+
+  // E10.03: the workspace's managers learn of a new request — in the site only (a public form: no
+  // email a stranger could trigger at will), once per request (the key: a submission merged into a
+  // pending one tells nothing more), without its sender's name, address nor message (read in the
+  // queue).
+  private async notifyManagers(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    requestId: string,
+  ): Promise<void> {
+    const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } })
+    if (!workspace) return
+    const managers = await workspaceManagers(tx, workspaceId)
+    await this.notifications.recordIn(
+      tx,
+      managers.map((recipientId) => ({
+        recipientId,
+        kind: 'participation_request_received' as const,
+        key: `participation_request_received:${requestId}`,
+        subject: `participation_request:${requestId}`,
+        workspaceId,
+        payload: { workspaceId, workspaceName: workspace.name },
+      })),
+    )
   }
 }
 

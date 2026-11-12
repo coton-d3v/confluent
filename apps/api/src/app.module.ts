@@ -34,6 +34,7 @@ import { ParticipationRequestsModule } from './modules/participation-requests/pa
 import { EntrepreneurAccessRequestsModule } from './modules/entrepreneur-access-requests/entrepreneur-access-requests.module'
 import { ShowcaseCardsModule } from './modules/showcase-cards/showcase-cards.module'
 import { WorkspacePagesModule } from './modules/workspace-pages/workspace-pages.module'
+import { NotificationsModule } from './modules/notifications/notifications.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -49,6 +50,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     PrismaModule,
     AuditModule,
     AuthModule,
+    NotificationsModule,
     ShareLinksModule,
     QuestionnairesModule,
     DossiersModule,

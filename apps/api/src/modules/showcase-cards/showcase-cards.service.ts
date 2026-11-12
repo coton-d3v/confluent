@@ -18,6 +18,7 @@ import {
   type ActionOrigin,
 } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { CandidaturesService } from '../candidatures/candidatures.service'
 import { DossiersService, lockDossier } from '../dossiers/dossiers.service'
 import { poolPublicationBlocked } from '../pool-publications/pool-publication'
@@ -93,6 +94,7 @@ export class ShowcaseCardsService {
     private readonly dossiers: DossiersService,
     private readonly audit: AuditService,
     private readonly access: WorkspaceAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The owner ────────────────────────────────────────────────────────────────────────────────
@@ -285,7 +287,7 @@ export class ShowcaseCardsService {
       where: { id: candidatureId, workspaceId },
     })
     if (!candidature) throw ShowcaseCardErrors.notFound()
-    const row = await this.prisma.$transaction(async (tx) => {
+    const { row, emails } = await this.prisma.$transaction(async (tx) => {
       // The workspace first (FOR SHARE: a change of the managers' rights waits, two moderations do
       // not), then the request and the candidature, in the order of the owner's consent and of the
       // archiving; the right is read after them (R53).
@@ -297,7 +299,7 @@ export class ShowcaseCardsService {
         where: { candidatureId: candidature.id, workspaceId, withdrawnAt: null },
       })
       if (!card) throw ShowcaseCardErrors.notFound()
-      if ((card.hiddenAt !== null) === hidden) return card
+      if ((card.hiddenAt !== null) === hidden) return { row: card, emails: [] as string[] }
       const updated = await tx.showcaseCard.update({
         where: { id: card.id },
         data: {
@@ -317,8 +319,33 @@ export class ShowcaseCardsService {
           version: updated.version,
         },
       })
-      return updated
+      // E10.03: the owner learns their card was hidden (not that it is shown again: they read it on
+      // their candidature). One per version of the card, never reused.
+      const dossier = hidden
+        ? await tx.dossier.findUnique({ where: { id: candidature.dossierId } })
+        : null
+      const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } })
+      const emails =
+        dossier && workspace && dossier.userId !== actor.id
+          ? await this.notifications.recordIn(tx, [
+              {
+                recipientId: dossier.userId,
+                kind: 'showcase_card_hidden',
+                key: `showcase_card_hidden:${card.id}:${updated.version}`,
+                subject: `showcase_card:${card.id}`,
+                workspaceId,
+                dossierId: dossier.id,
+                payload: {
+                  candidatureId: candidature.id,
+                  dossierName: dossier.name,
+                  workspaceName: workspace.name,
+                },
+              },
+            ])
+          : []
+      return { row: updated, emails }
     })
+    await this.notifications.deliver(emails)
     const [view] = await this.managed(await this.workspaceOf(workspaceId), [row])
     return view
   }

@@ -20,6 +20,7 @@ import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-a
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 import { eligibilitiesDown, eligibilitiesUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = eligibilitiesUp()
 // Without the acceptance: what an operator runs first.
@@ -92,6 +93,7 @@ describe('eligibility schemes and eligibilities (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const eligibilities = new EligibilitiesService(prisma, candidatures, audit)
   const schemes = new EligibilitySchemesService(prisma, access, audit)

@@ -232,6 +232,34 @@ describe('participation decisions (e2e)', () => {
       expect([path, (await get(path)).status]).toEqual([path, 403])
     }
     await get(`/workspaces/${club}`).expect(404)
+
+    // E10.03: the CCI's manager was told of the request in the site — never who sent it —, the
+    // admitted account of its acceptance (in the site; the acceptance's own email above); nobody
+    // else of either.
+    const told = (kind: string) =>
+      [...fake.table('notification').values()]
+        .filter((n) => n.kind === kind)
+        .map((n) => [n.recipientId, n.emailState])
+    expect(told('participation_request_received')).toEqual([[uid('manager'), 'none']])
+    const admitted = [...fake.table('user').values()].find(
+      (u) => u.email === 'nouvelle@investisseurs.fr',
+    )!
+    expect(told('participation_accepted')).toEqual([[admitted.id, 'none']])
+    const mineTold = (await get('/notifications').expect(200)).body.items
+    expect(mineTold).toEqual([
+      expect.objectContaining({
+        kind: 'participation_accepted',
+        title: 'Votre demande de participation à « CCI Touraine » est acceptée',
+        href: `/workspaces/${cci}`,
+      }),
+    ])
+    const managerTold = (
+      await call('get', '/notifications', 'manager').expect(200)
+    ).body.items.filter((i: { kind: string }) => i.kind === 'participation_request_received')
+    expect(managerTold).toEqual([expect.objectContaining({ href: `/workspaces/${cci}/comites` })])
+    expect(JSON.stringify(managerTold)).not.toMatch(
+      /Claire|Martin|Angels|MESSAGE-PRIVE|investisseurs|@/,
+    )
   })
 
   it('refuses without creating, sending or granting anything; the address may ask again', async () => {

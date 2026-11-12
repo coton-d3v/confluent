@@ -302,11 +302,12 @@ export function participationDecisionsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261205000000_participation_decisions/migration.sql'))
 }
 
-// The revert of E08.06 (committee notices), as the tests of earlier migrations that drop what its
-// table references (committees, entries, participation requests) run it before their own: it accepts
-// that the notices are lost (SET LOCAL, test transactions only).
+// The reverts of E10.03 then E08.06 (committee notices), as the tests of earlier migrations that drop
+// what their tables reference (committees, entries, participation requests) run them before their
+// own: they accept that the notifications and notices are lost (SET LOCAL, test transactions only).
 export function committeeNoticesDown(): string[] {
   return [
+    ...notificationsDown(),
     "SET LOCAL confluent.accept_committee_notices_loss = 'on'",
     ...sqlStatements(join(CHECKS, '20261206000000_committee_notices.down.sql')),
   ]
@@ -385,4 +386,18 @@ export function workspacePageIndexingDown(): string[] {
 
 export function workspacePageIndexingUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261212000000_workspace_page_indexing/migration.sql'))
+}
+
+// The revert of E10.03 (notifications), as the tests of earlier migrations that drop what its table
+// references (E08.06's notices first) run it before their own: it accepts that the notifications are
+// lost (SET LOCAL, test transactions only).
+export function notificationsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_notifications_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261213000000_notifications.down.sql')),
+  ]
+}
+
+export function notificationsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261213000000_notifications/migration.sql'))
 }

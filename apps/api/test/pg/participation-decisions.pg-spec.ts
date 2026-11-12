@@ -22,6 +22,7 @@ import {
   participationRequestsDown,
   participationRequestsUp,
 } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = participationDecisionsUp()
 // Without the acceptance: what an operator runs first.
@@ -113,8 +114,22 @@ describe('participation decisions (PostgreSQL)', () => {
       return Promise.resolve()
     },
   } as unknown as EmailTransport
-  const requests = new ParticipationRequestsService(prisma, access, audit, tokens, limits)
-  const members = new WorkspaceMembersService(prisma, audit, access, config, transport)
+  const requests = new ParticipationRequestsService(
+    prisma,
+    access,
+    audit,
+    tokens,
+    limits,
+    quietNotifications(prisma),
+  )
+  const members = new WorkspaceMembersService(
+    prisma,
+    audit,
+    access,
+    config,
+    transport,
+    quietNotifications(prisma),
+  )
   const decisions = new ParticipationDecisionsService(
     prisma,
     access,
@@ -123,6 +138,7 @@ describe('participation decisions (PostgreSQL)', () => {
     requests,
     config,
     transport,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

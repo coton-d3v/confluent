@@ -16,6 +16,8 @@ import { WorkspacesService } from '../workspaces/workspaces.service'
 import { ParticipationDecisionsService } from './participation-decisions.service'
 import { ParticipationFormTokens } from './participation-form-token'
 import { ParticipationRequestsService } from './participation-requests.service'
+import { quietNotifications } from '../../testing/notifications'
+import { NotificationsService } from '../notifications/notifications.service'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
 const MANAGER = { id: 'marie', role: 'financeur' }
@@ -74,8 +76,22 @@ describe('ParticipationDecisionsService', () => {
     storage = new ThrottlerStorageService()
     email = { sendParticipationAccepted: jest.fn().mockResolvedValue(undefined) }
     const transport = email as unknown as EmailTransport
-    requests = new ParticipationRequestsService(prisma, access, audit, tokens, storage)
-    const members = new WorkspaceMembersService(prisma, audit, access, config, transport)
+    requests = new ParticipationRequestsService(
+      prisma,
+      access,
+      audit,
+      tokens,
+      storage,
+      quietNotifications(prisma),
+    )
+    const members = new WorkspaceMembersService(
+      prisma,
+      audit,
+      access,
+      config,
+      transport,
+      quietNotifications(prisma),
+    )
     decisions = new ParticipationDecisionsService(
       prisma,
       access,
@@ -84,12 +100,16 @@ describe('ParticipationDecisionsService', () => {
       requests,
       config,
       transport,
+      quietNotifications(prisma),
     )
     const committees = new CommitteesService(
       prisma,
       access,
       audit,
-      new CommitteeNoticesService(prisma, config, {} as EmailTransport),
+      new CommitteeNoticesService(
+        prisma,
+        new NotificationsService(prisma, config, {} as EmailTransport),
+      ),
     )
     const workspaces = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
     cci = (await workspaces.create(ADMIN, { name: 'CCI Touraine', slug: 'cci-touraine' })).id

@@ -13,6 +13,7 @@ import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { PortfolioService } from './portfolio.service'
 import { SupportPathsService } from './support-paths.service'
 import { createDefaultSupportSteps } from './support-step-defaults'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E06.07: a workspace's portfolio — its sent candidatures with their phase, counted per phase
 // and current step, filtered and paged —, read by its conseillers and Confluent's administrators
@@ -77,6 +78,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const paths = new SupportPathsService(prisma, candidatures, audit)
   const portfolio = new PortfolioService(prisma, candidatures)

@@ -9,6 +9,7 @@ import type {
   SendCompanyTransferInviteInput,
   SendMagicLinkInput,
   SendEntrepreneurAccessAcceptedInput,
+  SendNotificationInput,
   SendParticipationAcceptedInput,
   SendShareInviteInput,
   SendWorkspaceInviteInput,
@@ -128,6 +129,16 @@ export class NodemailerTransport implements EmailTransport {
       signInUrl: input.signInUrl,
     })
     await this.send({ to: input.to, subject, html, text })
+  }
+
+  async sendNotification(input: SendNotificationInput): Promise<void> {
+    const { html, text } = render('notification', input.locale, {
+      title: input.title,
+      preheader: input.body ?? input.title,
+      body: input.body ?? '',
+      actionUrl: input.actionUrl,
+    })
+    await this.send({ to: input.to, subject: input.title, html, text })
   }
 
   private async send(payload: {

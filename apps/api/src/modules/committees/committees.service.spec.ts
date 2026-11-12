@@ -11,6 +11,7 @@ import type { AppConfig } from '../../config/config.schema'
 import type { EmailTransport } from '../auth/email/email-transport'
 import { CommitteeNoticesService } from './committee-notices.service'
 import { CommitteesService, type CommitteeInput } from './committees.service'
+import { NotificationsService } from '../notifications/notifications.service'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
 const MANAGER = { id: 'marie', role: 'financeur' }
@@ -64,7 +65,7 @@ describe('CommitteesService', () => {
       prisma,
       access,
       audit,
-      new CommitteeNoticesService(prisma, config, transport),
+      new CommitteeNoticesService(prisma, new NotificationsService(prisma, config, transport)),
     )
     const workspaces = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
     cci = (await workspaces.create(ADMIN, { name: 'CCI Touraine' })).id

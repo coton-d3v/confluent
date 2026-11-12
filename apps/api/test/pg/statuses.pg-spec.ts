@@ -13,6 +13,7 @@ import { QuestionnairesService } from '../../src/modules/questionnaires/question
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
 import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261117000000_statuses/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261117000000_statuses.down.sql'))
@@ -82,6 +83,7 @@ describe('publication and financing statuses (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

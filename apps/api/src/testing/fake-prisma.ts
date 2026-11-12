@@ -4,19 +4,21 @@ import { DEFAULT_PUBLIC_PAGE_BLOCKS } from '@confluent/shared'
 // In-memory stand-in for the Prisma calls used by the OAuth / MCP flows, so HTTP tests run real
 // sequences (register → authorize → consent → token → refresh → revoke) without a database.
 // Supports: findUnique/findFirst/findMany (+ a few hand-wired `include`s), create, update,
-// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ gte }`, `{ not }`, `{ in }`,
-// `{ notIn }`,
-// `{ equals, mode: 'insensitive' }`.
+// updateMany, upsert, count; `where` with equality, `null`, `{ gt }`, `{ gte }`, `{ lt }`, `{ lte }`,
+// `{ not }`, `{ in }`, `{ notIn }`, `{ equals, mode: 'insensitive' }`, `OR`; `take` on findMany.
 type Row = Record<string, unknown> & { id: string }
 type Where = Record<string, unknown>
 
 function matches(row: Row, where: Where = {}): boolean {
   return Object.entries(where).every(([k, cond]) => {
+    if (k === 'OR') return (cond as Where[]).some((w) => matches(row, w))
     const v = row[k]
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
       const c = cond as {
         gt?: Date
         gte?: Date
+        lt?: Date | string
+        lte?: Date
         not?: unknown
         in?: unknown[]
         notIn?: unknown[]
@@ -29,6 +31,11 @@ function matches(row: Row, where: Where = {}): boolean {
       }
       if ('gt' in c) return v instanceof Date && v.getTime() > c.gt!.getTime()
       if ('gte' in c) return v instanceof Date && v.getTime() >= c.gte!.getTime()
+      if ('lt' in c) {
+        if (typeof c.lt === 'string') return typeof v === 'string' && v < c.lt
+        return v instanceof Date && v.getTime() < c.lt!.getTime()
+      }
+      if ('lte' in c) return v instanceof Date && v.getTime() <= c.lte!.getTime()
       if ('not' in c) return v !== c.not
       if ('in' in c) return c.in!.includes(v)
       if ('notIn' in c) return !c.notIn!.includes(v)
@@ -44,7 +51,12 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   oAuthToken: ['id', 'tokenHash'],
   dossier: ['id', 'slug'],
   workspace: ['id', 'slug'],
+  // Compound unique columns joined by `+`.
+  notification: ['id', 'recipientId+dedupKey'],
 }
+
+const sameKey = (key: string, a: Row, b: Row) =>
+  key.split('+').every((k) => a[k] !== undefined && a[k] === b[k])
 
 // Table backing a to-one relation, for relation ordering.
 const RELATIONS: Record<string, Record<string, string>> = {
@@ -105,7 +117,7 @@ export function createFakePrisma() {
   const model = (name: string, defaults: () => Record<string, unknown> = () => ({})) => ({
     findUnique: jest.fn(
       ({ where, include }: { where: Where; include?: Record<string, unknown> }) => {
-        const keys = UNIQUE_KEYS[name] ?? ['id']
+        const keys = (UNIQUE_KEYS[name] ?? ['id']).filter((k) => !k.includes('+'))
         const key = keys.find((k) => where[k] !== undefined)
         const row = key
           ? [...table(name).values()].find((r) => r[key] === where[key])
@@ -132,10 +144,17 @@ export function createFakePrisma() {
         where,
         include,
         orderBy,
-      }: { where?: Where; include?: Record<string, unknown>; orderBy?: unknown } = {}) =>
+        take,
+      }: {
+        where?: Where
+        include?: Record<string, unknown>
+        orderBy?: unknown
+        take?: number
+      } = {}) =>
         Promise.resolve(
           sorted(name, filtered(name, where), orderBy)
             .filter((r) => relationsMatch(name, r, where))
+            .slice(0, take ?? Infinity)
             .map((r) => withInclude(name, r, include)),
         ),
     ),
@@ -173,8 +192,8 @@ export function createFakePrisma() {
             ...defaults(),
             ...d,
           } as Row
-          const clash = (UNIQUE_KEYS[name] ?? ['id']).some(
-            (k) => row[k] !== undefined && [...table(name).values()].some((r) => r[k] === row[k]),
+          const clash = (UNIQUE_KEYS[name] ?? ['id']).some((k) =>
+            [...table(name).values()].some((r) => sameKey(k, row, r)),
           )
           if (skipDuplicates && clash) continue
           table(name).set(row.id, row)
@@ -637,9 +656,14 @@ export function createFakePrisma() {
       statusActorId: null,
       version: 1,
     })),
-    committeeNotice: model('committeeNotice', () => ({
+    notification: model('notification', () => ({
+      workspaceId: null,
+      dossierId: null,
+      committeeId: null,
+      committeeVersion: null,
       applicationId: null,
       participationRequestId: null,
+      readAt: null,
     })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,

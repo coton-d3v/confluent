@@ -1,9 +1,7 @@
-import type { ConfigService } from '@nestjs/config'
 import { PrismaClient } from '@prisma/client'
-import type { AppConfig } from '../../src/config/config.schema'
-import type { EmailTransport } from '../../src/modules/auth/email/email-transport'
 import { CommitteeNoticesService } from '../../src/modules/committees/committee-notices.service'
 import type { PrismaService } from '../../src/prisma/prisma.service'
+import { quietNotifications } from '../../src/testing/notifications'
 
 // Tests that need real PostgreSQL behaviour (transactions, locks, indexes), which the in-memory fake
 // cannot show. They run against a disposable, migrated database:
@@ -31,11 +29,7 @@ function withPool(url: string): string {
 // E08.06: the notices of committees' changes, their emails going nowhere — for the tests of other
 // committee rules (test/pg/committee-notices.pg-spec.ts reads what they send).
 export function quietNotices(prisma: PrismaService): CommitteeNoticesService {
-  return new CommitteeNoticesService(
-    prisma,
-    { get: () => 'https://confluent.example' } as unknown as ConfigService<AppConfig, true>,
-    { sendCommitteeChanged: () => Promise.resolve() } as unknown as EmailTransport,
-  )
+  return new CommitteeNoticesService(prisma, quietNotifications(prisma))
 }
 
 // Every dossier belongs to a company of the same owner (E05.04), whose profile answers the dossier's

@@ -17,6 +17,7 @@ import type {
 } from '../opportunities/positions.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { FundingPlansService, planPledges, type FundingPlanParty } from './funding-plans.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E06.03: who keeps a candidature's financing plan — its owner, and once sent the
 // conseillers of its workspace —, nobody else; every write checked again under the candidature's
@@ -90,6 +91,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   // What each audience reads of the pledges is PositionsService's rule (tested with it, and over
   // HTTP in funding-plan-pledges.e2e-spec.ts); here, set by each test.

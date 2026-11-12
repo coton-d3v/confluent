@@ -21,6 +21,7 @@ import {
 } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 import { showcaseCardModerationDown, showcaseCardModerationUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = showcaseCardModerationUp()
 // Without the acceptance: what an operator runs first.
@@ -88,8 +89,16 @@ describe('showcase card moderation (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
-  const cards = new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access)
+  const cards = new ShowcaseCardsService(
+    prisma,
+    candidatures,
+    dossiers,
+    audit,
+    access,
+    quietNotifications(prisma),
+  )
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

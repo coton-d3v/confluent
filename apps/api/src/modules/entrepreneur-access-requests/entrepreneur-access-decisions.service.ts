@@ -9,6 +9,7 @@ import {
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { type ActionOrigin, channelMetadata } from '../audit/action-origin'
+import { NotificationsService } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { openCandidatureFormVersion } from '../candidatures/candidatures.service'
@@ -75,6 +76,7 @@ export class EntrepreneurAccessDecisionsService {
     private readonly requests: EntrepreneurAccessRequestsService,
     private readonly config: ConfigService<AppConfig, true>,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async decide(
@@ -127,6 +129,19 @@ export class EntrepreneurAccessDecisionsService {
           version: current.version + 1,
         },
       })
+      // E10.03: in the site only — the acceptance's own email follows, recorded with the request.
+      if (accountUserId) {
+        await this.notifications.recordIn(tx, [
+          {
+            recipientId: accountUserId,
+            kind: 'entrepreneur_access_accepted',
+            key: `entrepreneur_access_accepted:${requestId}`,
+            subject: `entrepreneur_access_request:${requestId}`,
+            workspaceId,
+            payload: { workspaceName: workspace.name },
+          },
+        ])
+      }
       await this.audit.recordIn(tx, {
         actionType: 'entrepreneur_access_request_decided',
         actorId: actor.id,

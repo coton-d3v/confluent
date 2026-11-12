@@ -404,7 +404,25 @@ describe('Committee follow-up (e2e)', () => {
       }).expect(200)
     ).body
     expect(changed).toHaveBeenCalledTimes(3)
-    expect(fake.table('committeeNotice').size).toBe(3)
+    expect(
+      [...fake.table('notification').values()].filter((n) => n.kind === 'committee_rescheduled'),
+    ).toHaveLength(3)
+    // E10.03: the same notice in the site, for its recipient only, without place, link or texts.
+    const inApp = (await as(SOPHIE).get('/v1/notifications').expect(200)).body.items.filter(
+      (i: { kind: string }) => i.kind === 'committee_rescheduled',
+    )
+    expect(inApp).toEqual([
+      expect.objectContaining({
+        title: 'Le comité « Comité de juin » change de date',
+        body: expect.stringContaining('Date précédente : mercredi 10 juin 2099 à 14:00'),
+        href: expect.stringMatching(/^\/dashboard\/candidatures\//),
+      }),
+    ])
+    expect(JSON.stringify(inApp)).not.toMatch(/PRIVE|NOTE-INTERNE|INFO-DIFFUSEE|agrotech|solaire/)
+    for (const someone of [LEA, CLAIRE, BOB]) {
+      const theirs = (await as(someone).get('/v1/notifications').expect(200)).body.items
+      expect(theirs.filter((i: { kind: string }) => i.kind.startsWith('committee_r'))).toEqual([])
+    }
 
     // The entrepreneur reads the new date from their candidature, still without the others.
     const mine = (await as(SOPHIE).get(`/v1/candidatures/${sophie}/committees`).expect(200)).body

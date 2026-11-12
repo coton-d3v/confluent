@@ -423,6 +423,8 @@ describe('entrepreneur access requests (e2e)', () => {
   it('accepting creates an entrepreneur’s account — nothing else — and invites it by email after the decision', async () => {
     await openTheDoor()
     await visitor().send('cci-touraine', submission()).expect(202)
+    // Sent again (merged into the pending request): the managers are not told twice (E10.03).
+    await visitor().send('cci-touraine', submission()).expect(202)
     const [r] = await pending()
     const before = {
       memberships: fake.table('workspaceMembership').size,
@@ -436,7 +438,7 @@ describe('entrepreneur access requests (e2e)', () => {
       invitationEmailSent: true,
       request: {
         status: 'accepted',
-        version: 2,
+        version: 3,
         admission: 'account_created',
         invitationEmail: 'sent',
         decidedBy: { id: 'manager', email: ACCOUNTS.manager.email },
@@ -466,7 +468,7 @@ describe('entrepreneur access requests (e2e)', () => {
       metadata: {
         workspaceId: cci,
         requestId: r.id,
-        version: 2,
+        version: 3,
         decision: 'accepted',
         admission: 'account_created',
         accountUserId: account.id,
@@ -476,7 +478,7 @@ describe('entrepreneur access requests (e2e)', () => {
 
     // Repeated: done, nothing again; another decision: final.
     const again = await decide(r, 'accepted').expect(200)
-    expect(again.body).toMatchObject({ invitationEmailSent: null, request: { version: 2 } })
+    expect(again.body).toMatchObject({ invitationEmailSent: null, request: { version: 3 } })
     expect((await decide(r, 'refused').expect(409)).body.error.details).toEqual({
       status: 'accepted',
     })
@@ -511,6 +513,33 @@ describe('entrepreneur access requests (e2e)', () => {
       .get(`/v1/workspaces/${cci}/candidatures`)
       .set('Authorization', `Bearer ${lea}`)
       .expect(404)
+
+    // E10.03: the CCI's manager was told of the request in the site — never who sent it, nor their
+    // company or words —, the new account of its acceptance (in the site; the invitation above is
+    // the acceptance's own email); nobody else.
+    const told = (kind: string) =>
+      [...fake.table('notification').values()]
+        .filter((n) => n.kind === kind)
+        .map((n) => [n.recipientId, n.emailState])
+    expect(told('entrepreneur_access_request_received')).toEqual([['manager', 'none']])
+    expect(told('entrepreneur_access_accepted')).toEqual([[account.id, 'none']])
+    const managerTold = (
+      await call('get', '/notifications', 'manager').expect(200)
+    ).body.items.filter((i: { kind: string }) => i.kind !== 'workspace_invited')
+    expect(managerTold).toEqual([
+      expect.objectContaining({
+        kind: 'entrepreneur_access_request_received',
+        href: `/admin/workspaces/${cci}/demandes`,
+      }),
+    ])
+    expect(JSON.stringify(managerTold)).not.toMatch(/hydrolia|Léa|Hydrolia|MESSAGE|@/)
+    const leaTold = await request(app.getHttpServer())
+      .get('/v1/notifications')
+      .set('Authorization', `Bearer ${lea}`)
+      .expect(200)
+    expect(leaTold.body.items.map((i: { title: string }) => i.title)).toEqual([
+      'Votre demande d’accès à « CCI Touraine » est acceptée',
+    ])
   })
 
   it('keeps an existing account as it is, and never changes one that cannot present requests', async () => {

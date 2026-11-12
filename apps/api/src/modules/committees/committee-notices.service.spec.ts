@@ -4,6 +4,7 @@ import type { AppConfig } from '../../config/config.schema'
 import type { PrismaService } from '../../prisma/prisma.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import type { EmailTransport, SendCommitteeChangedInput } from '../auth/email/email-transport'
+import { NotificationsService } from '../notifications/notifications.service'
 import { CommitteeNoticesService } from './committee-notices.service'
 
 const WS = 'ws-cci'
@@ -12,7 +13,8 @@ const config = {
 } as unknown as ConfigService<AppConfig, true>
 
 // ROADMAP E08.06: who a change tells, what the email holds, and that a notice leaves once — never
-// twice, never once superseded, a failure recorded without undoing anything.
+// twice, never once superseded, a failure recorded without undoing anything (E10.03: as
+// notifications).
 describe('CommitteeNoticesService', () => {
   let fake: ReturnType<typeof createFakePrisma>
   let sent: SendCommitteeChangedInput[]
@@ -32,10 +34,10 @@ describe('CommitteeNoticesService', () => {
         return Promise.resolve()
       }),
     } as unknown as EmailTransport
+    const prisma = fake.prisma as unknown as PrismaService
     service = new CommitteeNoticesService(
-      fake.prisma as unknown as PrismaService,
-      config,
-      transport,
+      prisma,
+      new NotificationsService(prisma, config, transport),
     )
     for (const [id, email] of [
       ['sophie', 'sophie@startup.fr'],
@@ -117,7 +119,12 @@ describe('CommitteeNoticesService', () => {
     }
   })
 
-  const notices = () => [...fake.table('committeeNotice').values()]
+  // E10.03: the notices are the notifications of the committee's changes.
+  const notices = () =>
+    [...fake.table('notification').values()].map((n) => ({
+      ...(n as Record<string, unknown>),
+      state: n.emailState,
+    })) as Array<Record<string, unknown>>
   const before = {
     localStart: new Date('2099-06-10T14:00:00.000Z'),
     startsAt: new Date('2099-06-10T12:00:00.000Z'),
@@ -131,7 +138,7 @@ describe('CommitteeNoticesService', () => {
     })
 
   it('tells each concerned account once: owners of applied, proposed or accepted entries, and active participants', async () => {
-    const batch = (await record('rescheduled'))!
+    const batch = await record('rescheduled')
     expect(
       notices()
         .map((n) => [n.recipientId, n.applicationId, n.participationRequestId, n.state])
@@ -151,7 +158,7 @@ describe('CommitteeNoticesService', () => {
   })
 
   it('says the new and the previous date in the committee’s zone, never the place, link, texts or other people', async () => {
-    await service.deliver((await record('rescheduled'))!)
+    await service.deliver(await record('rescheduled'))
     expect(sent[0]).toMatchObject({
       kind: 'rescheduled',
       workspaceName: 'CCI Touraine',
@@ -177,20 +184,20 @@ describe('CommitteeNoticesService', () => {
     }
     // A cancellation has no previous date.
     sent = []
-    await service.deliver((await record('cancelled', 3))!)
+    await service.deliver(await record('cancelled', 3))
     expect(sent.every((s) => s.kind === 'cancelled' && s.previous === null)).toBe(true)
   })
 
   it('never sends a notice twice, even delivered again or by two senders at once', async () => {
-    const batch = (await record('cancelled'))!
+    const batch = await record('cancelled')
     await Promise.all([service.deliver(batch), service.deliver(batch)])
     await service.deliver(batch)
     expect(sent).toHaveLength(3)
   })
 
   it('supersedes the unsent notices of an earlier change for the same people; the later one leaves', async () => {
-    const first = (await record('rescheduled', 2))!
-    const second = (await record('cancelled', 3))!
+    const first = await record('rescheduled', 2)
+    const second = await record('cancelled', 3)
     await service.deliver(first)
     await service.deliver(second)
     expect(sent.map((s) => s.kind)).toEqual(['cancelled', 'cancelled', 'cancelled'])
@@ -217,7 +224,7 @@ describe('CommitteeNoticesService', () => {
 
   it('records a failed email without stopping the others', async () => {
     failFor.add('karim@startup.fr')
-    await service.deliver((await record('cancelled'))!)
+    await service.deliver(await record('cancelled'))
     expect(
       notices()
         .map((n) => [n.recipientId, n.state])
@@ -232,14 +239,14 @@ describe('CommitteeNoticesService', () => {
   it('records nothing when nobody is concerned', async () => {
     fake.table('committeeApplication').clear()
     fake.table('participationRequest').clear()
-    expect(await record('cancelled')).toBeNull()
+    expect(await record('cancelled')).toEqual([])
     expect(notices()).toHaveLength(0)
   })
 
   it('lists the notices for the managers by request, never by address', async () => {
     await fake.prisma.company.create({ data: { id: 'co-sophie', name: 'Start' } })
     await fake.prisma.company.create({ data: { id: 'co-karim', name: 'Kar' } })
-    await service.deliver((await record('cancelled'))!)
+    await service.deliver(await record('cancelled'))
     const listed = await service.listForCommittee(WS, 'june')
     expect(listed.map((n) => [n.audience, n.label, n.kind, n.state]).sort()).toEqual([
       ['entrepreneur', 'Kar — Demande 1', 'cancelled', 'sent'],

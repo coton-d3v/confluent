@@ -18,6 +18,7 @@ import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-a
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 import { supportPathsDown, supportPathsUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = supportPathsUp()
 // Without the acceptance: what an operator runs first.
@@ -91,6 +92,7 @@ describe('support paths (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const paths = new SupportPathsService(prisma, candidatures, audit)
   const portfolio = new PortfolioService(prisma, candidatures)

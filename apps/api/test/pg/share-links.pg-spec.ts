@@ -15,6 +15,7 @@ import { ReadingSessionsService } from '../../src/modules/reading-sessions/readi
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
 import { shareLinksDown, shareLinksUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = shareLinksUp()
 // Without the acceptance: what an operator runs first.
@@ -77,6 +78,7 @@ describe('nominative shares (PostgreSQL)', () => {
     new QuestionnairesService(prisma),
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
     readings,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
 

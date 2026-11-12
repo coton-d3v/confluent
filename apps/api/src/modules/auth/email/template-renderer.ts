@@ -12,6 +12,7 @@ export type TemplateName =
   | 'participation-accepted'
   | 'committee-changed'
   | 'entrepreneur-access-accepted'
+  | 'notification'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
@@ -41,6 +42,7 @@ export interface TemplateDynamicVars {
     signInUrl: string
   }
   'entrepreneur-access-accepted': { workspaceName: string; accountLine: string; signInUrl: string }
+  notification: { title: string; preheader: string; body: string; actionUrl: string }
 }
 
 export interface RenderedEmail {

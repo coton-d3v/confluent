@@ -11,6 +11,7 @@ import { DossiersService } from '../dossiers/dossiers.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { PoolPublicationsService } from './pool-publications.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E07.02: a request published in a workspace's pool by its owner's explicit consent, per
 // (request × workspace); withdrawn from that workspace only — never another's, a share, the
@@ -67,6 +68,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const pool = new PoolPublicationsService(prisma, candidatures, dossiers, audit)
 

@@ -21,6 +21,7 @@ import { WorkspacesService } from '../../src/modules/workspaces/workspaces.servi
 import { NO_PLEDGES } from '../../src/testing/no-pledges'
 import { testDatabase } from './database'
 import { candidatureNotesDown, candidatureNotesUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = candidatureNotesUp()
 // Without the acceptance: what an operator runs first.
@@ -87,6 +88,7 @@ describe('candidature notes (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const journal = new InterventionJournalService(prisma, candidatures)
   const notes = new CandidatureNotesService(prisma, candidatures, journal, audit)
