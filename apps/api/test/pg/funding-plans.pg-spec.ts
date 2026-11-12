@@ -21,6 +21,7 @@ import { testDatabase } from './database'
 import {
   candidatureNotesDown,
   committeeApplicationsDown,
+  committeeNoticesDown,
   eligibilitiesDown,
   fundingPlanPledgesDown,
   fundingPlansDown,
@@ -36,7 +37,9 @@ const DOWN = fundingPlansDown().slice(1)
 // E06.06's validations and E06.05's eligibilities use E06.03's unique index on candidatures: undone
 // first.
 const LATER_DOWN = [
-  // E08.03's entries reference the candidatures through E06.03's unique index.
+  // E08.06's notices reference E08.03's entries, which reference the candidatures through E06.03's
+  // unique index.
+  ...committeeNoticesDown(),
   ...committeeApplicationsDown(),
   ...fundingPlanPledgesDown(),
   ...poolPublicationsDown(),

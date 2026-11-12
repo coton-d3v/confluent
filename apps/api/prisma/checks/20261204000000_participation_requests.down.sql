@@ -3,8 +3,9 @@
 -- forms (who asked, their message, the sessions chosen), the journal entries of the submissions,
 -- and which committees their managers offered on the form (`committees.participation_requests_open`);
 -- the committees themselves and their journal stay; the values added to `audit_action` stay
--- (PostgreSQL cannot remove them; unused). To be run after the revert of E08.05 (decisions) and
--- before the reverts of E08.03, E08.02 and E08.01: the requests reference
+-- (PostgreSQL cannot remove them; unused). To be run after the reverts of E08.06 (notices, which
+-- reference the requests) and E08.05 (decisions), and before the reverts of E08.03, E08.02 and
+-- E08.01: the requests reference
 -- `committees (id, workspace_id)`.
 --
 -- Without any request, journal entry nor committee offered, nothing is lost. One would be — a person

@@ -10,6 +10,7 @@ export type TemplateName =
   | 'workspace-invite'
   | 'company-transfer-invite'
   | 'participation-accepted'
+  | 'committee-changed'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
@@ -27,6 +28,15 @@ export interface TemplateDynamicVars {
     workspaceName: string
     sessions: string
     accountLine: string
+    signInUrl: string
+  }
+  'committee-changed': {
+    title: string
+    body: string
+    workspaceName: string
+    committeeName: string
+    when: string
+    audienceLine: string
     signInUrl: string
   }
 }

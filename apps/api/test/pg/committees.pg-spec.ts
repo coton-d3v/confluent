@@ -7,9 +7,10 @@ import {
   type CommitteeInput,
 } from '../../src/modules/committees/committees.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
-import { testDatabase } from './database'
+import { quietNotices, testDatabase } from './database'
 import {
   committeeApplicationsDown,
+  committeeNoticesDown,
   committeesDown,
   committeesUp,
   participationDecisionsDown,
@@ -22,9 +23,10 @@ const DOWN = committeesDown().slice(1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_committees_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_committees_loss = 'off'"
-// E08.05's decisions and E08.04's participation requests, then E08.03's entries reference the
-// committees: undone first.
+// E08.06's notices, E08.05's decisions and E08.04's participation requests, then E08.03's entries
+// reference the committees: undone first.
 const LATER_DOWN = [
+  ...committeeNoticesDown(),
   ...participationDecisionsDown(),
   ...participationRequestsDown(),
   ...committeeApplicationsDown(),
@@ -84,7 +86,7 @@ describe('committees (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
   const access = new WorkspaceAccessService(prisma)
-  const committees = new CommitteesService(prisma, access, audit)
+  const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   const users: string[] = []

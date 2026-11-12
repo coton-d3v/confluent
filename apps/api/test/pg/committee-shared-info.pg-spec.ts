@@ -11,7 +11,7 @@ import {
   type CommitteeInput,
 } from '../../src/modules/committees/committees.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
-import { testDatabase } from './database'
+import { quietNotices, testDatabase } from './database'
 import { committeeSharedInfoDown, committeeSharedInfoUp } from './sql-file'
 
 const UP = committeeSharedInfoUp()
@@ -65,7 +65,7 @@ describe('committee shared information (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
   const access = new WorkspaceAccessService(prisma)
-  const committees = new CommitteesService(prisma, access, audit)
+  const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   const users: string[] = []

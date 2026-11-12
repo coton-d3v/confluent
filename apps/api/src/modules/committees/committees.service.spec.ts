@@ -6,6 +6,10 @@ import { AuditService } from '../audit/audit.service'
 import { MemoryStorageAdapter } from '../documents/storage/memory-storage.adapter'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { WorkspacesService } from '../workspaces/workspaces.service'
+import type { ConfigService } from '@nestjs/config'
+import type { AppConfig } from '../../config/config.schema'
+import type { EmailTransport } from '../auth/email/email-transport'
+import { CommitteeNoticesService } from './committee-notices.service'
 import { CommitteesService, type CommitteeInput } from './committees.service'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
@@ -52,7 +56,16 @@ describe('CommitteesService', () => {
     const prisma = fake.prisma as unknown as PrismaService
     const audit = new AuditService(prisma)
     const access = new WorkspaceAccessService(prisma)
-    service = new CommitteesService(prisma, access, audit)
+    const config = {
+      get: () => 'https://confluent.example',
+    } as unknown as ConfigService<AppConfig, true>
+    const transport = { sendCommitteeChanged: jest.fn() } as unknown as EmailTransport
+    service = new CommitteesService(
+      prisma,
+      access,
+      audit,
+      new CommitteeNoticesService(prisma, config, transport),
+    )
     const workspaces = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
     cci = (await workspaces.create(ADMIN, { name: 'CCI Touraine' })).id
     club = (await workspaces.create(ADMIN, { name: 'Club deal' })).id

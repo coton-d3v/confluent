@@ -15,8 +15,9 @@ import {
 } from '../../src/modules/participation-requests/participation-requests.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
-import { testDatabase } from './database'
+import { quietNotices, testDatabase } from './database'
 import {
+  committeeNoticesDown,
   participationDecisionsDown,
   participationRequestsDown,
   participationRequestsUp,
@@ -28,8 +29,8 @@ const DOWN = participationRequestsDown().slice(1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_participation_requests_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_participation_requests_loss = 'off'"
-// E08.05's decisions change the requests: undone first.
-const LATER_DOWN = participationDecisionsDown()
+// E08.06's notices reference the requests and E08.05's decisions change them: undone first.
+const LATER_DOWN = [...committeeNoticesDown(), ...participationDecisionsDown()]
 
 class RolledBack extends Error {}
 
@@ -90,7 +91,7 @@ describe('participation requests (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
   const access = new WorkspaceAccessService(prisma)
-  const committees = new CommitteesService(prisma, access, audit)
+  const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tokens = new ParticipationFormTokens({
     get: () => 'p'.repeat(32),

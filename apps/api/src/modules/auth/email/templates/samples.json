@@ -24,5 +24,14 @@
     "sessions": "• Comité de juin — mercredi 10 juin 2099 à 14:00 (Europe/Paris)\n• Comité de juillet — vendredi 10 juillet 2099 à 09:30 (Europe/Paris)",
     "accountLine": "Un compte Confluent a été ouvert à cette adresse : vous rejoignez le workspace de la structure comme investisseur.",
     "signInUrl": "https://confluent.local/auth"
+  },
+  "committee-changed": {
+    "title": "Nouvelle date pour un comité",
+    "body": "La structure suivante a changé la date d’un de ses comités :",
+    "workspaceName": "CCI Touraine",
+    "committeeName": "Comité de juin",
+    "when": "Nouvelle date : jeudi 11 juin 2099 à 09:30 (Europe/Paris)\nDate précédente : mercredi 10 juin 2099 à 14:00 (Europe/Paris)",
+    "audienceLine": "Vous recevez ce message parce que votre demande de participation à ce comité a été acceptée.",
+    "signInUrl": "https://confluent.local/auth"
   }
 }

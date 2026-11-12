@@ -1,4 +1,4 @@
-import { participationSessionLines } from './nodemailer.transport'
+import { committeeMomentLine, participationSessionLines } from './nodemailer.transport'
 import { clearCacheForTesting, render, templateString } from './template-renderer'
 
 describe('template-renderer', () => {
@@ -124,6 +124,34 @@ describe('template-renderer', () => {
     for (const key of ['membershipCreated', 'alreadyMember']) {
       expect(templateString('participation-accepted', 'fr', key)).toMatch(/workspace/)
     }
+  })
+
+  it('renders a committee change (E08.06): the committee by name and when, escaped, the previous date on its own line', () => {
+    expect(
+      committeeMomentLine({ date: '2099-06-11', time: '09:30', timeZone: 'Europe/Paris' }),
+    ).toBe('jeudi 11 juin 2099 à 09:30 (Europe/Paris)')
+    const result = render('committee-changed', 'fr', {
+      title: templateString('committee-changed', 'fr', 'titleRescheduled'),
+      body: templateString('committee-changed', 'fr', 'bodyRescheduled'),
+      workspaceName: 'CCI <Touraine>',
+      committeeName: 'Comité <juin>',
+      when: 'Nouvelle date : jeudi 11 juin 2099 à 09:30 (Europe/Paris)\nDate précédente : mercredi 10 juin 2099 à 14:00 (Europe/Paris)',
+      audienceLine: templateString('committee-changed', 'fr', 'participantLine'),
+      signInUrl: 'https://confluent.example/auth',
+    })
+    expect(result.html).toContain('CCI &lt;Touraine&gt;')
+    expect(result.html).toContain('Comité &lt;juin&gt;')
+    expect(result.html).toContain('white-space:pre-line;')
+    expect(result.html).toContain('href="https://confluent.example/auth"')
+    expect(result.text).toContain('Nouvelle date pour un comité')
+    expect(result.text).toContain('Date précédente : mercredi 10 juin 2099 à 14:00')
+    expect(result.text).toContain('Se connecter à Confluent : https://confluent.example/auth')
+    for (const kind of ['Rescheduled', 'Cancelled', 'Restored']) {
+      for (const key of ['subject', 'title', 'body', 'when']) {
+        expect(templateString('committee-changed', 'fr', `${key}${kind}`)).not.toBe('')
+      }
+    }
+    expect(templateString('committee-changed', 'fr', 'entrepreneurLine')).toContain('demande')
   })
 
   it('throws an explicit error when a referenced variable is missing', () => {

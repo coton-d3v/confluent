@@ -31,6 +31,7 @@ import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
+import { CommitteeFollowUpService, type CommitteeProgressView } from './committee-follow-up.service'
 import { CommitteesService, type CommitteeView } from './committees.service'
 
 class CreateCommitteeDto extends createZodDto(createCommitteeSchema) {}
@@ -50,8 +51,8 @@ const VIEW =
   '`internalNotes` : notes internes, lues par les seuls conseillers du workspace et jamais ' +
   'diffusées ; `sharedInfo` : informations destinées aux candidats et aux investisseurs du comité ' +
   '(les porteurs les lisent depuis leur candidature, avec le lien une fois leur participation ' +
-  'retenue ; aucun investisseur ne lit encore les comités) ; `version` : à renvoyer pour modifier ' +
-  'le comité.'
+  'retenue ; les participants acceptés depuis le workspace, lien compris) ; `version` : à renvoyer ' +
+  'pour modifier le comité.'
 
 // The committees a workspace organises (ROADMAP E08.01), as those who follow its candidatures read
 // them. The workspace is checked before anything else (guard, `404` outside it), then the service
@@ -65,7 +66,10 @@ const VIEW =
 @UseGuards(WorkspaceAccessGuard)
 @Controller('workspaces/:workspaceId/committees')
 export class CommitteesController {
-  constructor(private readonly committees: CommitteesService) {}
+  constructor(
+    private readonly committees: CommitteesService,
+    private readonly followUp: CommitteeFollowUpService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -81,6 +85,25 @@ export class CommitteesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<CommitteeView[]> {
     return this.committees.list(user, workspaceId)
+  }
+
+  // Declared before `:committeeId`, which would take `progress` for an identifier.
+  @Get('progress')
+  @ApiOperation({
+    summary: 'Avancement des comités du workspace',
+    description:
+      'Pour chaque comité (même ordre que la liste) : le nombre de participations de demandes par ' +
+      'statut (`applied`, `proposed`, `accepted`, `refused`, `withdrawn`) et le nombre de ' +
+      'participants — demandes de participation acceptées dont le compte est encore membre actif ' +
+      '(`accepted`), ou en attente de décision (`pending`). Des nombres seulement : ni nom, ni ' +
+      'adresse. Lu par les conseillers actifs et les administrateurs de Confluent.',
+  })
+  @ApiOkResponse({ description: 'Avancement de chaque comité.' })
+  progress(
+    @Param('workspaceId', uuid) workspaceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<CommitteeProgressView[]> {
+    return this.followUp.progress(user, workspaceId)
   }
 
   @Get(':committeeId')

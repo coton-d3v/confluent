@@ -6,6 +6,8 @@ import type { AppConfig } from '../../config/config.schema'
 import type { PrismaService } from '../../prisma/prisma.service'
 import { createFakePrisma } from '../../testing/fake-prisma'
 import { AuditService } from '../audit/audit.service'
+import type { EmailTransport } from '../auth/email/email-transport'
+import { CommitteeNoticesService } from '../committees/committee-notices.service'
 import { CommitteesService, type CommitteeInput } from '../committees/committees.service'
 import { MemoryStorageAdapter } from '../documents/storage/memory-storage.adapter'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
@@ -67,7 +69,12 @@ describe('ParticipationRequestsService', () => {
     tokens = new ParticipationFormTokens(config)
     storage = new ThrottlerStorageService()
     service = new ParticipationRequestsService(prisma, access, audit, tokens, storage)
-    committees = new CommitteesService(prisma, access, audit)
+    committees = new CommitteesService(
+      prisma,
+      access,
+      audit,
+      new CommitteeNoticesService(prisma, config, {} as EmailTransport),
+    )
     const workspaces = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
     cci = (await workspaces.create(ADMIN, { name: 'CCI Touraine', slug: 'cci-touraine' })).id
     const club = (await workspaces.create(ADMIN, { name: 'Club deal', slug: 'club-deal' })).id

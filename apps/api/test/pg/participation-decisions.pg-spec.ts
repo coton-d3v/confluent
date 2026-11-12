@@ -14,8 +14,9 @@ import { ParticipationRequestsService } from '../../src/modules/participation-re
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspaceMembersService } from '../../src/modules/workspaces/workspace-members.service'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
-import { testDatabase } from './database'
+import { quietNotices, testDatabase } from './database'
 import {
+  committeeNoticesDown,
   participationDecisionsDown,
   participationDecisionsUp,
   participationRequestsDown,
@@ -25,6 +26,8 @@ import {
 const UP = participationDecisionsUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = participationDecisionsDown().slice(1)
+// E08.06's notices reference the requests: undone first.
+const LATER_DOWN = committeeNoticesDown()
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_participation_decisions_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_participation_decisions_loss = 'off'"
@@ -96,7 +99,7 @@ describe('participation decisions (PostgreSQL)', () => {
   const prisma = testDatabase()
   const audit = new AuditService(prisma)
   const access = new WorkspaceAccessService(prisma)
-  const committees = new CommitteesService(prisma, access, audit)
+  const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const config = {
     get: (key: string) => (key === 'FRONTEND_URL' ? 'https://confluent.example' : 'p'.repeat(32)),
@@ -234,7 +237,7 @@ describe('participation decisions (PostgreSQL)', () => {
                   (SELECT count(*)::int FROM workspace_memberships) AS memberships,
                   (SELECT count(*)::int FROM users) AS users,
                   (SELECT count(*)::int FROM audit_log) AS journal`
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         const e0804 = await statusCheck(tx)
         expect(e0804).toContain(`(status = 'pending'::text)`)
         const [before] = await rows(tx, counts)
@@ -286,7 +289,7 @@ describe('participation decisions (PostgreSQL)', () => {
           await tx.$executeRawUnsafe('SAVEPOINT before_down')
           await expect(run(tx, DOWN)).rejects.toThrow(/would be lost/)
           await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT before_down')
-          await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+          await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
           expect(
             await rows(
               tx,
@@ -308,7 +311,7 @@ describe('participation decisions (PostgreSQL)', () => {
       const s = await setting()
       await asked(s, address('claire'))
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
@@ -328,7 +331,7 @@ describe('participation decisions (PostgreSQL)', () => {
       const s = await setting()
       const [manager] = s.managers
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
         const ws = { workspace_id: `'${s.workspaceId}'` }
         const refused = async (sql: string, error: RegExp) => {
           await tx.$executeRawUnsafe('SAVEPOINT attempt')
