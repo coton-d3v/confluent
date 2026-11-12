@@ -39,30 +39,33 @@ function invitationLine(request: ParticipationRequest): string | null {
 // is offered on the workspace's public participation form, the form's address, and the requests
 // asking for it — to accept or refuse (once, confirmed), then listed with their decision, its author
 // and date, and what became of the email. The API decides at each call, from the version shown.
+// E09.05: without a committee, the whole queue of the workspace (its « Demandes reçues » page).
 export function ParticipationRequestsSection({
   workspace,
   committee,
-  now,
+  now = Date.now(),
   onChanged,
 }: {
   workspace: { id: string; slug: string }
-  committee: Committee
-  now: number
+  committee?: Committee
+  now?: number
   // After a decision: for the sections that count participants or list them (code review R70).
   onChanged?: () => void
 }) {
   const pending = useAsync(
-    () => listParticipationRequests(workspace.id, { committeeId: committee.id }),
-    [workspace.id, committee.id],
+    () => listParticipationRequests(workspace.id, { committeeId: committee?.id }),
+    [workspace.id, committee?.id],
   )
   const decided = useAsync(
-    () => listParticipationRequests(workspace.id, { status: 'decided', committeeId: committee.id }),
-    [workspace.id, committee.id],
+    () =>
+      listParticipationRequests(workspace.id, { status: 'decided', committeeId: committee?.id }),
+    [workspace.id, committee?.id],
   )
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
-  const offered = committeeOpenToParticipationRequests(committee, now)
-  const url = participationFormUrl(workspace.slug, committee.id)
+  const offered = committee ? committeeOpenToParticipationRequests(committee, now) : false
+  const url = participationFormUrl(workspace.slug, committee?.id)
+  const scope = committee ? ' pour ce comité' : ''
 
   async function decide(request: ParticipationRequest, decision: ParticipationDecision) {
     setBusy(true)
@@ -124,17 +127,27 @@ export function ParticipationRequestsSection({
       >
         Demandes de participation
       </h2>
-      <p className="text-sm text-foreground">
-        {offered
-          ? 'Ce comité est proposé sur le formulaire public du workspace : investisseurs et invités peuvent demander à y participer. Le public n’en voit que le nom, la date et l’heure.'
-          : committee.participationRequestsOpen
-            ? 'Ce comité est ouvert aux demandes, mais n’est plus proposé sur le formulaire public : il est annulé, tenu ou déjà commencé.'
-            : 'Ce comité n’est pas proposé sur le formulaire public. Modifiez-le et cochez « Ouvert aux demandes de participation » pour le proposer.'}
-      </p>
-      {offered && (
+      {!committee ? (
+        <p className="text-sm text-foreground">
+          Toutes les demandes envoyées depuis le formulaire public de participation, quelle que soit
+          la session demandée. Chaque comité ouvert aux demandes y est proposé tant qu’il est
+          programmé et pas encore commencé ; la page publique du workspace y renvoie.
+        </p>
+      ) : (
+        <p className="text-sm text-foreground">
+          {offered
+            ? 'Ce comité est proposé sur le formulaire public du workspace : investisseurs et invités peuvent demander à y participer. Le public n’en voit que le nom, la date et l’heure.'
+            : committee.participationRequestsOpen
+              ? 'Ce comité est ouvert aux demandes, mais n’est plus proposé sur le formulaire public : il est annulé, tenu ou déjà commencé.'
+              : 'Ce comité n’est pas proposé sur le formulaire public. Modifiez-le et cochez « Ouvert aux demandes de participation » pour le proposer.'}
+        </p>
+      )}
+      {(offered || !committee) && (
         <div className="flex min-w-0 flex-col gap-1.5">
           <p className="text-xs font-medium text-muted-foreground">
-            Adresse du formulaire (cette session y est présélectionnée)
+            {committee
+              ? 'Adresse du formulaire (cette session y est présélectionnée)'
+              : 'Adresse du formulaire'}
           </p>
           <div className="flex min-w-0 items-center gap-2">
             <code
@@ -163,11 +176,11 @@ export function ParticipationRequestsSection({
         ) : !pending.data ? (
           <p className="text-sm text-muted-foreground">Chargement…</p>
         ) : pending.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucune demande à traiter pour ce comité.</p>
+          <p className="text-sm text-muted-foreground">Aucune demande à traiter{scope}.</p>
         ) : (
           <ul className="flex flex-col gap-3" aria-label="Demandes à traiter">
             {pending.data.map((request) => (
-              <RequestItem key={request.id} request={request} committeeId={committee.id}>
+              <RequestItem key={request.id} request={request} committeeId={committee?.id}>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
@@ -206,13 +219,13 @@ export function ParticipationRequestsSection({
         ) : !decided.data ? (
           <p className="text-sm text-muted-foreground">Chargement…</p>
         ) : decided.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucune demande traitée pour ce comité.</p>
+          <p className="text-sm text-muted-foreground">Aucune demande traitée{scope}.</p>
         ) : (
           <ul className="flex flex-col gap-3" aria-label="Demandes traitées">
             {decided.data.map((request) => {
               const invitation = invitationLine(request)
               return (
-                <RequestItem key={request.id} request={request} committeeId={committee.id}>
+                <RequestItem key={request.id} request={request} committeeId={committee?.id}>
                   <p className="wrap-anywhere text-xs text-muted-foreground">
                     {request.status === 'accepted' ? 'Acceptée' : 'Refusée'}
                     {request.decidedAt && ` le ${dayFr(request.decidedAt)}`} par{' '}
@@ -247,7 +260,8 @@ function RequestItem({
   children,
 }: {
   request: ParticipationRequest
-  committeeId: string
+  // Absent: the workspace's whole queue, every session asked for listed.
+  committeeId?: string
   children: ReactNode
 }) {
   const others = request.committees.filter((c) => c.id !== committeeId)
@@ -280,7 +294,8 @@ function RequestItem({
       </p>
       {others.length > 0 && (
         <p className="wrap-anywhere text-xs text-muted-foreground">
-          Demande aussi : {others.map((c) => c.name).join(', ')}
+          {committeeId ? 'Demande aussi' : 'Sessions demandées'} :{' '}
+          {others.map((c) => c.name).join(', ')}
         </p>
       )}
       {children}

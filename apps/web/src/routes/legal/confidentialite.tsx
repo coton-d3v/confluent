@@ -45,6 +45,11 @@ export default function ConfidentialiteRoute() {
             Demandes de participation à un comité, envoyées sans compte depuis le formulaire public
             d&apos;une structure : nom, organisation, adresse email, message et sessions choisies.
           </li>
+          <li>
+            Demandes d&apos;accès au parcours de candidature d&apos;une structure, envoyées sans
+            compte depuis sa page publique : nom, nom de l&apos;entreprise ou du projet, adresse
+            email et message.
+          </li>
         </ul>
       </LegalSection>
 
@@ -64,6 +69,13 @@ export default function ConfidentialiteRoute() {
             Transmettre une demande de participation à un comité à la seule structure concernée, qui
             l&apos;étudie ; aucun compte n&apos;est créé et aucun email n&apos;est envoyé avant
             qu&apos;elle l&apos;accepte (mesures prises à votre demande).
+          </li>
+          <li>
+            Transmettre une demande d&apos;accès au parcours de candidature à la seule structure
+            concernée, qui l&apos;étudie ; aucun compte n&apos;est créé et aucun email n&apos;est
+            envoyé avant qu&apos;elle l&apos;accepte. Acceptée, elle ouvre un compte de porteur de
+            projet à votre adresse (ou garde votre compte existant) et vous invite par email à
+            présenter votre demande (mesures prises à votre demande).
           </li>
         </ul>
       </LegalSection>
