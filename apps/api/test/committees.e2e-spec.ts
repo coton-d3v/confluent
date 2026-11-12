@@ -104,6 +104,7 @@ describe('committees (e2e)', () => {
       id: expect.any(String),
       workspaceId: cci,
       ...JUNE,
+      sharedInfo: null,
       startsAt: '2099-06-10T12:00:00.000Z',
       status: 'planned',
       version: 1,
@@ -226,6 +227,51 @@ describe('committees (e2e)', () => {
     expect(fake.table('committee').get(id)).toMatchObject({ status: 'planned', version: 1 })
   })
 
+  // ROADMAP E08.02: the information shared with candidates and investors, beside the internal notes.
+  it('keeps the shared information apart from the internal notes: written by managers, kept by an older client, named in the journal without its text', async () => {
+    const created = await call('post', manage(cci), 'manager')
+      .send({ ...JUNE, sharedInfo: '  Accueil à 13 h 45.\r\n\r\n\r\nPitch : 10 min ' })
+      .expect(201)
+    expect(created.body).toMatchObject({
+      internalNotes: 'Ordre du jour à envoyer.',
+      sharedInfo: 'Accueil à 13 h 45.\n\nPitch : 10 min',
+    })
+    const id = created.body.id as string
+    // The conseillers read both, each in its own field.
+    await call('get', `${read(cci)}/${id}`, 'advisor')
+      .expect(200)
+      .expect(created.body)
+
+    // A client that predates the field (E08.01's site) edits the rest without erasing it.
+    const older = await call('put', `${manage(cci)}/${id}`, 'manager')
+      .send({ ...JUNE, name: 'Comité de juin (salle 3)', version: 1 })
+      .expect(200)
+    expect(older.body).toMatchObject({
+      version: 2,
+      sharedInfo: 'Accueil à 13 h 45.\n\nPitch : 10 min',
+    })
+    // Emptied explicitly, it is removed.
+    const emptied = await call('put', `${manage(cci)}/${id}`, 'admin')
+      .send({ ...JUNE, name: older.body.name, sharedInfo: '', version: 2 })
+      .expect(200)
+    expect(emptied.body).toMatchObject({ version: 3, sharedInfo: null })
+    // Writing it is managing the committee; the investors read none of it.
+    await call('put', `${manage(cci)}/${id}`, 'advisor')
+      .send({ ...JUNE, sharedInfo: 'X', version: 3 })
+      .expect(403)
+    await call('get', `${read(cci)}/${id}`, 'investor').expect(403)
+
+    const journal = [...fake.table('auditLog').values()]
+    expect(
+      journal.map((row) => [row.actionType, (row.metadata as { fields?: string[] }).fields]),
+    ).toEqual([
+      ['committee_created', undefined],
+      ['committee_updated', ['name']],
+      ['committee_updated', ['sharedInfo']],
+    ])
+    expect(JSON.stringify(journal)).not.toMatch(/Accueil|Ordre du jour/)
+  })
+
   it('validates what is sent, the schedule included, with messages on the fields', async () => {
     const invalid = async (body: Record<string, unknown>, path: string) => {
       const res = await call('post', manage(cci), 'manager').send(body).expect(400)
@@ -242,6 +288,8 @@ describe('committees (e2e)', () => {
     await invalid({ ...JUNE, timeZone: 'Europe/Atlantis' }, 'timeZone')
     await invalid({ ...JUNE, meetingUrl: 'http://visio.example.org' }, 'meetingUrl')
     await invalid({ ...JUNE, internalNotes: '<script>x</script>' }, 'internalNotes')
+    await invalid({ ...JUNE, sharedInfo: '<script>x</script>' }, 'sharedInfo')
+    await invalid({ ...JUNE, sharedInfo: 'x'.repeat(3001) }, 'sharedInfo')
     await invalid({ ...JUNE, status: 'held' }, '')
     const gap = await invalid({ ...JUNE, date: '2027-03-28', time: '02:30' }, 'time')
     expect(gap[0].message).toContain('passage à l’heure d’été')

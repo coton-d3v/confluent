@@ -23,6 +23,7 @@ const JUNE: CommitteeInput = {
   location: 'CCI Touraine, salle 2',
   meetingUrl: 'https://visio.example.org/j/123',
   internalNotes: 'Ordre du jour à envoyer.',
+  sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
 }
 const PAST: CommitteeInput = { ...JUNE, name: 'Comité de janvier', date: '2020-01-15' }
 
@@ -88,6 +89,7 @@ describe('CommitteesService', () => {
         meetingUrl: 'https://visio.example.org/j/123',
         status: 'planned',
         internalNotes: 'Ordre du jour à envoyer.',
+        sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
         version: 1,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
@@ -128,6 +130,7 @@ describe('CommitteesService', () => {
         location: null,
         meetingUrl: null,
         internalNotes: null,
+        sharedInfo: null,
       })
     })
 
@@ -375,6 +378,119 @@ describe('CommitteesService', () => {
         await failure(service.update(OUTSIDER, club, committee.id, { ...JUNE, version: 2 })),
       ).toEqual({ status: 404, code: 'COMMITTEE_NOT_FOUND' })
       expect(fake.table('committee').get(committee.id)).toMatchObject({ name: 'A', version: 2 })
+    })
+  })
+
+  describe('shared information (E08.02)', () => {
+    it('edits the shared information apart from the internal notes: kept when absent, removed by null, named in the journal, never copied', async () => {
+      const committee = await service.create(MANAGER, cci, JUNE)
+      fake.table('auditLog').clear()
+
+      // A client that predates it (no `sharedInfo`) keeps it as it is.
+      const renamed = await service.update(MANAGER, cci, committee.id, {
+        name: 'Comité de juin (salle 3)',
+        date: JUNE.date,
+        time: JUNE.time,
+        timeZone: JUNE.timeZone,
+        location: JUNE.location,
+        meetingUrl: JUNE.meetingUrl,
+        internalNotes: JUNE.internalNotes,
+        version: 1,
+      })
+      expect(renamed).toMatchObject({
+        version: 2,
+        sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
+        internalNotes: 'Ordre du jour à envoyer.',
+      })
+
+      // Only the shared text changes: the notes stay, and the other way round.
+      const shared = await service.update(MANAGER, cci, committee.id, {
+        ...JUNE,
+        name: renamed.name,
+        sharedInfo: 'PARTAGE-2 Accueil à 13 h 30.',
+        version: 2,
+      })
+      expect(shared).toMatchObject({
+        version: 3,
+        sharedInfo: 'PARTAGE-2 Accueil à 13 h 30.',
+        internalNotes: 'Ordre du jour à envoyer.',
+      })
+      const noted = await service.update(ADMIN, cci, committee.id, {
+        ...JUNE,
+        name: renamed.name,
+        internalNotes: 'INTERNE-3 Jury incomplet',
+        sharedInfo: shared.sharedInfo,
+        version: 3,
+      })
+      expect(noted).toMatchObject({
+        version: 4,
+        sharedInfo: 'PARTAGE-2 Accueil à 13 h 30.',
+        internalNotes: 'INTERNE-3 Jury incomplet',
+      })
+      // Removed by null; the same values again write nothing.
+      const removed = await service.update(MANAGER, cci, committee.id, {
+        ...JUNE,
+        name: renamed.name,
+        internalNotes: noted.internalNotes,
+        sharedInfo: null,
+        version: 4,
+      })
+      expect(removed).toMatchObject({ version: 5, sharedInfo: null })
+      expect(
+        (
+          await service.update(MANAGER, cci, committee.id, {
+            ...JUNE,
+            name: renamed.name,
+            internalNotes: noted.internalNotes,
+            sharedInfo: null,
+            version: 5,
+          })
+        ).version,
+      ).toBe(5)
+
+      expect(journal().map((e) => (e.metadata as { fields: string[] }).fields)).toEqual([
+        ['name'],
+        ['sharedInfo'],
+        ['internalNotes'],
+        ['sharedInfo'],
+      ])
+      const written = JSON.stringify(journal())
+      for (const text of ['Accueil', 'PARTAGE-2', 'INTERNE-3', 'Ordre du jour']) {
+        expect([text, written.includes(text)]).toEqual([text, false])
+      }
+    })
+
+    it('keeps both texts from the workspace’s investors and from anyone outside it', async () => {
+      const committee = await service.create(MANAGER, cci, JUNE)
+      for (const [as, status] of [
+        [INVESTOR, 403],
+        [OUTSIDER, 404],
+        [ENTREPRENEUR, 404],
+      ] as const) {
+        expect([as.id, (await failure(service.get(as, cci, committee.id))).status]).toEqual([
+          as.id,
+          status,
+        ])
+        expect([as.id, (await failure(service.list(as, cci))).status]).toEqual([as.id, status])
+      }
+      // Writing it is managing the committee: the same refusals as any other field.
+      for (const [as, status] of [
+        [ADVISOR, 403],
+        [INVESTOR, 403],
+        [OUTSIDER, 404],
+      ] as const) {
+        expect(
+          (
+            await failure(
+              service.update(as, cci, committee.id, { ...JUNE, sharedInfo: 'X', version: 1 }),
+            )
+          ).status,
+        ).toBe(status)
+      }
+      expect(fake.table('committee').get(committee.id)).toMatchObject({
+        sharedInfo: JUNE.sharedInfo,
+        version: 1,
+      })
     })
   })
 

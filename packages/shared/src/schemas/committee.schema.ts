@@ -17,9 +17,13 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 // both can be undone back to `planned` (a mistake corrected, a committee restored). Cancelling is a
 // status, never a deletion: a committee is never deleted. Only a planned committee is edited.
 //
-// Information (`internalNotes`): for the workspace only — read by those who read its committees,
-// never by a candidate, an investor or anyone outside it. E08.02 adds, beside it, what is shared
-// with candidates and investors.
+// Two texts, kept apart (ROADMAP E08.02): `internalNotes`, for the workspace only — read by those
+// who read its committees, never by a candidate, an investor or anyone outside it, never in the
+// shared view, a journal entry or an email —; `sharedInfo`, written by the same managers for the
+// committee's candidates and investors. What they will read of a committee is `toSharedCommittee`
+// (`COMMITTEE_SHARED_FIELDS`, closed list), the only view any reader outside the workspace's
+// conseillers may get; nobody reads it yet: E08.03 (candidates) and E08.04–E08.06 (participants)
+// decide who does.
 //
 // Who: read by those who follow the workspace's candidatures (its active conseillers and Confluent
 // administrators, `canReadCommittees`); created, edited and cancelled by those who manage the
@@ -73,6 +77,7 @@ export const COMMITTEE_LIMITS = {
   location: 300,
   meetingUrl: 500,
   internalNotes: 5000,
+  sharedInfo: 3000,
   perWorkspace: 500,
   firstYear: 2000,
   lastYear: 2099,
@@ -182,22 +187,24 @@ const meetingUrlSchema = z
   })
   .nullable()
 
-const internalNotesSchema = z
-  .string()
-  .transform(plainParagraphs)
-  .pipe(
-    z
-      .string()
-      .max(
-        COMMITTEE_LIMITS.internalNotes,
-        `Les informations comptent au plus ${COMMITTEE_LIMITS.internalNotes} caractères.`,
-      )
-      .refine((v) => !HTML_TAG.test(v), {
-        message: 'Les informations sont un texte simple : les balises HTML ne sont pas acceptées.',
-      }),
-  )
-  .transform(blankToNull)
-  .nullable()
+// Plain text in paragraphs, bounded; blank is none.
+const plainTextSchema = (max: number, what: string) =>
+  z
+    .string()
+    .transform(plainParagraphs)
+    .pipe(
+      z
+        .string()
+        .max(max, `${what} comptent au plus ${max} caractères.`)
+        .refine((v) => !HTML_TAG.test(v), {
+          message: `${what} sont un texte simple : les balises HTML ne sont pas acceptées.`,
+        }),
+    )
+    .transform(blankToNull)
+    .nullable()
+
+const internalNotesSchema = plainTextSchema(COMMITTEE_LIMITS.internalNotes, 'Les notes internes')
+const sharedInfoSchema = plainTextSchema(COMMITTEE_LIMITS.sharedInfo, 'Les informations diffusées')
 
 // The wall-clock time must designate exactly one instant in its zone.
 export function zonedTimeIssue(date: string, time: string, timeZone: string): string | null {
@@ -212,7 +219,9 @@ export function zonedTimeIssue(date: string, time: string, timeZone: string): st
 }
 
 // What a manager types, whole: creating a committee and editing one send the same fields. A place
-// and a link are optional (« lieu à préciser »), and so is the information.
+// and a link are optional (« lieu à préciser »), and so are both texts. On an edit, an absent
+// `sharedInfo` keeps the current one (a client that predates it never erases it); `null` or blank
+// removes it.
 const committeeFields = z
   .object({
     name: nameSchema,
@@ -222,6 +231,7 @@ const committeeFields = z
     location: locationSchema.optional(),
     meetingUrl: meetingUrlSchema.optional(),
     internalNotes: internalNotesSchema.optional(),
+    sharedInfo: sharedInfoSchema.optional(),
   })
   .strict()
 
@@ -272,10 +282,51 @@ export const committeeSchema = z.object({
   location: z.string().nullable(),
   meetingUrl: z.string().nullable(),
   status: committeeStatusSchema,
-  // The workspace's own information (internal until E08.02).
+  // For the workspace's conseillers only.
   internalNotes: z.string().nullable(),
+  // For the committee's candidates and investors.
+  sharedInfo: z.string().nullable(),
   version: z.number().int().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
 export type Committee = z.infer<typeof committeeSchema>
+
+// What a committee's candidates and investors will read of it — the only view of a committee for any
+// reader outside the workspace's conseillers (ROADMAP E08.02): its name, when (the time typed, its
+// zone and the instant), where (place and link: they are told how to join), its status (a cancelled
+// committee is known as such) and the information shared with them. Closed list: neither the
+// internal notes, nor the version, nor the dates of its records, nor its workspace's identifier; a
+// field added to a committee stays out of it until it is named here.
+export const COMMITTEE_SHARED_FIELDS = [
+  'id',
+  'name',
+  'date',
+  'time',
+  'timeZone',
+  'startsAt',
+  'location',
+  'meetingUrl',
+  'status',
+  'sharedInfo',
+] as const satisfies ReadonlyArray<keyof Committee>
+export type CommitteeSharedField = (typeof COMMITTEE_SHARED_FIELDS)[number]
+
+export const sharedCommitteeSchema = committeeSchema
+  .pick(
+    Object.fromEntries(COMMITTEE_SHARED_FIELDS.map((field) => [field, true])) as {
+      [K in CommitteeSharedField]: true
+    },
+  )
+  .strict()
+export type SharedCommittee = z.infer<typeof sharedCommitteeSchema>
+
+// Copies the shared fields only, by name (whatever else the source holds), the same way for the API's
+// view (`startsAt` a Date) and the site's (`startsAt` a string).
+export function toSharedCommittee<T extends Record<CommitteeSharedField, unknown>>(
+  committee: T,
+): Pick<T, CommitteeSharedField> {
+  const shared = {} as Pick<T, CommitteeSharedField>
+  for (const field of COMMITTEE_SHARED_FIELDS) shared[field] = committee[field]
+  return shared
+}
