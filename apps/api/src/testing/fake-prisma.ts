@@ -578,6 +578,7 @@ export function createFakePrisma() {
       location: null,
       meetingUrl: null,
       internalNotes: null,
+      sharedInfo: null,
       status: 'planned',
       version: 1,
     })),

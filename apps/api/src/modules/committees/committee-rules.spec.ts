@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   COMMITTEE_LIMITS,
+  COMMITTEE_SHARED_FIELDS,
   COMMITTEE_STATUSES,
   COMMITTEE_STATUS_TRANSITIONS,
   canChangeCommitteeStatus,
@@ -12,8 +13,11 @@ import {
   createCommitteeSchema,
   normalizeMeetingUrl,
   resolveZonedTime,
+  sharedCommitteeSchema,
+  toSharedCommittee,
   updateCommitteeSchema,
   zoneOffsetMinutes,
+  type Committee,
 } from '@confluent/shared'
 
 const exact = (date: string, time: string, zone: string) => {
@@ -148,8 +152,32 @@ describe('committee rules', () => {
         internalNotes: 'Ordre du jour :\n\n1. Pitchs\n2. Délibération',
       })
       expect(
-        createCommitteeSchema.parse({ ...VALID, location: ' ', meetingUrl: '', internalNotes: '' }),
-      ).toEqual({ ...VALID, location: null, meetingUrl: null, internalNotes: null })
+        createCommitteeSchema.parse({
+          ...VALID,
+          location: ' ',
+          meetingUrl: '',
+          internalNotes: '',
+          sharedInfo: ' \n ',
+        }),
+      ).toEqual({
+        ...VALID,
+        location: null,
+        meetingUrl: null,
+        internalNotes: null,
+        sharedInfo: null,
+      })
+      // The shared information: plain paragraphs, like the notes, and apart from them.
+      expect(
+        createCommitteeSchema.parse({
+          ...VALID,
+          internalNotes: 'Dossier Biosensio fragile',
+          sharedInfo: '  Accueil à 13 h 45 :\r\n\r\n\r\n10 min   de pitch ',
+        }),
+      ).toEqual({
+        ...VALID,
+        internalNotes: 'Dossier Biosensio fragile',
+        sharedInfo: 'Accueil à 13 h 45 :\n\n10 min de pitch',
+      })
       expect(createCommitteeSchema.parse(VALID)).toEqual(VALID)
     })
 
@@ -186,6 +214,9 @@ describe('committee rules', () => {
         { meetingUrl: `https://visio.example.org/${'a'.repeat(COMMITTEE_LIMITS.meetingUrl)}` },
         { internalNotes: 'Voir <b>ceci</b>' },
         { internalNotes: 'x'.repeat(COMMITTEE_LIMITS.internalNotes + 1) },
+        { sharedInfo: 'Voir <a href="x">ceci</a>' },
+        { sharedInfo: 'x'.repeat(COMMITTEE_LIMITS.sharedInfo + 1) },
+        { sharedInfo: 12 },
         { status: 'held' },
         { workspaceId: 'x' },
       ]) {
@@ -238,6 +269,18 @@ describe('committee rules', () => {
         ...VALID,
         version: 3,
       })
+      // Absent shared information stays absent (kept by the API); null or blank removes it.
+      expect('sharedInfo' in updateCommitteeSchema.parse({ ...VALID, version: 3 })).toBe(false)
+      expect(updateCommitteeSchema.parse({ ...VALID, sharedInfo: null, version: 3 })).toEqual({
+        ...VALID,
+        sharedInfo: null,
+        version: 3,
+      })
+      expect(updateCommitteeSchema.parse({ ...VALID, sharedInfo: '', version: 3 })).toEqual({
+        ...VALID,
+        sharedInfo: null,
+        version: 3,
+      })
       expect(changeCommitteeStatusSchema.safeParse({ status: 'cancelled' }).success).toBe(false)
       expect(changeCommitteeStatusSchema.safeParse({ status: 'deleted', version: 1 }).success).toBe(
         false,
@@ -281,6 +324,71 @@ describe('committee rules', () => {
       )
       expect(sql).toContain(`TIMESTAMP '${COMMITTEE_LIMITS.firstYear}-01-01 00:00:00'`)
       expect(sql).toContain(`TIMESTAMP '${COMMITTEE_LIMITS.lastYear + 1}-01-01 00:00:00'`)
+      const shared = readFileSync(
+        join(
+          __dirname,
+          '../../../prisma/migrations/20261202000000_committee_shared_info/migration.sql',
+        ),
+        'utf8',
+      )
+      expect(shared).toContain(
+        `char_length("shared_info") BETWEEN 1 AND ${COMMITTEE_LIMITS.sharedInfo}`,
+      )
+    })
+  })
+
+  describe('shared view (E08.02)', () => {
+    const COMMITTEE: Committee = {
+      id: '6f1c2a8e-0000-4000-8000-000000000001',
+      workspaceId: '6f1c2a8e-0000-4000-8000-000000000002',
+      name: 'Comité de juin',
+      date: '2027-06-10',
+      time: '14:00',
+      timeZone: 'Europe/Paris',
+      startsAt: '2027-06-10T12:00:00.000Z',
+      location: 'CCI Touraine, salle 2',
+      meetingUrl: 'https://visio.example.org/j/123',
+      status: 'planned',
+      internalNotes: 'NOTE-INTERNE Biosensio : trésorerie fragile',
+      sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
+      version: 7,
+      createdAt: '2027-01-02T03:04:05.000Z',
+      updatedAt: '2027-02-03T04:05:06.000Z',
+    }
+
+    it('gives candidates and investors the name, when, where, status and shared information — never the internal notes', () => {
+      const shared = toSharedCommittee(COMMITTEE)
+      expect(shared).toEqual({
+        id: COMMITTEE.id,
+        name: 'Comité de juin',
+        date: '2027-06-10',
+        time: '14:00',
+        timeZone: 'Europe/Paris',
+        startsAt: '2027-06-10T12:00:00.000Z',
+        location: 'CCI Touraine, salle 2',
+        meetingUrl: 'https://visio.example.org/j/123',
+        status: 'planned',
+        sharedInfo: 'Accueil à 13 h 45, 10 minutes de pitch.',
+      })
+      expect(JSON.stringify(shared)).not.toContain('NOTE-INTERNE')
+      expect(Object.keys(shared)).toEqual([...COMMITTEE_SHARED_FIELDS])
+      expect(sharedCommitteeSchema.parse(shared)).toEqual(shared)
+    })
+
+    it('copies named fields only: whatever else a committee holds stays out, and the contract refuses it', () => {
+      const widened = { ...COMMITTEE, juryNotes: 'NOTE-JURY', scores: [12, 15] }
+      expect(JSON.stringify(toSharedCommittee(widened))).not.toMatch(/NOTE-|scores/)
+      for (const extra of [
+        { internalNotes: 'x' },
+        { version: 1 },
+        { workspaceId: COMMITTEE.workspaceId },
+        { createdAt: COMMITTEE.createdAt },
+      ]) {
+        expect(
+          sharedCommitteeSchema.safeParse({ ...toSharedCommittee(COMMITTEE), ...extra }).success,
+        ).toBe(false)
+      }
+      expect(COMMITTEE_SHARED_FIELDS).not.toContain('internalNotes')
     })
   })
 

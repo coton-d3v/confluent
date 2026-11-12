@@ -47,8 +47,9 @@ const VIEW =
   '`date` (AAAA-MM-JJ) et `time` (HH:MM) : l’heure locale saisie, dans le fuseau IANA `timeZone` ; ' +
   '`startsAt` : l’instant qu’elles désignent. `location` (lieu) et `meetingUrl` (lien https) ' +
   'facultatifs ; `status` `planned` (programmé), `held` (tenu) ou `cancelled` (annulé) ; ' +
-  '`internalNotes` : informations internes au workspace, jamais montrées hors de lui ; `version` : ' +
-  'à renvoyer pour modifier le comité.'
+  '`internalNotes` : notes internes, lues par les seuls conseillers du workspace et jamais ' +
+  'diffusées ; `sharedInfo` : informations destinées aux candidats et aux investisseurs du comité ' +
+  '(aucun d’eux ne lit encore les comités) ; `version` : à renvoyer pour modifier le comité.'
 
 // The committees a workspace organises (ROADMAP E08.01), as those who follow its candidatures read
 // them. The workspace is checked before anything else (guard, `404` outside it), then the service
@@ -111,7 +112,8 @@ export class AdminCommitteesController {
     description:
       '`name`, `date` (AAAA-MM-JJ), `time` (HH:MM) et `timeZone` (fuseau IANA, par exemple ' +
       '`Europe/Paris`) obligatoires ; `location` (une ligne), `meetingUrl` (lien https, sans ' +
-      'identifiants) et `internalNotes` (texte simple, interne au workspace) facultatifs. Une heure ' +
+      'identifiants), `internalNotes` (texte simple, réservé aux conseillers du workspace) et ' +
+      '`sharedInfo` (texte simple, destiné aux candidats et aux investisseurs) facultatifs. Une heure ' +
       'qui n’existe pas ou qui existe deux fois ce jour-là dans ce fuseau (changement d’heure) est ' +
       'refusée. Le comité est créé au statut « programmé ». Au plus 500 comités par workspace.',
   })
@@ -132,8 +134,9 @@ export class AdminCommitteesController {
     summary: 'Modifier un comité',
     description:
       'Tous les champs de la création, plus `version` : celle du comité lu. Un champ facultatif ' +
-      'absent ou vide est effacé. Seul un comité programmé se modifie. Les mêmes valeurs ne ' +
-      'changent rien (ni version, ni journal).',
+      'absent ou vide est effacé, sauf `sharedInfo` : absent, il est conservé tel quel ; `null` ou ' +
+      'vide l’efface. Seul un comité programmé se modifie. Les mêmes valeurs ne changent rien (ni ' +
+      'version, ni journal).',
   })
   @ApiOkResponse({ description: 'Comité modifié.' })
   @ApiBadRequestResponse({ description: 'Champ invalide, ou heure ambiguë ou inexistante.' })

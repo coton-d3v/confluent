@@ -1327,6 +1327,8 @@ model Committee {
   meetingUrl    String?  @map("meeting_url")
   status        String   @default("planned")
   internalNotes String?  @map("internal_notes")
+  // E08.02: what the committee's candidates and investors read, beside the internal notes.
+  sharedInfo    String?  @map("shared_info")
   version       Int      @default(1)
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")

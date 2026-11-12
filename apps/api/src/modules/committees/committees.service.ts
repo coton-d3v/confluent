@@ -14,26 +14,13 @@ import { AuditService } from '../audit/audit.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { lockWorkspaceRow } from '../workspaces/workspaces.service'
 import { CommitteeErrors } from './committee-errors'
+import { scheduleOf, toView, type CommitteeView } from './committee-views'
 
-export interface CommitteeView {
-  id: string
-  workspaceId: string
-  name: string
-  date: string
-  time: string
-  timeZone: string
-  startsAt: Date
-  location: string | null
-  meetingUrl: string | null
-  status: CommitteeStatus
-  internalNotes: string | null
-  version: number
-  createdAt: Date
-  updatedAt: Date
-}
+export type { CommitteeView } from './committee-views'
 
 // What a manager sends, as validated by createCommitteeSchema / updateCommitteeSchema (an absent
-// place, link or information is none).
+// place, link or internal notes is none; absent shared information is none on creation and kept as
+// it is on an edit).
 export interface CommitteeInput {
   name: string
   date: string
@@ -42,9 +29,10 @@ export interface CommitteeInput {
   location?: string | null
   meetingUrl?: string | null
   internalNotes?: string | null
+  sharedInfo?: string | null
 }
 
-type Field = 'name' | 'schedule' | 'location' | 'meetingUrl' | 'internalNotes'
+type Field = 'name' | 'schedule' | 'location' | 'meetingUrl' | 'internalNotes' | 'sharedInfo'
 
 const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 
@@ -58,8 +46,12 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // write starts from the version the client read (`409` otherwise) and is journaled in the same
 // transaction. MCP: no tool yet (E08.07).
 //
-// Extension points: E08.02 adds the information shared with candidates and investors beside
-// `internalNotes`; E08.06 notifies a change of schedule or a cancellation — `update` and
+// Two texts (E08.02): `internalNotes` for the conseillers only, `sharedInfo` for the committee's
+// candidates and investors, edited alike; a journal entry names a changed text, never copies it.
+// Nobody outside the conseillers reads a committee yet; when E08.03 and later steps let someone, it
+// is through `sharedCommitteeOf` (committee-views.ts), never `CommitteeView`.
+//
+// Extension point: E08.06 notifies a change of schedule or a cancellation — `update` and
 // `changeStatus` already tell which fields changed.
 @Injectable()
 export class CommitteesService {
@@ -94,7 +86,7 @@ export class CommitteesService {
     input: CommitteeInput,
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
-    const data = scheduled(input)
+    const data = { ...scheduled(input), sharedInfo: input.sharedInfo ?? null }
     const created = await this.prisma.$transaction(async (tx) => {
       await this.lockForManager(tx, actor, workspaceId)
       const count = await tx.committee.count({ where: { workspaceId } })
@@ -132,11 +124,15 @@ export class CommitteesService {
       const current = await this.lockCommittee(tx, actor, workspaceId, committeeId, input.version)
       const status = committeeStatusOf(current.status)
       if (status !== 'planned') throw CommitteeErrors.notEditable(status)
-      const changed = changedFields(current, data)
+      const next = {
+        ...data,
+        sharedInfo: input.sharedInfo === undefined ? current.sharedInfo : input.sharedInfo,
+      }
+      const changed = changedFields(current, next)
       if (changed.length === 0) return current
       const committee = await tx.committee.update({
         where: { id: current.id },
-        data: { ...data, version: current.version + 1 },
+        data: { ...next, version: current.version + 1 },
       })
       await this.audit.recordIn(tx, {
         actionType: 'committee_updated',
@@ -145,7 +141,8 @@ export class CommitteesService {
           workspaceId,
           committeeId,
           version: committee.version,
-          // The place, link and information are named, never copied: the journal outlives them.
+          // The place, link and both texts are named, never copied: the journal outlives them, and
+          // the internal notes never leave the committee.
           fields: changed,
           ...(changed.includes('name') ? { name: { from: current.name, to: committee.name } } : {}),
           ...(changed.includes('schedule')
@@ -252,7 +249,10 @@ function wallClock(date: string, time: string): Date {
   return new Date(`${date}T${time}:00.000Z`)
 }
 
-function changedFields(current: Committee, next: ReturnType<typeof scheduled>): Field[] {
+function changedFields(
+  current: Committee,
+  next: ReturnType<typeof scheduled> & { sharedInfo: string | null },
+): Field[] {
   const fields: Field[] = []
   if (current.name !== next.name) fields.push('name')
   if (
@@ -265,35 +265,6 @@ function changedFields(current: Committee, next: ReturnType<typeof scheduled>): 
   if (current.location !== next.location) fields.push('location')
   if (current.meetingUrl !== next.meetingUrl) fields.push('meetingUrl')
   if (current.internalNotes !== next.internalNotes) fields.push('internalNotes')
+  if (current.sharedInfo !== next.sharedInfo) fields.push('sharedInfo')
   return fields
-}
-
-function scheduleOf(row: Pick<Committee, 'localStart' | 'timeZone' | 'startsAt'>) {
-  const iso = row.localStart.toISOString()
-  return {
-    date: iso.slice(0, 10),
-    time: iso.slice(11, 16),
-    timeZone: row.timeZone,
-    startsAt: row.startsAt.toISOString(),
-  }
-}
-
-function toView(row: Committee): CommitteeView {
-  const { date, time } = scheduleOf(row)
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    name: row.name,
-    date,
-    time,
-    timeZone: row.timeZone,
-    startsAt: row.startsAt,
-    location: row.location,
-    meetingUrl: row.meetingUrl,
-    status: committeeStatusOf(row.status),
-    internalNotes: row.internalNotes,
-    version: row.version,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  }
 }

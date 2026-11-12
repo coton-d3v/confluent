@@ -246,3 +246,16 @@ export function committeesDown(): string[] {
 export function committeesUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261201000000_committees/migration.sql'))
 }
+
+// The revert of E08.02 (committees' shared information): it accepts that the information is lost (SET
+// LOCAL, test transactions only).
+export function committeeSharedInfoDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_committee_shared_info_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261202000000_committee_shared_info.down.sql')),
+  ]
+}
+
+export function committeeSharedInfoUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261202000000_committee_shared_info/migration.sql'))
+}
