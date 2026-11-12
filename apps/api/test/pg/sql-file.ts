@@ -219,3 +219,17 @@ export function readingSessionsDown(): string[] {
 export function readingSessionsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261129000000_reading_sessions/migration.sql'))
 }
+
+// The revert of E06.04 (pledges confirmed in plans), as the tests of earlier migrations that drop what
+// its table references (E06.03's plan lines, E07.06's pledges, candidatures) run it before their own:
+// it accepts that the confirmations are lost (SET LOCAL, test transactions only).
+export function fundingPlanPledgesDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_funding_plan_pledges_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261130000000_funding_plan_pledges.down.sql')),
+  ]
+}
+
+export function fundingPlanPledgesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261130000000_funding_plan_pledges/migration.sql'))
+}

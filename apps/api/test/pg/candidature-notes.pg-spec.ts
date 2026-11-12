@@ -18,6 +18,7 @@ import { QuestionnairesService } from '../../src/modules/questionnaires/question
 import { SupportPathsService } from '../../src/modules/support-paths/support-paths.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
+import { NO_PLEDGES } from '../../src/testing/no-pledges'
 import { testDatabase } from './database'
 import { candidatureNotesDown, candidatureNotesUp } from './sql-file'
 
@@ -416,7 +417,7 @@ describe('candidature notes (PostgreSQL)', () => {
     it('reads the structure’s interventions from the real histories and journal, and none of the entrepreneur’s', async () => {
       const { workspaceId, candidatureId, conseillers, sophie } = await sentCandidature()
       const [marie, jean] = conseillers
-      const plans = new FundingPlansService(prisma, candidatures, audit)
+      const plans = new FundingPlansService(prisma, candidatures, NO_PLEDGES, audit)
       const eligibilities = new EligibilitiesService(prisma, candidatures, audit)
       const paths = new SupportPathsService(prisma, candidatures, audit)
       const ws = { side: 'workspace' as const, actor: marie, workspaceId }

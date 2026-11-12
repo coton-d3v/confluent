@@ -5,7 +5,7 @@ import {
   type AccessLevel,
   type PledgeIntention,
 } from '@confluent/shared'
-import type { InvestorInterest, InvestorPledge } from '@prisma/client'
+import type { InvestorInterest, InvestorPledge, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
@@ -21,6 +21,7 @@ import {
   opportunityNotFound,
   pledgeView,
   type InterestIdentityView,
+  type CurrentReader,
   type ListedDossier,
   type OpportunityInterestView,
   type OpportunityPledgeView,
@@ -90,6 +91,18 @@ const notFromStructure = () =>
 
 const byName = new Intl.Collator('fr', { sensitivity: 'base', numeric: true })
 
+// Who reads the pledges on a request for a financing plan (E06.04): its owner, or one structure.
+export type PledgeAudience = { side: 'owner' } | { side: 'workspace'; workspaceId: string }
+
+// A pledge as one audience reads it: the identity it is shown with, and whether the audience knows
+// it one by one — the structure always (the investor's consent shows it name and amount), the owner
+// only when the investor shows both their name and their amount.
+export interface AudiencePledge {
+  pledge: InvestorPledge
+  identity: InterestIdentityView
+  individual: boolean
+}
+
 // One investor's marks and pledges on a request, as the owner may read them (E07.05, E07.06).
 export interface OwnerSideInput {
   identity: InterestIdentityView
@@ -126,6 +139,12 @@ export function ownerPositions(investors: OwnerSideInput[]): DossierPositionsVie
   view.named.sort((a, b) => byName.compare(a.identity.name ?? '', b.identity.name ?? ''))
   view.anonymousAmounts.sort((a, b) => b - a)
   return view
+}
+
+// How a structure names an investor: their name and their organization in that structure only.
+function structureIdentity(reader: CurrentReader, workspaceId: string): InterestIdentityView {
+  const organization = reader.reached.organizationIn.get(workspaceId)
+  return interestIdentity(reader.investor, organization ? [organization] : [])
 }
 
 // ROADMAP E07.07 — investors' positions (marks of interest, E07.05, and pledges, E07.06) as each
@@ -303,6 +322,70 @@ export class PositionsService {
     )
   }
 
+  // The pledges on one request that an audience reads — THE rules of E07.06 (owner) and E07.07
+  // (structure), the ones of `forOwner`/`forWorkspace` —, for a financing plan (E06.04): the owner,
+  // every pledge of an investor who reads the request now; a structure, those of the investors who
+  // consented to show it their position and read the request through its pool, nothing else. The
+  // caller has checked the audience's access to the request. `db`: the caller's transaction.
+  async pledgesFor(
+    audience: PledgeAudience,
+    dossierId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<AudiencePledge[]> {
+    const pledges = (await db.investorPledge.findMany({ where: { dossierId } })).filter(
+      (p) => p.dossierId === dossierId,
+    )
+    if (audience.side === 'owner') {
+      const readers = await this.opportunities.readersNow(
+        dossierId,
+        pledges.map((p) => p.investorId),
+        db,
+      )
+      return pledges.flatMap((pledge) => {
+        const reader = readers.get(pledge.investorId)
+        if (!reader) return []
+        return [
+          {
+            pledge,
+            identity: interestIdentity(reader.investor, reader.reached.organizations),
+            individual: pledge.showName && pledge.showAmount,
+          },
+        ]
+      })
+    }
+    const { workspaceId } = audience
+    const consents = (
+      await db.investorPositionDisclosure.findMany({ where: { workspaceId, dossierId } })
+    ).filter((d) => d.workspaceId === workspaceId && d.dossierId === dossierId)
+    const readers = await this.consentedReaders(
+      workspaceId,
+      dossierId,
+      consents.map((d) => d.investorId),
+      db,
+    )
+    return pledges.flatMap((pledge) => {
+      const reader = readers.get(pledge.investorId)
+      if (!reader) return []
+      return [{ pledge, identity: structureIdentity(reader, workspaceId), individual: true }]
+    })
+  }
+
+  // Of the investors who consented to show a structure their position on a request, those whose
+  // consent counts now: they read the request through this very pool (E07.07).
+  private async consentedReaders(
+    workspaceId: string,
+    dossierId: string,
+    investorIds: string[],
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, CurrentReader>> {
+    const readers = await this.opportunities.readersNow(dossierId, investorIds, db)
+    for (const [id, reader] of readers) {
+      if (!reader.reached.sources.some((s) => s.kind === 'pool' && s.workspace.id === workspaceId))
+        readers.delete(id)
+    }
+    return readers
+  }
+
   // What a structure reads (its conseillers and administrators — the candidatures' read rule,
   // `404`/`403`): each request listed in its pool now, with the positions of the investors who
   // consented to show it theirs and still read the request through that pool. Nothing of anyone
@@ -343,18 +426,15 @@ export class PositionsService {
     const items: WorkspacePositionsView['items'] = []
     for (const { candidature, dossier } of listed) {
       const consents = consented.filter((d) => d.dossierId === dossier.id)
-      const readers = await this.opportunities.readersNow(
+      const readers = await this.consentedReaders(
+        workspaceId,
         dossier.id,
         consents.map((d) => d.investorId),
       )
       const investors: WorkspacePositionsView['items'][number]['investors'] = []
       for (const consent of consents) {
         const reader = readers.get(consent.investorId)
-        // The consent counts while the investor reads the request through this very pool.
-        if (
-          !reader?.reached.sources.some((s) => s.kind === 'pool' && s.workspace.id === workspaceId)
-        )
-          continue
+        if (!reader) continue
         const mark = marks.find(
           (m) => m.dossierId === dossier.id && m.investorId === consent.investorId,
         )
@@ -362,9 +442,8 @@ export class PositionsService {
           (p) => p.dossierId === dossier.id && p.investorId === consent.investorId,
         )
         if (!mark && !pledge) continue
-        const organization = reader.reached.organizationIn.get(workspaceId)
         investors.push({
-          identity: interestIdentity(reader.investor, organization ? [organization] : []),
+          identity: structureIdentity(reader, workspaceId),
           disclosedAt: consent.createdAt,
           interest: mark ? { markedAt: mark.createdAt } : null,
           pledge: pledge

@@ -8,7 +8,8 @@ import {
 import { formatAmount } from '@/features/dossiers/presentation'
 
 // Colour AND pattern tell the segments apart (never colour alone): plain for obtained, stripes for
-// in progress, dots for envisaged, an empty dashed track for what no source covers.
+// in progress, dots for envisaged, thin hatching for promised, an empty dashed track for what no
+// source covers.
 const SEGMENT_STYLE: Record<FundingPlanSegmentKind, CSSProperties> = {
   obtained: { backgroundColor: 'var(--status-active)' },
   requested: {
@@ -20,6 +21,12 @@ const SEGMENT_STYLE: Record<FundingPlanSegmentKind, CSSProperties> = {
     backgroundColor: 'var(--chart-4)',
     backgroundImage: 'radial-gradient(var(--chart-2) 1px, transparent 1.4px)',
     backgroundSize: '5px 5px',
+  },
+  // E06.04: thin hatching inside the gap — a non-binding share of it, never a source.
+  promised: {
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'repeating-linear-gradient(45deg, var(--chart-1) 0 1.5px, transparent 1.5px 6px)',
   },
   uncovered: { backgroundColor: 'transparent' },
 }

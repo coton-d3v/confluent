@@ -4,7 +4,10 @@ import {
   FINANCING_AMOUNT_MAX_EUR,
   FUNDING_PLAN_LIMITS,
   FUNDING_PLAN_LINE_STATES,
+  FUNDING_PLAN_PLEDGE_CONFIRMERS,
+  confirmFundingPlanPledgeSchema,
   createFundingPlanLineSchema,
+  createOwnerFundingPlanLineSchema,
   deleteFundingPlanLineQuerySchema,
   fundingPlanBar,
   fundingPlanLineStateOf,
@@ -160,6 +163,28 @@ describe('financing plan rules', () => {
         objectiveAt: null,
       })
     })
+
+    it('draws the promised amount (E06.04) inside what no source covers only, totals unchanged', () => {
+      const totals = fundingPlanTotals(200_000, [line('obtained', 80_000), line('planned', 20_000)])
+      expect(fundingPlanBar(totals, 30_000).segments).toEqual([
+        { kind: 'obtained', amountEur: 80_000, share: 0.4 },
+        { kind: 'planned', amountEur: 20_000, share: 0.1 },
+        { kind: 'promised', amountEur: 30_000, share: 0.15 },
+        { kind: 'uncovered', amountEur: 70_000, share: 0.35 },
+      ])
+      // More promised than the gap: the gap only; nothing left without source.
+      expect(fundingPlanBar(totals, 500_000).segments.slice(2)).toEqual([
+        { kind: 'promised', amountEur: 100_000, share: 0.5 },
+      ])
+      // Objective reached or absent: no gap, nothing promised drawn.
+      expect(fundingPlanBar(fundingPlanTotals(100, [line('obtained', 150)]), 40).segments).toEqual([
+        { kind: 'obtained', amountEur: 150, share: 1 },
+      ])
+      expect(fundingPlanBar(fundingPlanTotals(null, [line('requested', 10)]), 40).segments).toEqual(
+        [{ kind: 'requested', amountEur: 10, share: 1 }],
+      )
+      expect(fundingPlanTotals(200_000, [line('obtained', 80_000)]).remainingEur).toBe(120_000)
+    })
   })
 
   describe('contracts', () => {
@@ -220,6 +245,38 @@ describe('financing plan rules', () => {
       }
       expect(deleteFundingPlanLineQuerySchema.parse({ version: '3' })).toEqual({ version: 3 })
       expect(deleteFundingPlanLineQuerySchema.safeParse({}).success).toBe(false)
+    })
+
+    it('confirms a pledge (E06.04) by the owner only, with its revision, on a line in progress or obtained', () => {
+      expect(FUNDING_PLAN_PLEDGE_CONFIRMERS).toEqual(['owner'])
+      const pledge = { id: CATEGORY, version: 4 }
+      const base = { categoryId: CATEGORY, amountEur: 10, pledge }
+      expect(createOwnerFundingPlanLineSchema.parse({ ...base, state: 'obtained' }).pledge).toEqual(
+        pledge,
+      )
+      expect(
+        createOwnerFundingPlanLineSchema.safeParse({ ...base, state: 'requested' }).success,
+      ).toBe(true)
+      for (const bad of [
+        { ...base, state: 'planned' },
+        { ...base, state: 'refused' },
+        { ...base, state: 'obtained', pledge: { id: CATEGORY } },
+        { ...base, state: 'obtained', pledge: { id: 'x', version: 4 } },
+        { ...base, state: 'obtained', pledge: { ...pledge, amountEur: 10 } },
+      ]) {
+        expect(createOwnerFundingPlanLineSchema.safeParse(bad).success).toBe(false)
+      }
+      // The structure's contract has no pledge.
+      expect(createFundingPlanLineSchema.safeParse({ ...base, state: 'obtained' }).success).toBe(
+        false,
+      )
+      expect(confirmFundingPlanPledgeSchema.parse({ version: 2, pledge })).toEqual({
+        version: 2,
+        pledge,
+      })
+      for (const bad of [{ pledge }, { version: 2 }, { version: 2, pledge, state: 'obtained' }]) {
+        expect(confirmFundingPlanPledgeSchema.safeParse(bad).success).toBe(false)
+      }
     })
   })
 })

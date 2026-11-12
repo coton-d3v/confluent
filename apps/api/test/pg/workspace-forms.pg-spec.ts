@@ -17,6 +17,8 @@ import {
   MIGRATIONS,
   candidatureNotesDown,
   eligibilitiesDown,
+  fundingPlanPledgesDown,
+  fundingPlanPledgesUp,
   fundingPlansDown,
   fundingPlansUp,
   poolPublicationsDown,
@@ -31,6 +33,7 @@ const DOWN = sqlStatements(join(CHECKS, '20261115000000_workspace_forms.down.sql
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_workspace_forms_loss = 'on'"
 // E06.01 builds on the candidatures: undone first, applied again last.
 const LATER_DOWN = [
+  ...fundingPlanPledgesDown(),
   ...poolPublicationsDown(),
   ...candidatureNotesDown(),
   ...supportPathsDown(),
@@ -38,7 +41,7 @@ const LATER_DOWN = [
   ...fundingPlansDown(),
   ...statusesDown(),
 ]
-const LATER_UP = [...statusesUp(), ...fundingPlansUp()]
+const LATER_UP = [...statusesUp(), ...fundingPlansUp(), ...fundingPlanPledgesUp()]
 
 class RolledBack extends Error {}
 

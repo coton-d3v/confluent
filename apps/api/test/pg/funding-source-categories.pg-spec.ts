@@ -17,6 +17,7 @@ import {
   MIGRATIONS,
   candidatureNotesDown,
   eligibilitiesDown,
+  fundingPlanPledgesDown,
   fundingPlansDown,
   poolPublicationsDown,
   sqlStatements,
@@ -27,6 +28,7 @@ const UP = sqlStatements(join(MIGRATIONS, '20261118000000_funding_source_categor
 const DOWN = sqlStatements(join(CHECKS, '20261118000000_funding_source_categories.down.sql'))
 // E06.03's plan lines reference the categories: undone first.
 const LATER_DOWN = [
+  ...fundingPlanPledgesDown(),
   ...poolPublicationsDown(),
   ...candidatureNotesDown(),
   ...supportPathsDown(),

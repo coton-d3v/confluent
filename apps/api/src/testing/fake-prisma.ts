@@ -537,6 +537,10 @@ export function createFakePrisma() {
     workspace: model('workspace', () => ({ logoKey: null })),
     fundingSourceCategory: model('fundingSourceCategory', () => ({ active: true })),
     fundingPlanLine: model('fundingPlanLine', () => ({ version: 1, label: null })),
+    fundingPlanPledgeLink: model('fundingPlanPledgeLink', () => ({
+      confirmedAt: new Date(),
+      confirmedById: null,
+    })),
     eligibilityScheme: model('eligibilityScheme', () => ({ active: true, description: null })),
     candidatureEligibility: model('candidatureEligibility', () => ({
       version: 1,
