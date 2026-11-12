@@ -8,6 +8,7 @@ import {
 } from '@confluent/shared'
 import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, channelMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { openCandidatureFormVersion } from '../candidatures/candidatures.service'
@@ -60,7 +61,9 @@ export interface EntrepreneurAccessDecisionResult {
 //
 // Journal: `entrepreneur_access_request_decided` in the transaction — the decision, what the
 // acceptance did, the account; never the name, company, address nor message (they stay in the
-// request). Kept out of every request owner's history.
+// request). Kept out of every request owner's history. E09.07: a decision asked through MCP is this
+// same operation, its entry naming the channel and the application (`origin`), never the manager's
+// words, which may name the person (they stay in the call's own entry, `mcp_tool_called`).
 @Injectable()
 export class EntrepreneurAccessDecisionsService {
   private readonly logger = new Logger(EntrepreneurAccessDecisionsService.name)
@@ -79,6 +82,7 @@ export class EntrepreneurAccessDecisionsService {
     workspaceId: string,
     requestId: string,
     input: DecideEntrepreneurAccessInput,
+    origin?: ActionOrigin,
   ): Promise<EntrepreneurAccessDecisionResult> {
     const outcome = await this.prisma.$transaction(async (tx) => {
       await lockWorkspaceRow(tx, workspaceId)
@@ -133,6 +137,7 @@ export class EntrepreneurAccessDecisionsService {
           decision: input.decision,
           admission,
           accountUserId,
+          ...(origin ? channelMetadata(origin) : {}),
         },
       })
       return { request, workspace }

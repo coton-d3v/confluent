@@ -141,6 +141,12 @@ const NOT_FOUND_HINTS: Record<string, string> = {
     '(conseillers) ou list_candidature_committees (porteur).',
   PARTICIPATION_REQUEST_NOT_FOUND:
     'Demande de participation introuvable dans ce workspace. Utilisez list_participation_requests.',
+  // E09.07: a card not on the workspace's page (never consented, withdrawn, another workspace's).
+  SHOWCASE_CARD_NOT_FOUND:
+    'Aucune carte consentie pour cette candidature sur la page publique de ce workspace. Utilisez ' +
+    'get_public_page (cards).',
+  ENTREPRENEUR_ACCESS_REQUEST_NOT_FOUND:
+    'Demande d’accès introuvable dans ce workspace. Utilisez list_entrepreneur_access_requests.',
 }
 
 // Runs a service operation and passes its refusal on to the assistant as the site shows it (the

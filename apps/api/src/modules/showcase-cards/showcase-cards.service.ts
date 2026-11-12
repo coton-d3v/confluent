@@ -11,7 +11,12 @@ import {
 } from '@confluent/shared'
 import type { Candidature, Dossier, ShowcaseCard, Workspace } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { SITE_ORIGIN, originMetadata } from '../audit/action-origin'
+import {
+  SITE_ORIGIN,
+  channelMetadata,
+  originMetadata,
+  type ActionOrigin,
+} from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { CandidaturesService } from '../candidatures/candidatures.service'
 import { DossiersService, lockDossier } from '../dossiers/dossiers.service'
@@ -76,6 +81,10 @@ interface CardItem {
 // their page and hide or restore one — never change it — under the workspace's lock (FOR SHARE: a
 // change of their right waits), then the request's and the candidature's, in the owner's order, the
 // right read again after them (R53), with a new version (R63) and a journal entry.
+//
+// E09.07: the MCP tools call the same operations with the request's `origin` — for the owner, the
+// channel, the application, its authorization and their own words (`instruction`) on the request's
+// journal; for a manager, never their words (`channelMetadata`, see the call's own entry).
 @Injectable()
 export class ShowcaseCardsService {
   constructor(
@@ -124,6 +133,7 @@ export class ShowcaseCardsService {
     candidatureId: string,
     userId: string,
     input: ShowcaseCardInput,
+    origin: ActionOrigin = SITE_ORIGIN,
   ): Promise<OwnerShowcaseCardView> {
     const { candidature } = await this.candidatures.findOwned(candidatureId, userId)
     await this.dossiers.getForDiffusion(candidature.dossierId, userId)
@@ -168,8 +178,7 @@ export class ShowcaseCardsService {
         actorId: userId,
         dossierId: request.id,
         metadata: {
-          // No MCP tool consents to a card (E09.07): the site.
-          ...originMetadata(SITE_ORIGIN),
+          ...originMetadata(origin),
           candidatureId: current.id,
           workspaceId: current.workspaceId,
           version: row.version,
@@ -185,7 +194,11 @@ export class ShowcaseCardsService {
 
   // The owner withdraws the card from this workspace's page, gone at the next public read.
   // Withdrawing a card already withdrawn, or never consented, changes nothing.
-  async withdraw(candidatureId: string, userId: string): Promise<OwnerShowcaseCardView> {
+  async withdraw(
+    candidatureId: string,
+    userId: string,
+    origin?: ActionOrigin,
+  ): Promise<OwnerShowcaseCardView> {
     const { candidature } = await this.candidatures.findOwned(candidatureId, userId)
     await this.prisma.$transaction(async (tx) => {
       await lockDossier(tx, candidature.dossierId, userId)
@@ -205,7 +218,13 @@ export class ShowcaseCardsService {
       })
       await this.audit.recordIn(
         tx,
-        showcaseWithdrawalEntry(row, candidature.dossierId, userId, 'owner'),
+        showcaseWithdrawalEntry(
+          row,
+          candidature.dossierId,
+          userId,
+          'owner',
+          origin ? originMetadata(origin) : {},
+        ),
       )
     })
     return this.forOwner(candidatureId, userId)
@@ -259,6 +278,7 @@ export class ShowcaseCardsService {
     workspaceId: string,
     candidatureId: string,
     hidden: boolean,
+    origin: ActionOrigin = SITE_ORIGIN,
   ): Promise<ManagedShowcaseCardView> {
     await this.access.assertCanManage(actor, workspaceId)
     const candidature = await this.prisma.candidature.findFirst({
@@ -291,8 +311,7 @@ export class ShowcaseCardsService {
         actorId: actor.id,
         dossierId: candidature.dossierId,
         metadata: {
-          // No MCP tool moderates a card (E09.07): the site.
-          ...originMetadata(SITE_ORIGIN),
+          ...channelMetadata(origin),
           candidatureId: candidature.id,
           workspaceId,
           version: updated.version,

@@ -6,6 +6,7 @@ import { CompaniesModule } from '../companies/companies.module'
 import { CompanyTransfersModule } from '../company-transfers/company-transfers.module'
 import { DocumentsModule } from '../documents/documents.module'
 import { DossiersModule } from '../dossiers/dossiers.module'
+import { EntrepreneurAccessRequestsModule } from '../entrepreneur-access-requests/entrepreneur-access-requests.module'
 import { EligibilitiesModule } from '../eligibilities/eligibilities.module'
 import { FundingPlansModule } from '../funding-plans/funding-plans.module'
 import { InterventionsModule } from '../interventions/interventions.module'
@@ -15,7 +16,9 @@ import { OwnerHistoryModule } from '../owner-history/owner-history.module'
 import { ParticipationRequestsModule } from '../participation-requests/participation-requests.module'
 import { QuestionnairesModule } from '../questionnaires/questionnaires.module'
 import { ShareLinksModule } from '../share-links/share-links.module'
+import { ShowcaseCardsModule } from '../showcase-cards/showcase-cards.module'
 import { SupportPathsModule } from '../support-paths/support-paths.module'
+import { WorkspacePagesModule } from '../workspace-pages/workspace-pages.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
 import { CandidatureTools } from './candidature.tools'
 import { CommitteeTools } from './committee.tools'
@@ -26,6 +29,7 @@ import { FormDesignTools } from './form-design.tools'
 import { McpAccess } from './mcp-access'
 import { McpToolsFactory } from './mcp.tools'
 import { OpportunityTools } from './opportunity.tools'
+import { PublicPageTools } from './public-page.tools'
 import { SharingTools } from './sharing.tools'
 import { StructureTools } from './structure.tools'
 import { WorkspaceTools } from './workspace.tools'
@@ -54,6 +58,10 @@ import { WorkspaceTools } from './workspace.tools'
     // E08.07: committees, the requests presented at them and the participation requests.
     CommitteesModule,
     ParticipationRequestsModule,
+    // E09.07: a workspace's public page, its cards and its access requests.
+    WorkspacePagesModule,
+    ShowcaseCardsModule,
+    EntrepreneurAccessRequestsModule,
   ],
   controllers: [ConversationGuidesController],
   providers: [
@@ -68,6 +76,7 @@ import { WorkspaceTools } from './workspace.tools'
     OpportunityTools,
     SharingTools,
     CommitteeTools,
+    PublicPageTools,
   ],
   exports: [McpToolsFactory],
 })

@@ -229,6 +229,11 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       // E08.07: the committees, an entry on one, the participation requests.
       'committees:write',
       'participation-requests:decide',
+      // E09.07: the public page, its publication, its access requests, a request's cards.
+      'public-page:write',
+      'public-page:publish',
+      'access-requests:decide',
+      'showcase:write',
     ]
     const grant = await fake.prisma.oAuthGrant.create({
       data: {
@@ -1200,6 +1205,12 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         ['get_committee', { workspace: cci, committee: committee.id }],
         ['list_participation_requests', { workspace: cci }],
         ['list_participation_requests', { workspace: cci, status: 'decided' }],
+        // E09.07: the page's settings and cards, the access requests — theirs included —, the
+        // request's card.
+        ['get_public_page', { workspace: cci }],
+        ['list_entrepreneur_access_requests', { workspace: cci }],
+        ['list_entrepreneur_access_requests', { workspace: cci, status: 'decided' }],
+        ['get_showcase_card', { candidature: dossier.candidatureId }],
       ] as const
       for (const [tool, args] of reads) {
         const res = await call(tool, args)
@@ -1245,6 +1256,37 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         expect([reader.email, tool, res.error]).toEqual([reader.email, tool, expect.any(String)])
         expect(res.error).not.toMatch(/COMITE-/)
       }
+      // E09.07: nor change the page, its publication, a card or an access request — their own
+      // included.
+      const settings = JSON.stringify([...fake.table('workspace').values()])
+      const asked = asking.find((r) => r.email === reader.email)!
+      for (const [tool, args] of [
+        ['update_public_page', { workspace: cci, criteria: 'Ouvert à tous' }],
+        ['set_public_page_publication', { workspace: cci, published: false, indexable: true }],
+        [
+          'set_showcase_card_hidden',
+          { workspace: cci, candidature: dossier.candidatureId, hidden: true },
+        ],
+        [
+          'decide_entrepreneur_access_request',
+          { workspace: cci, request: asked.id, requesterEmail: reader.email, decision: 'accepted' },
+        ],
+        [
+          'set_showcase_card',
+          { candidature: dossier.candidatureId, pseudonym: 'Projet Lynx', region: null },
+        ],
+        ['withdraw_showcase_card', { candidature: dossier.candidatureId }],
+      ] as const) {
+        const res = await call(tool, {
+          ...args,
+          version: 2,
+          instruction: 'Oui, fais-le maintenant',
+        })
+        expect([reader.email, tool, res.error]).toEqual([reader.email, tool, expect.any(String)])
+      }
+      expect(JSON.stringify([...fake.table('workspace').values()])).toBe(settings)
+      expect(fake.table('showcaseCard').size).toBe(0)
+      expect(JSON.stringify([...fake.table('user').values()])).toBe(accounts)
       // Their own companies: none.
       expect((await call('list_companies')).result.companies).toEqual([])
       expect(fake.table('workspaceMembership').size).toBe(memberships)

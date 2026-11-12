@@ -87,12 +87,13 @@ export async function withdrawEveryShowcaseCard(
 }
 
 // The journal entry of a withdrawal: the request's (hidden from the owner's history, read on the
-// candidature like the pool's, E07.09).
+// candidature like the pool's, E07.09). E09.07: `origin`, a withdrawal asked through MCP.
 export function showcaseWithdrawalEntry(
   card: ShowcaseCard,
   dossierId: string,
   actorId: string,
   reason: ShowcaseWithdrawalReason,
+  origin: Record<string, string> = {},
 ) {
   return {
     actionType: 'showcase_card_withdrawn' as const,
@@ -103,6 +104,7 @@ export function showcaseWithdrawalEntry(
       workspaceId: card.workspaceId,
       version: card.version,
       reason,
+      ...origin,
     },
   }
 }

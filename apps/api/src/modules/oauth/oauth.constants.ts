@@ -22,6 +22,12 @@ export const SUPPORTED_SCOPES: string[] = [
   OAUTH_SCOPES.committeesRead,
   OAUTH_SCOPES.committeesWrite,
   OAUTH_SCOPES.participationRequestsDecide,
+  OAUTH_SCOPES.publicPageRead,
+  OAUTH_SCOPES.publicPageWrite,
+  OAUTH_SCOPES.publicPagePublish,
+  OAUTH_SCOPES.accessRequestsDecide,
+  OAUTH_SCOPES.showcaseRead,
+  OAUTH_SCOPES.showcaseWrite,
 ]
 export const SCOPE_LABELS: Record<string, string> = {
   [OAUTH_SCOPES.read]:
@@ -52,6 +58,18 @@ export const SCOPE_LABELS: Record<string, string> = {
     'Candidater à un comité, confirmer une proposition ou retirer votre demande ; comme conseiller d’un workspace autorisé, rattacher une demande à un comité, accepter ou refuser une candidature, la retirer — uniquement à votre demande explicite ; inclut la lecture des comités',
   [OAUTH_SCOPES.participationRequestsDecide]:
     'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande de participation à ses comités (une acceptation ajoute la personne au workspace comme investisseur et la prévient par email), uniquement à votre demande explicite',
+  [OAUTH_SCOPES.publicPageRead]:
+    'Comme gestionnaire d’un workspace autorisé, lire les réglages de sa page publique (textes, blocs, publication, indexation), son aperçu, les cartes des projets et les demandes d’accès envoyées depuis la page (nom, entreprise, adresse, message)',
+  [OAUTH_SCOPES.publicPageWrite]:
+    'Comme gestionnaire d’un workspace autorisé, modifier les critères, le contact et les blocs de sa page publique, masquer ou rétablir la carte d’un projet — visibles de tous si la page est publiée —, uniquement à votre demande explicite ; inclut la lecture de la page',
+  [OAUTH_SCOPES.publicPagePublish]:
+    'Comme gestionnaire d’un workspace autorisé, publier ou dépublier sa page publique et autoriser ou non son indexation par les moteurs de recherche, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.accessRequestsDecide]:
+    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande d’accès envoyée depuis sa page publique (une acceptation crée le compte porteur de projet de la personne s’il n’existe pas et la prévient par email), uniquement à votre demande explicite',
+  [OAUTH_SCOPES.showcaseRead]:
+    'Lire les cartes de vos demandes sur les pages publiques des structures auxquelles vous les présentez (pseudonyme, région, état, aperçu)',
+  [OAUTH_SCOPES.showcaseWrite]:
+    'Afficher la carte anonyme d’une de vos demandes sur la page publique d’une structure sous le pseudonyme choisi, la modifier ou la retirer, uniquement à votre demande explicite ; inclut la lecture de vos cartes',
 }
 
 export function expandScopes(scopes: readonly string[]): Set<string> {
@@ -63,11 +81,21 @@ export function expandScopes(scopes: readonly string[]): Set<string> {
   if (set.has(OAUTH_SCOPES.sharingWrite)) set.add(OAUTH_SCOPES.sharingRead)
   // E08.07: changing an entry starts from the committee and the entry's version read.
   if (set.has(OAUTH_SCOPES.committeesWrite)) set.add(OAUTH_SCOPES.committeesRead)
+  // E09.07: changing a page or a card starts from the page or the card read.
+  if (set.has(OAUTH_SCOPES.publicPageWrite)) set.add(OAUTH_SCOPES.publicPageRead)
+  if (set.has(OAUTH_SCOPES.showcaseWrite)) set.add(OAUTH_SCOPES.showcaseRead)
   return set
 }
 
 const FORM_SCOPES = new Set<string>([OAUTH_SCOPES.formsWrite, OAUTH_SCOPES.formsPublish])
 const SHARING_SCOPES = new Set<string>([OAUTH_SCOPES.sharingRead, OAUTH_SCOPES.sharingWrite])
+const PUBLIC_PAGE_SCOPES = new Set<string>([
+  OAUTH_SCOPES.publicPageRead,
+  OAUTH_SCOPES.publicPageWrite,
+  OAUTH_SCOPES.publicPagePublish,
+  OAUTH_SCOPES.accessRequestsDecide,
+])
+const SHOWCASE_SCOPES = new Set<string>([OAUTH_SCOPES.showcaseRead, OAUTH_SCOPES.showcaseWrite])
 
 // What an account may grant to an application, whatever the client asks: the form permissions only
 // if it designs forms somewhere — Confluent's own as an administrator, or those of a workspace it
@@ -81,7 +109,9 @@ const SHARING_SCOPES = new Set<string>([OAUTH_SCOPES.sharingRead, OAUTH_SCOPES.s
 // offered to whoever may own companies (their candidatures' committees) or is an active member of a
 // workspace (its committees, or their sessions as a participant); changing a request's entry on one
 // to whoever may own companies or reviews candidatures; deciding participation requests to whoever
-// manages a workspace. The services check the rights again at each call: a grant outlives a change
+// manages a workspace. E09.07: a workspace's public page — reading, changing, publishing it, deciding
+// its access requests — to whoever manages a workspace; a request's cards on public pages to whoever
+// may own companies. The services check the rights again at each call: a grant outlives a change
 // of role or membership.
 export interface GrantContext {
   managesWorkspace: boolean
@@ -107,6 +137,8 @@ export function grantableScopes(
     }
     if (s === OAUTH_SCOPES.committeesWrite) return reviews || canOwnCompanies(user)
     if (s === OAUTH_SCOPES.participationRequestsDecide) return context.managesWorkspace
+    if (PUBLIC_PAGE_SCOPES.has(s)) return context.managesWorkspace
+    if (SHOWCASE_SCOPES.has(s)) return canOwnCompanies(user)
     return true
   })
 }

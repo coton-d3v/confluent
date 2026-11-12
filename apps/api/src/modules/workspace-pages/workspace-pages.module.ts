@@ -13,5 +13,7 @@ import { WorkspacePagesService } from './workspace-pages.service'
   imports: [WorkspacesModule, DocumentsModule, ShowcaseCardsModule],
   controllers: [PublicWorkspacePagesController, WorkspacePageController],
   providers: [WorkspacePagesService],
+  // E09.07: the MCP tools of the page's managers.
+  exports: [WorkspacePagesService],
 })
 export class WorkspacePagesModule {}

@@ -13,6 +13,7 @@ import {
   type PublicWorkspacePage,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { type ActionOrigin, channelMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { openCandidatureFormVersion } from '../candidatures/candidatures.service'
 import { toView, type CommitteeView } from '../committees/committee-views'
@@ -94,6 +95,10 @@ const PAGE_FIELDS = {
 // (`workspace_updated`, fields named, texts never copied). They read what the public sees, or would
 // see once published, built by the same projection, and what every block may show (`content`) for
 // the site to preview settings not yet saved through that projection.
+//
+// E09.07: the MCP tools call the same operations; a change asked through MCP names the channel, the
+// application and its authorization in its entry (`origin`), never the manager's words (they stay in
+// the call's own entry, `mcp_tool_called`).
 @Injectable()
 export class WorkspacePagesService {
   private readonly logger = new Logger(WorkspacePagesService.name)
@@ -149,6 +154,7 @@ export class WorkspacePagesService {
     actor: WorkspaceActor,
     workspaceId: string,
     input: WorkspacePageInput,
+    origin?: ActionOrigin,
   ): Promise<WorkspacePageSettingsView> {
     await this.access.assertCanManage(actor, workspaceId)
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -199,6 +205,7 @@ export class WorkspacePagesService {
           ...(indexableChanged
             ? { publicPageIndexable: { from: indexableBefore, to: indexable } }
             : {}),
+          ...(origin ? channelMetadata(origin) : {}),
         },
       })
       return row
