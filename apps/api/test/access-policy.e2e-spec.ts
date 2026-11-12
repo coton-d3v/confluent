@@ -213,10 +213,17 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     v: unknown,
   ) => expect(schema.safeParse(v).error?.issues ?? []).toEqual([])
 
-  // An MCP connection of `user`, every reading scope, allowed to reach the CCI.
+  // An MCP connection of `user`, every reading scope — and, for opportunities (E07.10), taking a
+  // position and following one's diffusion —, allowed to reach the CCI.
   async function mcp(user: { id: string }) {
     const token = `cfl_at_policy_${++tokenCount}`
-    const scopes = ['dossiers:read', 'candidatures:read', 'candidatures:support']
+    const scopes = [
+      'dossiers:read',
+      'candidatures:read',
+      'candidatures:support',
+      'opportunities:write',
+      'sharing:read',
+    ]
     const grant = await fake.prisma.oAuthGrant.create({
       data: {
         userId: user.id,
@@ -533,6 +540,61 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         maturityStage: projected.maturityStage,
       }),
     ])
+
+    // MCP opportunities (E07.10), through the direct share and through the pool: the same
+    // questions, answers, classification, presentation and documents; the same card.
+    for (const reader of [BOB, IVY]) {
+      const opp = await mcp(reader)
+      const read = await opp('get_opportunity', { dossier: dossier.id })
+      expect([reader.email, read.error]).toEqual([reader.email, null])
+      const got = read.result
+      expect(got.opportunity.accessLevel).toBe(level)
+      expect(got.dossier).toMatchObject({ relation: 'opportunite', accessLevel: level })
+      expect(got.dossier.classification).toEqual({
+        sector: projected.sector,
+        maturityStage: projected.maturityStage,
+        ancrageCvl: projected.ancrageCvl,
+        tagTechnologique: projected.tagTechnologique,
+      })
+      expect(got.dossier.presentation).toMatchObject({
+        summary: projected.summary,
+        objective: projected.objective,
+        description: projected.description,
+        amountEur: projected.amountEur,
+        financingTypes: projected.financingTypes,
+      })
+      expect(got.sections.map((s: { title: string }) => s.title)).toEqual(
+        reference.sections.map((s) => s.title),
+      )
+      const oppFields = got.sections.flatMap((s: { fields: object[] }) => s.fields) as Array<{
+        fieldId: string
+        answer?: string | null
+        documents?: Array<{ documentId: string }>
+      }>
+      expect(oppFields.map((f) => f.fieldId)).toEqual(expected.fields)
+      expect(
+        answersOf(
+          oppFields.flatMap((f) => (f.answer ? [{ fieldId: f.fieldId, value: f.answer }] : [])),
+        ),
+      ).toEqual(expected.answers)
+      for (const f of oppFields) {
+        expect(f).not.toHaveProperty('provenance')
+        if (!f.documents) continue
+        expect(f.documents.map((d) => d.documentId)).toEqual(
+          reference.documents.filter((d) => d.fieldId === f.fieldId).map((d) => d.current.id),
+        )
+      }
+      const cards = (await opp('list_opportunities')).result.opportunities
+      expect(cards).toHaveLength(1)
+      expect(cards[0]).toMatchObject({
+        dossierId: dossier.id,
+        accessLevel: level,
+        name: projected.name,
+        sector: projected.sector,
+        summary: projected.summary,
+        amountEur: projected.amountEur,
+      })
+    }
     return reference
   }
 
@@ -602,7 +664,28 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     const dossier = await biosensio('complet')
     const link = await invite(dossier.id, 'complet')
     const bobCalls = await mcp(BOB)
+    const ivyCalls = await mcp(IVY)
     expect((await bobCalls('get_dossier', { dossier: dossier.slug })).error).toBeNull()
+    expect((await bobCalls('get_opportunity', { dossier: dossier.id })).error).toBeNull()
+    expect((await ivyCalls('get_opportunity', { dossier: dossier.id })).error).toBeNull()
+    // E07.10: what stops an opportunity stops every MCP tool of the reader on the same connection.
+    const NOT_READ = /^Opportunité introuvable/
+    const mcpStopped = async (calls: typeof bobCalls, who: { id: string }) => {
+      // The version the reader holds (R63: as read, never computed), so that only access decides.
+      const held = [...fake.table('investorPledge').values()].find((p) => p.investorId === who.id)
+      const pledgeArgs = { ...pledge, amountEur: 1_000, version: held?.version ?? null }
+      for (const [tool, args] of [
+        ['get_opportunity', { dossier: dossier.id }],
+        ['mark_interest', { dossier: dossier.id, nameVisible: true, instruction: 'Marque-le' }],
+        ['set_pledge', { dossier: dossier.id, ...pledgeArgs, instruction: 'Promets 1 000 €' }],
+      ] as const) {
+        expect([tool, (await calls(tool, args)).error]).toEqual([
+          tool,
+          expect.stringMatching(NOT_READ),
+        ])
+      }
+      expect((await calls('list_opportunities')).result.total).toBe(0)
+    }
     const kbis = [...fake.table('document').values()].find((d) => d.filename === 'brevet.pdf')!
 
     // E07.05: Bob marks his interest, by name; his mark counts while he reads the request.
@@ -686,9 +769,11 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       ])
     }
     expect((await bobCalls('list_dossiers')).result.dossiers).toEqual([])
+    await mcpStopped(bobCalls, BOB)
     // The pool is another consent: Ivy still reads it.
     const ivy = as(IVY)
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(200)
+    expect((await ivyCalls('get_opportunity', { dossier: dossier.id })).error).toBeNull()
 
     // Withdrawn from the pool, then published again.
     await as(IVY)
@@ -710,19 +795,43 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       .put(`/v1/opportunities/${dossier.id}/pledge`, { ...pledge, version: null })
       .expect(404)
     expect((await ivy.get('/v1/opportunities').expect(200)).body.total).toBe(0)
+    await mcpStopped(ivyCalls, IVY)
+    expect(
+      (
+        await ivyCalls('show_position_to_structure', {
+          dossier: dossier.id,
+          workspace: cci,
+          instruction: 'Montre mon positionnement à la CCI',
+        })
+      ).error,
+    ).toMatch(NOT_READ)
     await publishToPool(dossier.candidatureId, 'complet')
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(200)
+    expect((await ivyCalls('get_opportunity', { dossier: dossier.id })).error).toBeNull()
 
     // Paused while the request is unpublished; listed again once it is published.
     await sophie.post(`/v1/dossiers/${dossier.id}/unpublish`).expect(200)
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
     expect((await ivy.get('/v1/opportunities').expect(200)).body.total).toBe(0)
+    await mcpStopped(ivyCalls, IVY)
     await sophie.post(`/v1/dossiers/${dossier.id}/publish`).expect(200)
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(200)
+
+    // E07.10: a lost membership stops the pool at the next call too, on the same connection.
+    const membership = [...fake.table('workspaceMembership').values()].find(
+      (m) => m.userId === IVY.id && m.workspaceId === cci,
+    )!
+    const members = `/v1/admin/workspaces/${cci}/members/${membership.id}`
+    await as(ADMIN).post(`${members}/deactivate`).expect(201)
+    await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
+    await mcpStopped(ivyCalls, IVY)
+    await as(ADMIN).post(`${members}/reactivate`).expect(201)
+    expect((await ivyCalls('get_opportunity', { dossier: dossier.id })).error).toBeNull()
 
     // Archived: withdrawn from every pool.
     await sophie.post(`/v1/dossiers/${dossier.id}/archive`).expect(200)
     await ivy.get(`/v1/opportunities/${dossier.id}`).expect(404)
+    await mcpStopped(ivyCalls, IVY)
   })
 
   // E07.09: between financeurs. Bob and Eve read the request through their own direct shares, Ivy
@@ -803,6 +912,10 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         ['list_dossiers', {}],
         ['get_dossier', { dossier: dossier.slug }],
         ['list_documents', { dossier: dossier.slug }],
+        // E07.10: the reader's opportunities and own positions.
+        ['list_opportunities', {}],
+        ['get_opportunity', { dossier: dossier.id }],
+        ['list_my_positions', {}],
       ] as const) {
         const res = await call(tool, args)
         seen.push(JSON.stringify(res.result ?? res.error))
@@ -902,6 +1015,11 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         ['get_portfolio', { workspace: cci }],
         ['get_intervention_journal', { candidature: dossier.candidatureId, workspace: cci }],
         ['next_questions', { dossier: dossier.slug }],
+        // E07.10: the owner's diffusion, and a structure's follow-up of positions.
+        ['list_request_shares', { dossier: dossier.id }],
+        ['get_request_positions', { dossier: dossier.id }],
+        ['get_request_history', { dossier: dossier.id }],
+        ['list_investor_positions', { workspace: cci }],
       ] as const
       for (const [tool, args] of reads) {
         const res = await call(tool, args)

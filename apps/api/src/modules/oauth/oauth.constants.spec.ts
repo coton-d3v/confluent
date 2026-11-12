@@ -1,6 +1,10 @@
-import { SUPPORTED_SCOPES, grantableScopes } from './oauth.constants'
+import { SUPPORTED_SCOPES, expandScopes, grantableScopes } from './oauth.constants'
 
-// What an account may grant an application, whatever the client asks (E04.06, E05.10, E06.09).
+const OPPORTUNITIES = ['opportunities:read', 'opportunities:write']
+const SHARING = ['sharing:read', 'sharing:write']
+
+// What an account may grant an application, whatever the client asks (E04.06, E05.10, E06.09,
+// E07.10).
 describe('grantableScopes', () => {
   const all = SUPPORTED_SCOPES
 
@@ -11,6 +15,8 @@ describe('grantableScopes', () => {
       'dossiers:submit',
       'dossiers:present',
       'candidatures:decide',
+      ...OPPORTUNITIES,
+      ...SHARING,
     ])
   })
 
@@ -24,6 +30,7 @@ describe('grantableScopes', () => {
       'dossiers:submit',
       'forms:write',
       'forms:publish',
+      ...OPPORTUNITIES,
     ])
   })
 
@@ -40,6 +47,7 @@ describe('grantableScopes', () => {
       'dossiers:submit',
       'candidatures:support',
       'candidatures:decide',
+      ...OPPORTUNITIES,
     ])
     expect(
       grantableScopes(
@@ -50,13 +58,33 @@ describe('grantableScopes', () => {
     ).toEqual(all)
   })
 
-  it('never gives presenting, following, deciding or designing to an account that may do none', () => {
+  it('never gives presenting, sharing, following, deciding or designing to an account that may do none', () => {
     for (const role of ['financeur', 'unknown']) {
       expect(grantableScopes(all, { role })).toEqual([
         'dossiers:read',
         'dossiers:write',
         'dossiers:submit',
+        ...OPPORTUNITIES,
       ])
     }
+  })
+})
+
+// E07.10: writing implies reading within each pair, never across them nor towards the dossiers.
+describe('expandScopes', () => {
+  it('reads with each write permission of its own pair only', () => {
+    expect([...expandScopes(['opportunities:write'])].sort()).toEqual([
+      'opportunities:read',
+      'opportunities:write',
+    ])
+    expect([...expandScopes(['sharing:write'])].sort()).toEqual(['sharing:read', 'sharing:write'])
+    expect([...expandScopes(['dossiers:write'])].sort()).toEqual([
+      'dossiers:read',
+      'dossiers:write',
+    ])
+    expect([...expandScopes(['opportunities:read', 'sharing:read'])].sort()).toEqual([
+      'opportunities:read',
+      'sharing:read',
+    ])
   })
 })

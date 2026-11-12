@@ -128,6 +128,12 @@ const NOT_FOUND_HINTS: Record<string, string> = {
   DOCUMENT_VERSION_NOT_FOUND:
     'Cette version n’appartient pas à ce document. Utilisez list_documents (previousVersions).',
   WORKSPACE_NOT_FOUND: WORKSPACE_NOT_FOUND,
+  // E07.10: the same answer for an unknown request, one never or no longer read, and one read only
+  // through the pool of a workspace this connection may not reach.
+  OPPORTUNITY_NOT_FOUND:
+    'Opportunité introuvable, ou que vous ne lisez pas (ou plus) depuis cette application. ' +
+    'Utilisez list_opportunities.',
+  SHARE_LINK_NOT_FOUND: 'Accès introuvable pour cette demande. Utilisez list_request_shares.',
 }
 
 // Runs a service operation and passes its refusal on to the assistant as the site shows it (the

@@ -37,5 +37,7 @@ import { PositionsService } from './positions.service'
     WorkspacePositionsController,
   ],
   providers: [OpportunitiesService, InterestsService, PledgesService, PositionsService],
+  // E07.10: the same services behind the MCP tools.
+  exports: [OpportunitiesService, InterestsService, PledgesService, PositionsService],
 })
 export class OpportunitiesModule {}

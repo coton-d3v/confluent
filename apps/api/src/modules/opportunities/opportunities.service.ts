@@ -22,9 +22,13 @@ import { readsPool } from '../workspaces/workspace-access'
 
 // The reader of opportunities: the signed-in account, its email read from the database at each
 // request (`JwtStrategy`). Nothing else identifies them — never an id given by the client.
+// `allowedWorkspaceIds` (E07.10): an MCP connection reaches the pools of the workspaces the person
+// allowed it to reach only (E05.10, the grant's, never widened); absent, the site, every pool the
+// account reads. Direct shares are the person's own: reached either way.
 export interface OpportunityReader {
   id: string
   email: string
+  allowedWorkspaceIds?: readonly string[]
 }
 
 // @confluent/shared `opportunitiesQuerySchema`, parsed.
@@ -262,14 +266,7 @@ export class OpportunitiesService {
     const found = await this.reachOne(reader, dossierId)
     if (!found) throw opportunityNotFound()
     const view = await this.shareLinks.recipientView(found.dossier, found.accessLevel)
-    const [interests, pledges, account, disclosures] = await Promise.all([
-      this.interestsOf(reader, [found.dossier.id]),
-      this.pledgesOf(reader, [found.dossier.id]),
-      this.prisma.user.findUnique({ where: { id: reader.id } }),
-      this.prisma.investorPositionDisclosure.findMany({
-        where: { investorId: reader.id, dossierId: found.dossier.id },
-      }),
-    ])
+    const access = await this.accessOf(reader, found)
     const reading = await this.readings.open({
       reader,
       dossierId: found.dossier.id,
@@ -281,33 +278,59 @@ export class OpportunitiesService {
         workspaceIds: found.sources.flatMap((s) => (s.kind === 'pool' ? [s.workspace.id] : [])),
       },
     })
+    return { ...view, opportunity: { ...access, reading } }
+  }
+
+  // E07.10: what `get` says of the opportunity besides the request's view, for an assistant's read
+  // (MCP), which opens no reading session: a view is a page load (E07.08), neither counted nor
+  // timed otherwise. The same `404` for anything the reader does not reach.
+  async describe(
+    reader: OpportunityReader,
+    dossierId: string,
+  ): Promise<{
+    found: ReachedOpportunity
+    access: Omit<OpportunityView['opportunity'], 'reading'>
+  }> {
+    const found = await this.reachOne(reader, dossierId)
+    if (!found) throw opportunityNotFound()
+    return { found, access: await this.accessOf(reader, found) }
+  }
+
+  private async accessOf(
+    reader: OpportunityReader,
+    found: ReachedOpportunity,
+  ): Promise<Omit<OpportunityView['opportunity'], 'reading'>> {
+    const [interests, pledges, account, disclosures] = await Promise.all([
+      this.interestsOf(reader, [found.dossier.id]),
+      this.pledgesOf(reader, [found.dossier.id]),
+      this.prisma.user.findUnique({ where: { id: reader.id } }),
+      this.prisma.investorPositionDisclosure.findMany({
+        where: { investorId: reader.id, dossierId: found.dossier.id },
+      }),
+    ])
     const { accessLevel, sources, receivedAt } = found
     return {
-      ...view,
-      opportunity: {
-        accessLevel,
-        sources,
-        receivedAt,
-        interest: interests.get(found.dossier.id) ?? null,
-        pledge: pledges.get(found.dossier.id) ?? null,
-        shownAs: interestIdentity(account ?? {}, found.organizations),
-        // E07.07: the structures whose pool brings it, each with the reader's consent, if given.
-        structures: found.sources.flatMap((s) => {
-          if (s.kind !== 'pool') return []
-          const consent = disclosures.find(
-            (d) => d.investorId === reader.id && d.workspaceId === s.workspace.id,
-          )
-          const organization = found.organizationIn.get(s.workspace.id)
-          return [
-            {
-              workspace: s.workspace,
-              shownAs: interestIdentity(account ?? {}, organization ? [organization] : []),
-              disclosure: consent ? { id: consent.id, disclosedAt: consent.createdAt } : null,
-            },
-          ]
-        }),
-        reading,
-      },
+      accessLevel,
+      sources,
+      receivedAt,
+      interest: interests.get(found.dossier.id) ?? null,
+      pledge: pledges.get(found.dossier.id) ?? null,
+      shownAs: interestIdentity(account ?? {}, found.organizations),
+      // E07.07: the structures whose pool brings it, each with the reader's consent, if given.
+      structures: found.sources.flatMap((s) => {
+        if (s.kind !== 'pool') return []
+        const consent = disclosures.find(
+          (d) => d.investorId === reader.id && d.workspaceId === s.workspace.id,
+        )
+        const organization = found.organizationIn.get(s.workspace.id)
+        return [
+          {
+            workspace: s.workspace,
+            shownAs: interestIdentity(account ?? {}, organization ? [organization] : []),
+            disclosure: consent ? { id: consent.id, disclosedAt: consent.createdAt } : null,
+          },
+        ]
+      }),
     }
   }
 
@@ -417,7 +440,13 @@ export class OpportunitiesService {
     const shares = links.filter(
       (l) => l.status === 'active' && sameEmail(l.recipientEmail, reader.email),
     )
-    const poolMemberships = memberships.filter((m) => m.userId === reader.id && readsPool(m))
+    const allowed = reader.allowedWorkspaceIds
+    const poolMemberships = memberships.filter(
+      (m) =>
+        m.userId === reader.id &&
+        readsPool(m) &&
+        (allowed === undefined || allowed.includes(m.workspaceId)),
+    )
     const poolIds = poolMemberships.map((m) => m.workspaceId)
     const organizationIn = new Map(
       poolMemberships.map((m) => [m.workspaceId, m.organization?.trim() || null] as const),

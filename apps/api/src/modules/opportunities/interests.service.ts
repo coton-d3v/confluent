@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common'
 import { isArchived, type MarkInterestInput } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import {
@@ -44,10 +45,12 @@ export class InterestsService {
   // Marks the reader's interest, or changes whether their name shows on it. The same answer changes
   // nothing and journals nothing. A request the reader does not reach is the opportunity's `404`; an
   // archived one takes no new mark nor a name newly shown (`409`), hiding one's name stays possible.
+  // `origin` (E07.10): the application and the request it reported, when an assistant asked (MCP).
   async mark(
     reader: OpportunityReader,
     dossierId: string,
     input: MarkInterestInput,
+    origin?: ActionOrigin,
   ): Promise<OpportunityInterestView> {
     return this.prisma.$transaction(async (tx) => {
       await lockRequest(tx, dossierId)
@@ -73,6 +76,7 @@ export class InterestsService {
           change: !current ? 'marked' : input.nameVisible ? 'name_shown' : 'name_hidden',
           nameVisible: input.nameVisible,
           accessLevel: found.accessLevel,
+          ...(origin ? originMetadata(origin) : {}),
         },
       })
       return interestView(mark)
@@ -81,7 +85,11 @@ export class InterestsService {
 
   // Withdraws the reader's mark, whether they still read the request or not: it only removes their own
   // data, and the answer is the same `204` with or without a mark, for any request.
-  async withdraw(reader: OpportunityReader, dossierId: string): Promise<void> {
+  async withdraw(
+    reader: OpportunityReader,
+    dossierId: string,
+    origin?: ActionOrigin,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lockRequest(tx, dossierId)
       const key = { dossierId_investorId: { dossierId, investorId: reader.id } }
@@ -92,7 +100,10 @@ export class InterestsService {
         actionType: 'investor_interest_withdrawn',
         actorId: reader.id,
         dossierId,
-        metadata: { nameVisible: current.nameVisible },
+        metadata: {
+          nameVisible: current.nameVisible,
+          ...(origin ? originMetadata(origin) : {}),
+        },
       })
     })
   }
