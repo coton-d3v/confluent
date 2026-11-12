@@ -3,13 +3,15 @@ import { Link } from 'react-router-dom'
 import type { PublicWorkspacePage } from '@confluent/shared'
 import { buttonVariants } from '@/components/ui/button'
 import { CommitteeWhen } from '@/features/committees/components/CommitteeSummary'
+import { PublicCardView } from '@/features/showcase-cards/components/PublicCardView'
 import { cn } from '@/lib/utils'
 
 // ROADMAP E09.01: what a workspace's public page shows — identity, presentation, criteria, the next
 // sessions offered to participation requests, how to apply and to take part, contact and sign-in —,
 // for the public (`/w/:slug`) and, as a preview, for its managers. Texts are plain: shown as typed,
 // line breaks kept, never interpreted as HTML or Markdown. No sign-up: accounts are created on
-// invitation (E09.05 decides any other path).
+// invitation (E09.05 decides any other path). E09.02: the anonymous cards of the requests whose
+// owners consented to show them here, under their pseudonym.
 export function PublicWorkspaceContent({
   page,
   logoSrc,
@@ -21,7 +23,7 @@ export function PublicWorkspaceContent({
   // 2 inside another page (the managers' preview).
   titleLevel?: 1 | 2
 }) {
-  const { workspace, committees, receivesCandidatures } = page
+  const { workspace, committees, receivesCandidatures, cards } = page
   const structure = workspace.programName ?? workspace.name
   const [logoFailed, setLogoFailed] = useState(false)
   const Title = titleLevel === 1 ? 'h1' : 'h2'
@@ -86,6 +88,22 @@ export function PublicWorkspaceContent({
                   Demander à participer
                   <span className="sr-only"> à « {committee.name} »</span>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {cards.length > 0 && (
+        <Section heading="Projets accompagnés" as={Heading}>
+          <p className="text-sm text-muted-foreground">
+            Des demandes de financement présentées à {structure}, affichées à l’initiative de leurs
+            porteurs sous un pseudonyme qu’ils ont choisi.
+          </p>
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {cards.map((card, i) => (
+              <li key={`${i}-${card.pseudonym}`} className="flex min-w-0">
+                <PublicCardView card={card} headingLevel={titleLevel === 1 ? 3 : 4} />
               </li>
             ))}
           </ul>
