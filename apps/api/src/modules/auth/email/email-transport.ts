@@ -41,9 +41,23 @@ export interface SendCompanyTransferInviteInput {
   locale: Locale
 }
 
+// ROADMAP E08.05: a participation request accepted by a workspace's manager. The link opens the
+// sign-in page (magic link), never a session by itself. Only what the public form already showed of
+// the sessions (name and when): never their place, link or information for participants.
+export interface SendParticipationAcceptedInput {
+  to: string
+  workspaceName: string
+  sessions: Array<{ name: string; date: string; time: string; timeZone: string; status: string }>
+  // What the acceptance did to the address's account (PARTICIPATION_ADMISSIONS).
+  admission: 'account_created' | 'membership_created' | 'already_member'
+  signInUrl: string
+  locale: Locale
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
   sendWorkspaceInvite(input: SendWorkspaceInviteInput): Promise<void>
   sendCompanyTransferInvite(input: SendCompanyTransferInviteInput): Promise<void>
+  sendParticipationAccepted(input: SendParticipationAcceptedInput): Promise<void>
 }

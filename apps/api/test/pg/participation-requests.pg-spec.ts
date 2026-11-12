@@ -16,7 +16,11 @@ import {
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
-import { participationRequestsDown, participationRequestsUp } from './sql-file'
+import {
+  participationDecisionsDown,
+  participationRequestsDown,
+  participationRequestsUp,
+} from './sql-file'
 
 const UP = participationRequestsUp()
 // Without the acceptance: what an operator runs first.
@@ -24,6 +28,8 @@ const DOWN = participationRequestsDown().slice(1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_participation_requests_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_participation_requests_loss = 'off'"
+// E08.05's decisions change the requests: undone first.
+const LATER_DOWN = participationDecisionsDown()
 
 class RolledBack extends Error {}
 
@@ -189,7 +195,7 @@ describe('participation requests (PostgreSQL)', () => {
     it('adds the requests and the offer and nothing else; undone (refusing to lose a request, its journal or an offer unless accepted), then applied again', async () => {
       const s = await setting()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(await rows(tx, `SELECT to_regclass('participation_requests')::text AS t`)).toEqual([
           { t: null },
         ])
@@ -209,8 +215,9 @@ describe('participation requests (PostgreSQL)', () => {
           ),
         ).toEqual([{ requests: 0, offered: 0 }])
         const migrated = await fingerprint(tx)
-        expect(migrated).toContain(
-          '"actions" : ["participation_request_received", "participation_request_discarded"]',
+        // (E08.05's action stays once added: PostgreSQL cannot remove an enum value.)
+        expect(migrated).toMatch(
+          /"actions" : \["participation_request_received", "participation_request_discarded"(, "participation_request_decided")?\]/,
         )
 
         // Without any request nor offer: undone without acceptance, applied again, the same.
@@ -256,7 +263,7 @@ describe('participation requests (PostgreSQL)', () => {
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await setting()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
@@ -276,7 +283,7 @@ describe('participation requests (PostgreSQL)', () => {
       const s = await setting()
       const other = await setting()
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
         const ws = { workspace_id: `'${s.workspaceId}'` }
         const refused = async (sql: string, error: RegExp) => {
           await tx.$executeRawUnsafe('SAVEPOINT attempt')

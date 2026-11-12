@@ -1,3 +1,4 @@
+import { participationSessionLines } from './nodemailer.transport'
 import { clearCacheForTesting, render, templateString } from './template-renderer'
 
 describe('template-renderer', () => {
@@ -83,6 +84,46 @@ describe('template-renderer', () => {
     })
     expect(result.text).toContain('A & B Capital')
     expect(result.text).not.toContain('&amp;')
+  })
+
+  it('renders an accepted participation request (E08.05): the sessions by name and when, escaped, one per line', () => {
+    const sessions = participationSessionLines([
+      {
+        name: 'Comité <juin>',
+        date: '2099-06-10',
+        time: '14:00',
+        timeZone: 'Europe/Paris',
+        status: 'planned',
+      },
+      {
+        name: 'Comité de juillet',
+        date: '2099-07-10',
+        time: '09:30',
+        timeZone: 'America/New_York',
+        status: 'cancelled',
+      },
+    ])
+    expect(sessions).toBe(
+      '• Comité <juin> — mercredi 10 juin 2099 à 14:00 (Europe/Paris)\n' +
+        '• Comité de juillet — vendredi 10 juillet 2099 à 09:30 (America/New_York) (annulée)',
+    )
+    const result = render('participation-accepted', 'fr', {
+      workspaceName: 'CCI <Touraine>',
+      sessions,
+      accountLine: templateString('participation-accepted', 'fr', 'accountCreated'),
+      signInUrl: 'https://confluent.example/auth',
+    })
+    expect(result.subject).toBe('Votre demande de participation a été acceptée')
+    expect(result.html).toContain('CCI &lt;Touraine&gt;')
+    expect(result.html).toContain('Comité &lt;juin&gt; — mercredi 10 juin 2099 à 14:00')
+    expect(result.html).toContain('white-space:pre-line;')
+    expect(result.html).toContain('href="https://confluent.example/auth"')
+    expect(result.html).toContain('comme investisseur')
+    expect(result.text).toContain('• Comité de juillet — vendredi 10 juillet 2099 à 09:30')
+    expect(result.text).toContain('Se connecter à Confluent : https://confluent.example/auth')
+    for (const key of ['membershipCreated', 'alreadyMember']) {
+      expect(templateString('participation-accepted', 'fr', key)).toMatch(/workspace/)
+    }
   })
 
   it('throws an explicit error when a referenced variable is missing', () => {

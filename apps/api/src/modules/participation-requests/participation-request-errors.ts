@@ -8,8 +8,9 @@ import {
 } from '@nestjs/common'
 import type { FormTokenCheck } from './participation-form-token'
 
-// Errors of the public participation form (ROADMAP E08.04), with messages shown as is in the site.
-// None depends on the address typed: whether it is known, already asked or set aside is never told.
+// Errors of the public participation form (ROADMAP E08.04) and of the managers' decisions (E08.05),
+// with messages shown as is in the site. None of the public form's depends on the address typed:
+// whether it is known, already asked or set aside is never told.
 export const ParticipationRequestErrors = {
   // The same answer for a workspace that does not exist and one that offers no committee.
   notFound: () =>
@@ -42,6 +43,30 @@ export const ParticipationRequestErrors = {
       },
       HttpStatus.TOO_MANY_REQUESTS,
     ),
+  // ── E08.05: the managers' decisions ──
+  requestNotFound: () =>
+    new NotFoundException({
+      code: 'PARTICIPATION_REQUEST_NOT_FOUND',
+      message: 'Demande de participation introuvable dans ce workspace.',
+    }),
+  changed: () =>
+    new ConflictException({
+      code: 'PARTICIPATION_REQUEST_CHANGED',
+      message:
+        'La demande a changé depuis son affichage (nouvel envoi de la personne) : rechargez-la, puis décidez de nouveau.',
+    }),
+  decided: (status: 'accepted' | 'refused') =>
+    new ConflictException({
+      code: 'PARTICIPATION_REQUEST_DECIDED',
+      message: `Cette demande a déjà été ${status === 'accepted' ? 'acceptée' : 'refusée'} : une décision est définitive.`,
+      details: { status },
+    }),
+  memberDeactivated: () =>
+    new ConflictException({
+      code: 'PARTICIPATION_MEMBER_DEACTIVATED',
+      message:
+        'Cette adresse est celle d’un membre désactivé du workspace : une demande ne le réactive pas. Réactivez-le depuis les membres du workspace si vous souhaitez lui rendre l’accès, ou refusez la demande.',
+    }),
   queueFull: () =>
     new ServiceUnavailableException({
       code: 'PARTICIPATION_QUEUE_FULL',

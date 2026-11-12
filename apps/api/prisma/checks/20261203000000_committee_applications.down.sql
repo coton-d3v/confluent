@@ -2,10 +2,10 @@
 -- rolled back to E08.02. Lost on the way back: every request's entry on a committee (applications,
 -- proposals, acceptances, refusals and withdrawals) and the journal entries of their changes; the
 -- committees, candidatures and their journals stay; the value added to `audit_action` stays
--- (PostgreSQL cannot remove it; unused). To be run after the revert of E08.04 (which drops nothing
--- it needs, but comes later) and before the reverts of E08.02, E08.01 and of the candidatures'
--- migrations (E06.03 and earlier): the entries reference `committees (id, workspace_id)` and
--- `candidatures (id, workspace_id)`.
+-- (PostgreSQL cannot remove it; unused). To be run after the reverts of E08.05 and E08.04 (which
+-- drop nothing it needs, but come later) and before the reverts of E08.02, E08.01 and of the
+-- candidatures' migrations (E06.03 and earlier): the entries reference
+-- `committees (id, workspace_id)` and `candidatures (id, workspace_id)`.
 --
 -- Without any entry nor journal entry, nothing is lost. One would be — a request a structure
 -- retained for a committee, an application waiting for an answer, or the trace of who decided —, so

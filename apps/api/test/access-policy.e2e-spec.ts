@@ -999,6 +999,25 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     }
     expect(fake.table('participationRequest').size).toBe(3)
     expect(fake.table('workspaceMembership').size).toBe(memberships)
+    // E08.05: deciding them is not theirs to do; refused by the structure, they still grant nothing
+    // (what follows is read after the refusal).
+    const queue = `/v1/admin/workspaces/${cci}/participation-requests`
+    const pending = (await as(ADMIN).get(queue).expect(200)).body as Array<{
+      id: string
+      email: string
+      version: number
+    }>
+    for (const reader of [BOB, IVY, EVE]) {
+      const own = pending.find((r) => r.email === reader.email)!
+      const decision = `${queue}/${own.id}/decision`
+      const { status } = await as(reader).post(decision, {
+        decision: 'accepted',
+        version: own.version,
+      })
+      expect([reader.email, [403, 404].includes(status)]).toEqual([reader.email, true])
+      await as(ADMIN).post(decision, { decision: 'refused', version: own.version }).expect(200)
+    }
+    expect(fake.table('workspaceMembership').size).toBe(memberships)
     const refused = [
       `/v1/dossiers/${dossier.id}/analytics`,
       `/v1/dossiers/${dossier.id}/audit-log`,
@@ -1036,8 +1055,9 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       `/v1/workspaces/${cci}/committees`,
       `/v1/workspaces/${cci}/committees/${committee.id}`,
       applications,
-      // E08.04: the queue of participation requests — theirs included.
+      // E08.04: the queue of participation requests — theirs included; E08.05: decided ones too.
       `/v1/admin/workspaces/${cci}/participation-requests`,
+      `/v1/admin/workspaces/${cci}/participation-requests?status=decided`,
     ]
     for (const reader of [BOB, IVY, EVE]) {
       for (const url of refused) {

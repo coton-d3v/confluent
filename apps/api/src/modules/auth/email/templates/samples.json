@@ -18,5 +18,11 @@
     "expiresOn": "11 décembre 2026",
     "accountLine": "Elle sera rattachée à votre compte Confluent existant.",
     "invitationsUrl": "https://confluent.local/dashboard/propositions"
+  },
+  "participation-accepted": {
+    "workspaceName": "CCI Touraine",
+    "sessions": "• Comité de juin — mercredi 10 juin 2099 à 14:00 (Europe/Paris)\n• Comité de juillet — vendredi 10 juillet 2099 à 09:30 (Europe/Paris)",
+    "accountLine": "Un compte Confluent a été ouvert à cette adresse : vous rejoignez le workspace de la structure comme investisseur.",
+    "signInUrl": "https://confluent.local/auth"
   }
 }

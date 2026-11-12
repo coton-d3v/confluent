@@ -591,6 +591,12 @@ export function createFakePrisma() {
       status: 'pending',
       submissionCount: 1,
       version: 1,
+      decidedAt: null,
+      decidedById: null,
+      admission: null,
+      memberUserId: null,
+      invitationEmail: null,
+      invitationEmailAt: null,
     })),
     participationRequestCommittee: model('participationRequestCommittee'),
     committeeApplication: model('committeeApplication', () => ({

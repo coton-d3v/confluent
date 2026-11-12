@@ -130,6 +130,8 @@ const personSchema = z.object({
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
 })
+// A person as the workspace's managers read them (also the author of a decision, E08.05).
+export const memberPersonSchema = personSchema
 
 export const workspaceMemberSchema = z.object({
   id: z.string().uuid(),

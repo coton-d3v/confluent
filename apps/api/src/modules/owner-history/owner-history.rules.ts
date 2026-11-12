@@ -125,6 +125,8 @@ export const OWNER_HISTORY_RULES = {
   // public form; it concerns no request of an owner.
   participation_request_received: PLATFORM,
   participation_request_discarded: SECURITY,
+  // E08.05: a manager's decision on such a request (and the account it admitted).
+  participation_request_decided: PLATFORM,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a

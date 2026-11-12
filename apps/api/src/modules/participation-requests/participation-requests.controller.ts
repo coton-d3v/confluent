@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common'
@@ -26,12 +27,21 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import type { Request } from 'express'
-import { PARTICIPATION_REQUEST_RECEIVED, createParticipationRequestSchema } from '@confluent/shared'
+import {
+  PARTICIPATION_REQUEST_RECEIVED,
+  createParticipationRequestSchema,
+  decideParticipationRequestSchema,
+  listParticipationRequestsQuerySchema,
+} from '@confluent/shared'
 import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Public } from '../../common/decorators/public.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
+import {
+  ParticipationDecisionsService,
+  type ParticipationDecisionResult,
+} from './participation-decisions.service'
 import {
   PARTICIPATION_RATE_LIMITS,
   ParticipationRequestsService,
@@ -40,6 +50,10 @@ import {
 } from './participation-requests.service'
 
 class CreateParticipationRequestDto extends createZodDto(createParticipationRequestSchema) {}
+class DecideParticipationRequestDto extends createZodDto(decideParticipationRequestSchema) {}
+class ListParticipationRequestsQueryDto extends createZodDto(
+  listParticipationRequestsQuerySchema,
+) {}
 
 const NOT_FOUND =
   'Workspace inexistant, ou qui n’offre aucune session aux demandes de participation (même réponse).'
@@ -117,7 +131,7 @@ export class PublicParticipationController {
   }
 }
 
-// The queue, read by the workspace's managers until E08.05 lets them process it.
+// The queue, read and decided by the workspace's managers (E08.05).
 @ApiTags('Admin · Workspaces')
 @ApiBearerAuth('jwt')
 @ApiParam({ name: 'workspaceId', description: 'UUID du workspace' })
@@ -129,21 +143,63 @@ export class PublicParticipationController {
 @UseGuards(WorkspaceAccessGuard)
 @Controller('admin/workspaces/:workspaceId/participation-requests')
 export class ParticipationRequestsController {
-  constructor(private readonly requests: ParticipationRequestsService) {}
+  constructor(
+    private readonly requests: ParticipationRequestsService,
+    private readonly decisions: ParticipationDecisionsService,
+  ) {}
 
   @Get()
   @ApiOperation({
-    summary: 'Demandes de participation en attente',
+    summary: 'Demandes de participation du workspace',
     description:
-      'Les demandes envoyées depuis le formulaire public du workspace, en attente de traitement ' +
-      '(E08.05), de la plus ancienne à la plus récente, avec les sessions demandées. Lues par ses ' +
-      'gestionnaires et les administrateurs de Confluent ; aucune n’accorde de droit.',
+      'Les demandes envoyées depuis le formulaire public du workspace, avec les sessions demandées. ' +
+      '`status=pending` (défaut) : en attente, de la plus ancienne à la plus récente ; ' +
+      '`status=decided` : acceptées ou refusées, de la décision la plus récente à la plus ancienne ' +
+      '(200 au plus), avec la date, l’auteur, ce que l’acceptation a fait du compte et l’état de ' +
+      'l’email. `committeeId` : seulement celles qui demandent ce comité. Lues par ses ' +
+      'gestionnaires et les administrateurs de Confluent ; une demande en attente ou refusée ' +
+      'n’accorde aucun droit.',
   })
-  @ApiOkResponse({ description: 'Demandes en attente.' })
+  @ApiOkResponse({ description: 'Demandes.' })
   list(
     @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
+    @Query() query: ListParticipationRequestsQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ParticipationRequestView[]> {
-    return this.requests.listForManagers(user, workspaceId)
+    return this.requests.listForManagers(user, workspaceId, query)
+  }
+
+  @Post(':requestId/decision')
+  @HttpCode(200)
+  @ApiParam({ name: 'requestId', description: 'UUID de la demande' })
+  @ApiOperation({
+    summary: 'Accepter ou refuser une demande de participation',
+    description:
+      '`decision` : `accepted` ou `refused`, définitive ; `version` lue avec la demande. ' +
+      '**Accepter** crée le compte de l’adresse s’il n’existe pas (non vérifié jusqu’à sa première ' +
+      'connexion) et l’ajoute au workspace comme investisseur, avec l’organisation indiquée ; un ' +
+      'membre actif garde son appartenance telle quelle (jamais élargie ni réduite) ; un membre ' +
+      'désactivé n’est pas réactivé (`409`). Puis un email prévient la personne, après ' +
+      'l’enregistrement de la décision (`invitationEmailSent` ; un échec ne l’annule pas). ' +
+      '**Refuser** n’envoie rien et ne crée rien. Les sessions demandées restent enregistrées ; ' +
+      'l’acceptation n’ouvre l’accès à aucun comité. Répéter la décision déjà prise répond ' +
+      '`200` sans rien refaire (`invitationEmailSent: null`). Journal ' +
+      '`participation_request_decided`, sans nom, adresse ni message.',
+  })
+  @ApiOkResponse({ description: 'Demande décidée.' })
+  @ApiBadRequestResponse({ description: 'Décision ou version invalide.' })
+  @ApiConflictResponse({
+    description:
+      '`PARTICIPATION_REQUEST_CHANGED` (nouvel envoi depuis la lecture), ' +
+      '`PARTICIPATION_REQUEST_DECIDED` (déjà décidée autrement), ' +
+      '`PARTICIPATION_MEMBER_DEACTIVATED` (adresse d’un membre désactivé).',
+  })
+  decide(
+    @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
+    @Param('requestId', new ParseUUIDPipe()) requestId: string,
+    @Body() body: DecideParticipationRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ParticipationDecisionResult> {
+    return this.decisions.decide(user, workspaceId, requestId, body)
   }
 }
