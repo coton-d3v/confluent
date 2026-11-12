@@ -20,6 +20,7 @@ const ROW: Workspace = {
   publicContact: 'Écrivez à vitrine@cci-touraine.fr.',
   publicPageVersion: 987654,
   publicPageBlocks: ['contact', 'presentation'],
+  publicPageIndexable: true,
 }
 
 const scalarColumns = () =>

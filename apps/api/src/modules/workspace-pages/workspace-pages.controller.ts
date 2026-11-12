@@ -80,7 +80,10 @@ export class PublicWorkspacePagesController {
       'ni lieu, ni lien, ni informations diffusées, ni notes internes). `receivesCandidatures` : un ' +
       'formulaire de candidature est publié (candidature depuis un compte Confluent). ' +
       '`receivesParticipationRequests` : des sessions sont ouvertes aux demandes de participation. ' +
-      '`cards` : les cartes anonymes des demandes (E09.02). Jamais ' +
+      '`cards` : les cartes anonymes des demandes (E09.02). `indexable` : les gestionnaires ' +
+      'autorisent les moteurs de recherche à indexer la page (E09.06 ; `false` par défaut) — le ' +
+      'site la déclare alors `index, follow`, toute autre page `noindex, nofollow` ; la réponse ' +
+      'JSON elle-même porte `X-Robots-Tag: noindex, nofollow` comme toute réponse de l’API. Jamais ' +
       'mise en cache (`Cache-Control: no-store`, comme toute route `/v1/public`) : un retrait, une ' +
       `pause ou un masquage vaut dès la lecture suivante. Rate-limit ${WORKSPACE_PAGE_RATE_LIMITS.page} ` +
       'req/min/IP.',
@@ -137,7 +140,8 @@ export class WorkspacePageController {
   @ApiOperation({
     summary: 'Réglages de la page publique',
     description:
-      'Publiée ou non, critères, contact, `blocks` (affichés, dans l’ordre), `version` ; `preview` : ' +
+      'Publiée ou non, critères, contact, `blocks` (affichés, dans l’ordre), `indexable` ' +
+      '(indexation autorisée, effective une fois la page publiée), `version` ; `preview` : ' +
       'ce que le public voit (ou verra une fois la page publiée), construit comme la route publique ; ' +
       '`content` : ce que chaque bloc peut montrer, pour prévisualiser d’autres réglages par la même ' +
       'projection (`toPublicWorkspacePage`). Gestionnaires et administrateurs.',
@@ -159,9 +163,11 @@ export class WorkspacePageController {
       `(≤ ${WORKSPACE_PAGE_LIMITS.contact}) en texte simple sans balise — visibles par tous une ` +
       'fois publiée : une adresse ou un numéro écrit dans le contact devient public —, `blocks` : ' +
       'les blocs affichés dans leur ordre, chacun au plus une fois, parmi ' +
-      `${PUBLIC_PAGE_BLOCKS.length} (absent : inchangés), tous renvoyés avec la \`version\` lue. ` +
-      'Mêmes valeurs : rien n’est écrit. Journal `workspace_updated` (champs nommés, blocs avant et ' +
-      'après, textes jamais copiés).',
+      `${PUBLIC_PAGE_BLOCKS.length} (absent : inchangés), \`indexable\` : autoriser les moteurs ` +
+      'de recherche à indexer la page tant qu’elle est publiée (non par défaut ; absent : ' +
+      'inchangé), tous renvoyés avec la `version` lue. Mêmes valeurs : rien n’est écrit. Journal ' +
+      '`workspace_updated` (champs nommés, blocs et indexation avant et après, textes jamais ' +
+      'copiés).',
   })
   @ApiOkResponse({ description: 'Réglages enregistrés et aperçu.' })
   @ApiBadRequestResponse({ description: 'Réglage invalide.' })

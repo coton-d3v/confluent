@@ -110,7 +110,8 @@ const SECRET_AMOUNTS = ['123457', '134457', '456791', '112117', '567812', '67892
 // forbids caching (`no-store`), the versioned logo excepted. A future projection that copies one more
 // field fails here. E09.04: every block of the catalogue (enumerated from it, so that a block added
 // later fails this test until it is described here), alone, all together, none, in another order —
-// each shows its own content only, nothing private ever.
+// each shows its own content only, nothing private ever. E09.06: and none is indexed by search
+// engines (`X-Robots-Tag: noindex, nofollow`).
 describe('Public exposure guard (e2e)', () => {
   let app: INestApplication<App>
   let fake: ReturnType<typeof createFakePrisma>
@@ -553,6 +554,13 @@ describe('Public exposure guard (e2e)', () => {
         read.route,
         read.status,
         cache,
+      ])
+      // E09.06: no answer of the API is a page for search engines.
+      expect([label, read.route, read.status, read.headers['x-robots-tag']]).toEqual([
+        label,
+        read.route,
+        read.status,
+        'noindex, nofollow',
       ])
     }
     const page = reads[0]

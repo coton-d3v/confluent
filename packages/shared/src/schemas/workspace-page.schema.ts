@@ -10,7 +10,8 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 // Closed by default: the page is unpublished until a manager turns it on; an unpublished page and an
 // unknown slug answer alike (`404`). The public reads a closed list of fields
 // (`PUBLIC_WORKSPACE_FIELDS`), never the workspace's id, members, contact email for its members,
-// email domain or anything internal. Not indexed by search engines (E09.06 decides indexing).
+// email domain or anything internal. E09.06: not indexed by search engines unless its managers
+// allow it (`publicPageRobots`).
 // The requests' cards are E09.02's. E09.04: the page is an ordered list of blocks from a closed
 // catalogue, each shown or not by its managers.
 
@@ -110,6 +111,8 @@ export const updateWorkspacePageSchema = z
     ),
     // E09.04: absent, the blocks stay as they are (a client that does not know them).
     blocks: publicPageBlocksSchema.optional(),
+    // E09.06: search engines may index the page while it is published. Absent, kept as it is.
+    indexable: z.boolean({ message: 'Indiquez si la page peut être indexée.' }).optional(),
     version: z.number().int().positive(),
   })
   .strict()
@@ -179,9 +182,26 @@ export const publicWorkspacePageSchema = z
     receivesParticipationRequests: z.boolean(),
     // `cards` block.
     cards: z.array(publicCardSchema),
+    // E09.06: its managers allow search engines to index it (`publicPageRobots`).
+    indexable: z.boolean(),
   })
   .strict()
 export type PublicWorkspacePage = z.infer<typeof publicWorkspacePageSchema>
+
+// ROADMAP E09.06: what a page of the site tells search engines. Every page says `noindex, nofollow`
+// (the site's HTML before any script, the web server's `X-Robots-Tag`, the API's answers), but one:
+// a workspace's public page whose managers allowed indexing, while it is published. Read closed: only
+// `indexable: true` opens it — a page still loading, missing, unpublished or answered by an older API
+// stays closed.
+export const ROBOTS_CLOSED = 'noindex, nofollow'
+export const ROBOTS_OPEN = 'index, follow'
+export type RobotsDirective = typeof ROBOTS_CLOSED | typeof ROBOTS_OPEN
+
+export function publicPageRobots(page: unknown): RobotsDirective {
+  const indexable =
+    typeof page === 'object' && page !== null && (page as { indexable?: unknown }).indexable
+  return indexable === true ? ROBOTS_OPEN : ROBOTS_CLOSED
+}
 
 // The same with the sessions as the API holds them before they are sent (dates as `Date`).
 type WithCommittees<T, C> = Omit<T, 'committees'> & { committees: C[] }
@@ -191,9 +211,11 @@ type WithCommittees<T, C> = Omit<T, 'committees'> & { committees: C[] }
 // site builds the live preview of settings not yet saved with it too. The workspace's fields are
 // copied one by one, the sessions and cards are already closed projections: nothing of `content`
 // reaches the page but through a block shown, and a block with nothing to show is not listed.
+// E09.06: `indexable` is the managers' choice, read closed (anything but `true` is no).
 export function toPublicWorkspacePage<C = PublicCommittee>(
   content: WithCommittees<PublicPageContent, C>,
   shownBlocks: unknown,
+  indexable: unknown = false,
 ): WithCommittees<PublicWorkspacePage, C> {
   const shown = readPublicPageBlocks(shownBlocks)
   const on = (block: PublicPageBlock) => shown.includes(block)
@@ -214,6 +236,7 @@ export function toPublicWorkspacePage<C = PublicCommittee>(
     receivesCandidatures: on('apply') && content.receivesCandidatures,
     receivesParticipationRequests: on('participate') && content.committees.length > 0,
     cards: on('cards') ? [...content.cards] : [],
+    indexable: indexable === true,
   }
   const hasContent: Record<PublicPageBlock, boolean> = {
     presentation: page.workspace.presentation !== null,
@@ -238,6 +261,8 @@ export const workspacePageSettingsSchema = z
     contact: z.string().nullable(),
     // E09.04: the blocks shown, in their order (some may have nothing to show for now).
     blocks: z.array(z.enum(PUBLIC_PAGE_BLOCKS)),
+    // E09.06: search engines may index the page while it is published (no by default).
+    indexable: z.boolean(),
     version: z.number().int().positive(),
     preview: publicWorkspacePageSchema,
     content: publicPageContentSchema,

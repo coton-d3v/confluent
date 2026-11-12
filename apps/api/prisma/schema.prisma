@@ -955,6 +955,9 @@ model Workspace {
   // E09.04: the blocks of the page shown, in their order (a closed catalogue, each at most once:
   // @confluent/shared `PUBLIC_PAGE_BLOCKS`); by default E09.01's page, every block in its order.
   publicPageBlocks    String[] @default(["presentation", "criteria", "committees", "cards", "apply", "participate", "contact"]) @map("public_page_blocks")
+  // E09.06: its managers allow search engines to index the page while it is published; no by default
+  // (every page of the site says `noindex` otherwise: @confluent/shared `publicPageRobots`).
+  publicPageIndexable Boolean  @default(false) @map("public_page_indexable")
 
   memberships           WorkspaceMembership[]
   preparedCompanies     Company[]

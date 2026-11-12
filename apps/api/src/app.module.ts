@@ -4,6 +4,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'
 import { APP_GUARD } from '@nestjs/core'
 import { AppController } from './app.controller'
+import { noIndex } from './common/http/no-index'
 import { PUBLIC_ROUTES, publicNoStore } from './common/http/public-no-store'
 import { validateConfig } from './config/config.schema'
 import { PrismaModule } from './prisma/prisma.module'
@@ -82,6 +83,9 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // E09.03: no cache keeps what the public reads (`Cache-Control: no-store`).
-    consumer.apply(publicNoStore).forRoutes({ path: PUBLIC_ROUTES, method: RequestMethod.ALL })
+    // E09.06: and no search engine indexes it (`X-Robots-Tag`; main.ts sets it on every answer).
+    consumer
+      .apply(publicNoStore, noIndex)
+      .forRoutes({ path: PUBLIC_ROUTES, method: RequestMethod.ALL })
   }
 }

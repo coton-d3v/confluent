@@ -31,6 +31,10 @@ export const WORKSPACE_COLUMN_AUDIENCE = {
   // E09.04: the managers' choice of blocks. The public reads the blocks shown, in their order, and
   // what each shows (`toPublicWorkspacePage`), never this setting itself.
   publicPageBlocks: 'internal',
+  // E09.06: the managers allow search engines to index the page. The public reads whether the
+  // published page is indexable (`indexable`, and what the site tells search engines), never this
+  // setting itself: an unpublished page tells nothing.
+  publicPageIndexable: 'internal',
 } as const satisfies Record<keyof Workspace, 'public' | 'internal'>
 
 // What the public reads of a workspace, copied field by field (@confluent/shared
