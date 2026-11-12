@@ -16,10 +16,12 @@ import {
 import { createDefaultFundingSourceCategories } from '../../src/modules/funding-sources/funding-source-defaults'
 import { QuestionnairesService } from '../../src/modules/questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
+import { NO_PLEDGES } from '../../src/testing/no-pledges'
 import { testDatabase } from './database'
 import {
   candidatureNotesDown,
   eligibilitiesDown,
+  fundingPlanPledgesDown,
   fundingPlansDown,
   fundingPlansUp,
   poolPublicationsDown,
@@ -29,9 +31,11 @@ import {
 const UP = fundingPlansUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = fundingPlansDown().slice(1)
-// E07.02's pool publications, E06.08's notes, E06.06's validations and E06.05's eligibilities use
-// E06.03's unique index on candidatures: undone first.
+// E06.04's confirmations reference the plan lines; E07.02's pool publications, E06.08's notes,
+// E06.06's validations and E06.05's eligibilities use E06.03's unique index on candidatures: undone
+// first.
 const LATER_DOWN = [
+  ...fundingPlanPledgesDown(),
   ...poolPublicationsDown(),
   ...candidatureNotesDown(),
   ...supportPathsDown(),
@@ -100,7 +104,7 @@ describe('financing plans (PostgreSQL)', () => {
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
   )
-  const plans = new FundingPlansService(prisma, candidatures, audit)
+  const plans = new FundingPlansService(prisma, candidatures, NO_PLEDGES, audit)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   const forms: string[] = []

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { FINANCING_AMOUNT_MAX_EUR } from './financing.schema.js'
 import { fundingSourceFamilySchema } from './funding-source.schema.js'
+import { interestIdentitySchema } from './interest.schema.js'
 import { FINANCING_STATUS_ACTORS, type FinancingStatusActor } from './status.schema.js'
 
 // ROADMAP E06.03: the financing plan of a request in one workspace. It belongs to the candidature
@@ -15,8 +16,36 @@ import { FINANCING_STATUS_ACTORS, type FinancingStatusActor } from './status.sch
 // here only (`fundingPlanTotals`), by the API for every read and by nothing else. The closed lists
 // and limits are kept equal to the CHECK constraint of migration 20261119000000_funding_plans.
 //
-// Promises (E06.04, E07.06) are not lines: they will be counted apart from these totals, so that an
-// intention and the financing it becomes are never added together.
+// Pledges (« promesses », E07.06) are not lines and never enter these totals: see E06.04 below.
+//
+// ── E06.04: pledges and validated financing ──────────────────────────────────────────────────────
+//
+//  * A pledge is an investor's non-binding intention; a line is financing the plan's parties state
+//    (envisaged, in progress, obtained, refused). The plan shows the pledges apart, as « promis, non
+//    engageant »: never in obtained, in progress, envisaged nor in the rest to finance.
+//  * Which pledges a plan shows is THE rule of each side, unchanged (pledge.schema.ts,
+//    position.schema.ts): its owner, the pledges of the investors who read the request now — all
+//    counted in the total, known one by one only when the investor shows both name and amount —; the
+//    structure, only the pledges of the investors who consented to show it their position and read
+//    the request through its pool — nothing of the others, not even in a total. The same plan thus
+//    shows each side its own figure; neither ever reads the other's.
+//  * Confirming a pledge (`FUNDING_PLAN_PLEDGE_CONFIRMERS`: the owner only, by default — D03/D04 open,
+//    see below) ties it to one line of the plan, in progress or obtained when confirmed
+//    (`FUNDING_PLAN_PLEDGE_CONFIRMED_STATES`), at the pledge's revision the owner read. From then on
+//    the plan counts that line and no longer the pledge: never both. At most one pledge per line and
+//    one line per pledge in a plan; each plan (each structure) confirms on its own.
+//  * Afterwards the line is the plan's like any other (either side changes or deletes it; deleted,
+//    the pledge is promised again). If the investor changes their pledge (any change, hiding their
+//    name or amount included, gives it a new revision), the confirmation no longer applies: the
+//    pledge is promised again as it now is, the line stays, marked « changed » to whoever may read
+//    that pledge, until the owner confirms it again or releases it. If the investor withdraws it,
+//    the confirmation goes with it and the line stays. Nothing of a confirmation is told to the
+//    investor, and a line tells a side which pledge it confirms only if that side reads the pledge.
+//  * Why the owner only, and only a pledge showing name and amount: a confirmation removes the
+//    pledge from the promised total; made on a pledge whose amount the owner cannot see — or by the
+//    structure, whose disclosed pledges the owner may not see —, the owner's total would drop by an
+//    amount hidden from them. Tying the confirmation to the revision keeps it so afterwards: a
+//    pledge excluded from a total is always one the owner saw, as it was.
 
 // planned: identified, not yet asked for; requested: asked for, decision pending; obtained: granted;
 // refused: kept for the record, counted nowhere.
@@ -159,30 +188,40 @@ export function fundingPlanTotals(
   }
 }
 
-export type FundingPlanSegmentKind = 'obtained' | 'requested' | 'planned' | 'uncovered'
+export type FundingPlanSegmentKind = 'obtained' | 'requested' | 'planned' | 'promised' | 'uncovered'
 
 export const FUNDING_PLAN_SEGMENT_LABELS: Record<FundingPlanSegmentKind, string> = {
   obtained: 'Obtenu',
   requested: 'En cours',
   planned: 'Envisagé',
+  promised: 'Promis, non engageant',
   uncovered: 'Sans source',
 }
 
 // The segmented bar: obtained, in progress, envisaged, then what no source covers, each as a share
 // of the scale — the objective, or the sources identified when they exceed it (the objective is
 // then marked at `objectiveAt`). Refused amounts are not drawn. Empty without objective nor line.
-export function fundingPlanBar(totals: FundingPlanTotals): {
+// `promisedEur` (E06.04, the pledges this side reads and no line confirms): drawn inside what no
+// source covers, at most all of it — a non-binding share of the gap, never a source; the scale and
+// the totals do not change.
+export function fundingPlanBar(
+  totals: FundingPlanTotals,
+  promisedEur = 0,
+): {
   segments: Array<{ kind: FundingPlanSegmentKind; amountEur: number; share: number }>
   objectiveAt: number | null
 } {
   const identified = totals.obtainedEur + totals.requestedEur + totals.plannedEur
   const scale = Math.max(totals.objectiveEur ?? 0, identified)
   if (scale === 0) return { segments: [], objectiveAt: null }
+  const uncovered = totals.uncoveredEur ?? 0
+  const promised = Math.min(Math.max(0, promisedEur), uncovered)
   const parts: Array<[FundingPlanSegmentKind, number]> = [
     ['obtained', totals.obtainedEur],
     ['requested', totals.requestedEur],
     ['planned', totals.plannedEur],
-    ['uncovered', totals.uncoveredEur ?? 0],
+    ['promised', promised],
+    ['uncovered', uncovered - promised],
   ]
   return {
     segments: parts
@@ -205,6 +244,16 @@ const planCategorySchema = z.object({
   active: z.boolean(),
 })
 
+// A pledge as a side of the plan may know it one by one (E06.04): the investor's identity as that
+// side reads it, the pledge's current amount, and — for the owner only, who may confirm it — its
+// revision, sent back as read (`null` for the structure).
+export const fundingPlanPledgeSchema = z.object({
+  id: z.string().uuid(),
+  identity: interestIdentitySchema,
+  amountEur: z.number().int().min(1),
+  version: z.number().int().min(1).nullable(),
+})
+
 export const fundingPlanLineSchema = z.object({
   id: z.string().uuid(),
   category: planCategorySchema,
@@ -214,6 +263,9 @@ export const fundingPlanLineSchema = z.object({
   version: z.number().int().min(1),
   updatedAt: z.string().datetime(),
   updatedBy: z.enum(FINANCING_STATUS_ACTORS),
+  // E06.04: the pledge this line confirms, only if this side reads that pledge (`null` otherwise,
+  // linked or not). `current: false` — the investor changed it since: it counts as promised again.
+  pledge: fundingPlanPledgeSchema.extend({ current: z.boolean() }).nullable(),
 })
 
 export const fundingPlanTotalsSchema = z.object({
@@ -231,15 +283,71 @@ export const fundingPlanTotalsSchema = z.object({
 // A candidature's plan, as its owner and the workspace's conseillers read it: the lines in the
 // order of the workspace's categories, the categories a new line may use (the active ones, in that
 // order) and the totals.
+// E06.04, apart from the totals: the pledges this side reads that no line of the plan confirms at
+// their current revision — how many and their total (« promis, non engageant ») —, and those the
+// owner may confirm (name and amount shown, held by no line of the plan; always empty for the
+// structure), the largest first.
+export const fundingPlanPledgesSchema = z.object({
+  count: z.number().int().min(0),
+  totalEur: z.number().int().min(0),
+  confirmable: z.array(fundingPlanPledgeSchema),
+})
+
 export const fundingPlanSchema = z.object({
   candidatureId: z.string().uuid(),
   workspaceId: z.string().uuid(),
   lines: z.array(fundingPlanLineSchema),
   categories: z.array(planCategorySchema),
   totals: fundingPlanTotalsSchema,
+  pledges: fundingPlanPledgesSchema,
 })
 
+// ── E06.04: confirming a pledge (owner's routes only) ────────────────────────────────────────────
+
+// Who may confirm a pledge in a plan. Kept to the owner (D03 « qui clôture les promesses » and D04
+// « alimentation explicite par les promesses » still open): widening it to the structure needs a
+// rule for the owner's total first (see above).
+export const FUNDING_PLAN_PLEDGE_CONFIRMERS: readonly FundingPlanSide[] = ['owner']
+
+// The states a line may have when it confirms a pledge: financing asked for or obtained, never
+// merely envisaged (nor refused).
+export const FUNDING_PLAN_PLEDGE_CONFIRMED_STATES = ['requested', 'obtained'] as const
+export function confirmsPledge(state: FundingPlanLineState): boolean {
+  return (FUNDING_PLAN_PLEDGE_CONFIRMED_STATES as readonly string[]).includes(state)
+}
+
+// The pledge confirmed and its revision as the owner read it (opaque, sent back as read — code
+// review R63).
+const pledgeRefSchema = z
+  .object({
+    id: z.string().uuid('Choisissez une promesse.'),
+    version: z.number({ message: 'Indiquez la version de la promesse lue.' }).int().min(1),
+  })
+  .strict()
+
+const NOT_CONFIRMING_STATE = {
+  message: 'Une promesse se confirme par une source en cours ou obtenue.',
+  path: ['state'],
+}
+
+// Owner's `POST …/funding-plan/lines`: a new line, which may confirm a pledge (`pledge`). The
+// structure's route keeps `createFundingPlanLineSchema`, which refuses `pledge`.
+export const createOwnerFundingPlanLineSchema = z
+  .object({ ...createFundingPlanLineSchema.shape, pledge: pledgeRefSchema.optional() })
+  .strict()
+  .refine((v) => v.pledge === undefined || confirmsPledge(v.state), NOT_CONFIRMING_STATE)
+
+// Owner's `PUT …/funding-plan/lines/:lineId/pledge`: this line, at the version the client saw,
+// confirms this pledge at the revision read — confirmed again with its new revision once changed.
+export const confirmFundingPlanPledgeSchema = z
+  .object({ version: z.number().int().min(1), pledge: pledgeRefSchema })
+  .strict()
+
 export type CreateFundingPlanLineInput = z.input<typeof createFundingPlanLineSchema>
+export type CreateOwnerFundingPlanLineInput = z.input<typeof createOwnerFundingPlanLineSchema>
+export type ConfirmFundingPlanPledgeInput = z.input<typeof confirmFundingPlanPledgeSchema>
+export type FundingPlanPledge = z.infer<typeof fundingPlanPledgeSchema>
+export type FundingPlanPledges = z.infer<typeof fundingPlanPledgesSchema>
 export type UpdateFundingPlanLineInput = z.input<typeof updateFundingPlanLineSchema>
 export type FundingPlanLine = z.infer<typeof fundingPlanLineSchema>
 export type FundingPlan = z.infer<typeof fundingPlanSchema>

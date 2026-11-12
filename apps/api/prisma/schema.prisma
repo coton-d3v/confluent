@@ -157,6 +157,7 @@ model User {
   poolPublicationsWithdrawn   PoolPublication[]                 @relation("PoolPublicationWithdrawer")
   interestsMarked             InvestorInterest[]
   pledgesMade                 InvestorPledge[]
+  pledgesConfirmed            FundingPlanPledgeLink[]
   positionDisclosures         InvestorPositionDisclosure[]
   readingSessions             ReadingSession[]
 
@@ -617,11 +618,14 @@ model Candidature {
   notes            CandidatureNote[]
   // At most one: `pool_publications.candidature_id` is unique.
   poolPublications PoolPublication[]
+  pledgeLinks      FundingPlanPledgeLink[]
 
   @@unique([dossierId, workspaceId])
   // Target of the (candidature, workspace) foreign keys of plan lines, eligibilities, step
   // validations and internal notes (E06.03, E06.05, E06.06, E06.08).
   @@unique([id, workspaceId])
+  // Target of the (candidature, request) foreign key of the pledges confirmed in its plan (E06.04).
+  @@unique([id, dossierId])
   @@index([workspaceId])
   @@index([formVersionId])
   @@map("candidatures")
@@ -954,10 +958,14 @@ model FundingPlanLine {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  candidature Candidature           @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
-  category    FundingSourceCategory @relation(fields: [categoryId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction)
-  updatedBy   User?                 @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  candidature Candidature             @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  category    FundingSourceCategory   @relation(fields: [categoryId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: NoAction)
+  updatedBy   User?                   @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  // At most one: `funding_plan_pledge_links.line_id` is unique (E06.04).
+  pledgeLinks FundingPlanPledgeLink[]
 
+  // Target of the (line, candidature) foreign key of a pledge confirmed by the line (E06.04).
+  @@unique([id, candidatureId])
   @@index([candidatureId])
   @@index([categoryId, workspaceId])
   @@index([updatedById])
@@ -1195,13 +1203,45 @@ model InvestorPledge {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  dossier  Dossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  investor User    @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  dossier   Dossier                 @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  investor  User                    @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  planLinks FundingPlanPledgeLink[]
 
   @@unique([dossierId, investorId])
+  // Target of the (pledge, request) foreign key of its confirmations in plans (E06.04).
+  @@unique([id, dossierId])
   // E07.07 lists an investor's pledges.
   @@index([investorId])
   @@map("investor_pledges")
+}
+
+// A pledge confirmed as financing in one candidature's plan (ROADMAP E06.04, rules in
+// @confluent/shared `funding-plan.schema.ts`): the line of that plan that now carries it, and the
+// pledge's revision (`pledge_version`, opaque, compared for equality only) the owner confirmed. While
+// the pledge is still at that revision, the plan counts the line and no longer the pledge; once the
+// investor changes it, the pledge counts as promised again. At most one pledge per line and one line
+// per pledge in a plan (both unique); the composite foreign keys keep the line in the candidature and
+// the pledge on the candidature's request. Removed with the line, the pledge (a withdrawal), the
+// candidature or the request; the line itself stays when the pledge goes.
+model FundingPlanPledgeLink {
+  id            String   @id @default(uuid())
+  lineId        String   @unique @map("line_id")
+  candidatureId String   @map("candidature_id")
+  dossierId     String   @map("dossier_id")
+  pledgeId      String   @map("pledge_id")
+  pledgeVersion Int      @map("pledge_version")
+  confirmedById String?  @map("confirmed_by_id")
+  confirmedAt   DateTime @default(now()) @map("confirmed_at")
+
+  line        FundingPlanLine @relation(fields: [lineId, candidatureId], references: [id, candidatureId], onDelete: Cascade, onUpdate: NoAction)
+  candidature Candidature     @relation(fields: [candidatureId, dossierId], references: [id, dossierId], onDelete: Cascade, onUpdate: NoAction)
+  pledge      InvestorPledge  @relation(fields: [pledgeId, dossierId], references: [id, dossierId], onDelete: Cascade, onUpdate: NoAction)
+  confirmedBy User?           @relation(fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@unique([candidatureId, pledgeId])
+  @@index([pledgeId, dossierId])
+  @@index([confirmedById])
+  @@map("funding_plan_pledge_links")
 }
 
 // An investor's consent to show a structure their position on a request (ROADMAP E07.07, rules in

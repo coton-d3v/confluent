@@ -372,15 +372,19 @@ export class OpportunitiesService {
 
   // Those of these investors who read the request as an opportunity now — an active, verified
   // account reaching it by THE rule (`reachOne`) —, each with how: the only ones whose marks of
-  // interest (E07.05) and pledges (E07.06) its owner sees.
-  async readersNow(dossierId: string, investorIds: string[]): Promise<Map<string, CurrentReader>> {
+  // interest (E07.05) and pledges (E07.06) its owner sees. `db`: the caller's transaction.
+  async readersNow(
+    dossierId: string,
+    investorIds: string[],
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, CurrentReader>> {
     const ids = new Set(investorIds)
     const readers = new Map<string, CurrentReader>()
     if (ids.size === 0) return readers
-    const investors = await this.prisma.user.findMany({ where: { id: { in: [...ids] } } })
+    const investors = await db.user.findMany({ where: { id: { in: [...ids] } } })
     for (const investor of investors) {
       if (!ids.has(investor.id) || !investor.isActive || investor.emailVerifiedAt === null) continue
-      const reached = await this.reachOne(investor, dossierId)
+      const reached = await this.reachOne(investor, dossierId, db)
       if (reached) readers.set(investor.id, { investor, reached })
     }
     return readers

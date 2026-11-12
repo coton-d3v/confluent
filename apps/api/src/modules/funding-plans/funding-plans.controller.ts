@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common'
@@ -24,7 +25,9 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger'
 import {
+  confirmFundingPlanPledgeSchema,
   createFundingPlanLineSchema,
+  createOwnerFundingPlanLineSchema,
   deleteFundingPlanLineQuerySchema,
   updateFundingPlanLineSchema,
 } from '@confluent/shared'
@@ -39,6 +42,9 @@ import {
 } from './funding-plans.service'
 
 class CreateFundingPlanLineDto extends createZodDto(createFundingPlanLineSchema) {}
+class CreateOwnerFundingPlanLineDto extends createZodDto(createOwnerFundingPlanLineSchema) {}
+class ConfirmFundingPlanPledgeDto extends createZodDto(confirmFundingPlanPledgeSchema) {}
+class ReleaseFundingPlanPledgeQueryDto extends createZodDto(deleteFundingPlanLineQuerySchema) {}
 class UpdateFundingPlanLineDto extends createZodDto(updateFundingPlanLineSchema) {}
 class DeleteFundingPlanLineQueryDto extends createZodDto(deleteFundingPlanLineQuerySchema) {}
 
@@ -52,12 +58,22 @@ const PLAN =
   'nouvelle ligne et les totaux (`totals`) : objectif = montant recherché de la demande, obtenu, ' +
   'en cours, envisagé, reste à financer (objectif − obtenu), sans source, dépassement. Lu et ' +
   'modifié par le porteur de projet et par les conseillers du workspace ; aucune autre structure, ' +
-  'aucun investisseur, aucun partage.'
+  'aucun investisseur, aucun partage. À part (E06.04), `pledges` : les promesses d’investisseurs ' +
+  'que cette partie peut lire (le porteur : celles des investisseurs qui lisent la demande ; la ' +
+  'structure : celles qu’un investisseur a consenti à lui montrer) et qu’aucune ligne ne confirme ' +
+  '— nombre et total « promis, non engageant », jamais comptés dans les totaux —, et pour le ' +
+  'porteur celles qu’il peut confirmer ; `lines[].pledge` : la promesse confirmée par la ligne, si ' +
+  'cette partie la lit (`current: false` si l’investisseur l’a modifiée depuis : de nouveau promise).'
 
 const WRITE =
   ' Chaque ligne porte une `version` : une ligne modifiée entre-temps est refusée (`409` ' +
   '`FUNDING_PLAN_LINE_CHANGED`), jamais écrasée. Journalisé (`funding_plan_updated`). Renvoie le ' +
   'plan à jour.'
+
+const PLEDGE_CONFLICT =
+  ' E06.04 : promesse modifiée, retirée ou plus montrée (`FUNDING_PLAN_PLEDGE_CHANGED`, même ' +
+  'réponse pour une promesse inconnue), déjà confirmée par une autre ligne ' +
+  '(`FUNDING_PLAN_PLEDGE_HELD`), ligne ni en cours ni obtenue (`FUNDING_PLAN_PLEDGE_STATE`).'
 
 const LINE_ERRORS = {
   badRequest: 'Champ invalide, ou source inconnue dans ce workspace.',
@@ -95,17 +111,63 @@ export class FundingPlanController {
   @ApiOperation({
     summary: 'Ajouter une ligne au plan (porteur de projet)',
     description:
-      '`{ categoryId, amountEur, state, label? }` : une source active du workspace.' + WRITE,
+      '`{ categoryId, amountEur, state, label?, pledge? }` : une source active du workspace. ' +
+      '`pledge: { id, version }` (E06.04) : la ligne, en cours ou obtenue, confirme cette promesse ' +
+      '(parmi `pledges.confirmable`, à la version lue) ; elle n’est plus comptée comme promise.' +
+      WRITE,
   })
   @ApiCreatedResponse({ description: 'Plan à jour.' })
   @ApiBadRequestResponse({ description: LINE_ERRORS.badRequest })
-  @ApiConflictResponse({ description: LINE_ERRORS.conflict })
+  @ApiConflictResponse({ description: LINE_ERRORS.conflict + PLEDGE_CONFLICT })
   add(
     @Param('candidatureId', uuid) candidatureId: string,
-    @Body() body: CreateFundingPlanLineDto,
+    @Body() body: CreateOwnerFundingPlanLineDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FundingPlanView> {
     return this.plans.addLine(this.owner(user), candidatureId, body)
+  }
+
+  @Put('lines/:lineId/pledge')
+  @ApiParam({ name: 'lineId', description: 'UUID de la ligne' })
+  @ApiOperation({
+    summary: 'Confirmer une promesse par une ligne du plan (porteur de projet)',
+    description:
+      '`{ version, pledge: { id, version } }` (E06.04) : la ligne (à sa version lue, en cours ou ' +
+      'obtenue) confirme cette promesse à la version lue — une promesse dont l’investisseur montre ' +
+      'nom et montant et lit la demande —, à la place de celle qu’elle confirmait. Dès lors le plan ' +
+      'compte la ligne et plus la promesse, tant que l’investisseur ne la modifie pas ; modifiée, ' +
+      'elle se confirme de nouveau ici. Réservé au porteur ; la structure n’a pas cette route.' +
+      WRITE,
+  })
+  @ApiOkResponse({ description: 'Plan à jour.' })
+  @ApiConflictResponse({ description: 'Ligne modifiée entre-temps.' + PLEDGE_CONFLICT })
+  confirmPledge(
+    @Param('candidatureId', uuid) candidatureId: string,
+    @Param('lineId', uuid) lineId: string,
+    @Body() body: ConfirmFundingPlanPledgeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FundingPlanView> {
+    return this.plans.confirmPledge(this.owner(user), candidatureId, lineId, body)
+  }
+
+  @Delete('lines/:lineId/pledge')
+  @ApiParam({ name: 'lineId', description: 'UUID de la ligne' })
+  @ApiOperation({
+    summary: 'Détacher la promesse d’une ligne du plan (porteur de projet)',
+    description:
+      '`?version=` : la version de la ligne lue (E06.04). La ligne reste ; la promesse est de ' +
+      'nouveau comptée comme promise. Sans promesse confirmée, rien ne change.' +
+      WRITE,
+  })
+  @ApiOkResponse({ description: 'Plan à jour.' })
+  @ApiConflictResponse({ description: 'Ligne modifiée entre-temps.' })
+  releasePledge(
+    @Param('candidatureId', uuid) candidatureId: string,
+    @Param('lineId', uuid) lineId: string,
+    @Query() query: ReleaseFundingPlanPledgeQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FundingPlanView> {
+    return this.plans.releasePledge(this.owner(user), candidatureId, lineId, query.version)
   }
 
   @Patch('lines/:lineId')

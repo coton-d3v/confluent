@@ -17,6 +17,7 @@ import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { createDefaultSupportSteps } from '../support-paths/support-step-defaults'
 import { SupportPathsService } from '../support-paths/support-paths.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
+import { NO_PLEDGES } from '../../testing/no-pledges'
 import { CandidatureNotesService } from './candidature-notes.service'
 import { InterventionJournalService } from './intervention-journal.service'
 
@@ -326,7 +327,7 @@ describe('InterventionJournalService', () => {
 
   it('lists the structure’s interventions — notes, statuses, plan lines, eligibilities, steps — the latest first, and none of the entrepreneur’s', async () => {
     const prisma = s.p as never
-    const plans = new FundingPlansService(prisma, s.candidatures, s.audit)
+    const plans = new FundingPlansService(prisma, s.candidatures, NO_PLEDGES, s.audit)
     const eligibilities = new EligibilitiesService(prisma, s.candidatures, s.audit)
     const paths = new SupportPathsService(prisma, s.candidatures, s.audit)
     const ws = { side: 'workspace' as const, actor: MARIE, workspaceId: CCI }

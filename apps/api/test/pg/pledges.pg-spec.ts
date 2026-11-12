@@ -16,11 +16,13 @@ import { QuestionnairesService } from '../../src/modules/questionnaires/question
 import { ReadingSessionsService } from '../../src/modules/reading-sessions/reading-sessions.service'
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
-import { investorPledgesDown, investorPledgesUp } from './sql-file'
+import { fundingPlanPledgesDown, investorPledgesDown, investorPledgesUp } from './sql-file'
 
 const UP = investorPledgesUp()
 // Without the acceptance: what an operator runs first.
 const DOWN = investorPledgesDown().slice(1)
+// E06.04's confirmations reference the pledges: undone first.
+const LATER_DOWN = fundingPlanPledgesDown()
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_investor_pledges_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_investor_pledges_loss = 'off'"
@@ -232,6 +234,7 @@ describe('pledges (PostgreSQL)', () => {
     it('adds the pledges and nothing else; undone (refusing to lose a pledge or its journal unless accepted), then applied again', async () => {
       const { investor, dossier } = await sharedRequest()
       await rolledBack(async (tx) => {
+        await run(tx, LATER_DOWN)
         const migrated = await fingerprint(tx)
         const counts = `SELECT (SELECT count(*)::int FROM dossiers) AS dossiers,
                   (SELECT count(*)::int FROM users) AS users,
@@ -275,6 +278,7 @@ describe('pledges (PostgreSQL)', () => {
 
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await rolledBack(async (tx) => {
+        await run(tx, LATER_DOWN)
         const reference = await fingerprint(tx)
         await run(tx, DOWN)
         await tx.$executeRawUnsafe('SAVEPOINT legacy')

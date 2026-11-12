@@ -292,6 +292,11 @@ describe('MCP: financing and support follow-up of candidatures (e2e, E06.09)', (
       }),
     ])
     expect(added.result.totals).toMatchObject({ obtainedEur: 30_000, remainingEur: 70_000 })
+    // E06.04: no pledge through these tools — neither the promised figure nor what a line confirms
+    // (an authorization given before E07.10 never reads positions, code review R52).
+    expect(added.result).not.toHaveProperty('pledges')
+    expect(added.result.totals).not.toHaveProperty('promisedEur')
+    expect(added.result.lines[0]).not.toHaveProperty('pledge')
     const lineId = added.result.lines[0].lineId as string
 
     // The same plan in the site, for the owner and for the structure.

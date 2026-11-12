@@ -10,8 +10,13 @@ import type { DocumentsService } from '../documents/documents.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { createDefaultFundingSourceCategories } from '../funding-sources/funding-source-defaults'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
+import type {
+  AudiencePledge,
+  PledgeAudience,
+  PositionsService,
+} from '../opportunities/positions.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
-import { FundingPlansService, type FundingPlanParty } from './funding-plans.service'
+import { FundingPlansService, planPledges, type FundingPlanParty } from './funding-plans.service'
 
 // ROADMAP E06.03: who keeps a candidature's financing plan — its owner, and once sent the
 // conseillers of its workspace —, nobody else; every write checked again under the candidature's
@@ -86,7 +91,20 @@ async function setup() {
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
   )
-  const plans = new FundingPlansService(prisma, candidatures, audit)
+  // What each audience reads of the pledges is PositionsService's rule (tested with it, and over
+  // HTTP in funding-plan-pledges.e2e-spec.ts); here, set by each test.
+  const seen: { owner: AudiencePledge[]; workspace: Record<string, AudiencePledge[]> } = {
+    owner: [],
+    workspace: {},
+  }
+  const positions = {
+    pledgesFor: jest.fn((audience: PledgeAudience) =>
+      Promise.resolve(
+        audience.side === 'owner' ? seen.owner : (seen.workspace[audience.workspaceId] ?? []),
+      ),
+    ),
+  } as unknown as PositionsService
+  const plans = new FundingPlansService(prisma, candidatures, positions, audit)
 
   const dossier = await dossiers.create({ owner: SOPHIE, name: 'Biosensio' })
   await p.dossier.update({ where: { id: dossier.id }, data: { amountEur: 100_000 } })
@@ -103,7 +121,23 @@ async function setup() {
     (await p.fundingSourceCategory.findFirst({ where: { workspaceId, key } }))!
   const journal = () =>
     [...fake.table('auditLog').values()].filter((e) => e.actionType === 'funding_plan_updated')
-  return { fake, p, plans, dossier, toCci, toClub, send, category, journal }
+  // A pledge on the request, as the fake stores it.
+  const pledgeOn = async (
+    investorId: string,
+    amountEur: number,
+    show = { showName: true, showAmount: true },
+  ) =>
+    (await p.investorPledge.create({
+      data: {
+        dossierId: dossier.id,
+        investorId,
+        intention: 'strong',
+        amountEur,
+        version: 7,
+        ...show,
+      },
+    })) as unknown as AudiencePledge['pledge']
+  return { fake, p, plans, dossier, toCci, toClub, send, category, journal, seen, pledgeOn }
 }
 
 describe('FundingPlansService', () => {
@@ -371,5 +405,271 @@ describe('FundingPlansService', () => {
         },
       },
     ])
+  })
+})
+
+// ROADMAP E06.04: a pledge and the financing it became are never counted together; only the owner
+// confirms, only a pledge they know one by one, at the revision they read; each side sees its own
+// pledges only.
+describe('FundingPlansService — pledges (E06.04)', () => {
+  let s: Awaited<ReturnType<typeof setup>>
+  beforeEach(async () => {
+    s = await setup()
+    await s.send()
+  })
+  const who = (name: string) => ({ name, organizations: [] })
+  const read = (pledge: AudiencePledge['pledge'], name: string, individual = true) => ({
+    pledge,
+    identity: who(name),
+    individual,
+  })
+  const confirm = (
+    party: FundingPlanParty,
+    pledge: { id: string; version: number },
+    categoryId: string,
+    state: 'obtained' | 'requested' | 'planned' = 'obtained',
+  ) =>
+    s.plans.addLine(party, s.toCci.id, {
+      categoryId,
+      amountEur: 40_000,
+      state,
+      pledge: { id: pledge.id, version: pledge.version },
+    })
+
+  it('counts a confirmed pledge as its line only, and the others apart from the totals', async () => {
+    const claire = await s.pledgeOn(CLAIRE.id, 40_000)
+    const paul = await s.pledgeOn(PAUL.id, 25_000, { showName: false, showAmount: false })
+    s.seen.owner = [read(claire, 'Claire'), read(paul, 'Paul', false)]
+    const ba = await s.category(CCI, 'business_angels_love_money')
+    const before = await s.plans.get(owner(SOPHIE), s.toCci.id)
+    expect(before.pledges).toEqual({
+      count: 2,
+      totalEur: 65_000,
+      confirmable: [{ id: claire.id, identity: who('Claire'), amountEur: 40_000, version: 7 }],
+    })
+    const after = await confirm(owner(SOPHIE), claire, ba.id)
+    expect(after.totals).toMatchObject({ obtainedEur: 40_000, remainingEur: 60_000 })
+    expect(after.pledges).toEqual({ count: 1, totalEur: 25_000, confirmable: [] })
+    expect(after.lines[0].pledge).toEqual({
+      id: claire.id,
+      identity: who('Claire'),
+      amountEur: 40_000,
+      version: 7,
+      current: true,
+    })
+    expect(s.journal().map((e) => (e.metadata as { change: string }).change)).toEqual([
+      'created',
+      'pledge_confirmed',
+    ])
+  })
+
+  it('lets the owner only confirm, a pledge showing name and amount, at the revision read', async () => {
+    const claire = await s.pledgeOn(CLAIRE.id, 40_000)
+    const hidden = await s.pledgeOn(PAUL.id, 25_000, { showName: true, showAmount: false })
+    s.seen.owner = [read(claire, 'Claire'), read(hidden, 'Paul', false)]
+    s.seen.workspace[CCI] = [read(claire, 'Claire')]
+    const ba = await s.category(CCI, 'business_angels_love_money')
+    expect(await failure(confirm(inWs(MARIE), claire, ba.id))).toEqual({
+      status: 403,
+      message: 'FUNDING_PLAN_PLEDGE_OWNER_ONLY',
+    })
+    const refused = { status: 409, message: 'FUNDING_PLAN_PLEDGE_CHANGED' }
+    expect(await failure(confirm(owner(SOPHIE), hidden, ba.id))).toEqual(refused)
+    expect(await failure(confirm(owner(SOPHIE), { ...claire, version: 8 }, ba.id))).toEqual(refused)
+    const unknown = { id: '0d3c1b0e-0000-4000-8000-000000000000', version: 7 }
+    expect(await failure(confirm(owner(SOPHIE), unknown, ba.id))).toEqual(refused)
+    expect(await failure(confirm(owner(SOPHIE), claire, ba.id, 'planned'))).toEqual({
+      status: 409,
+      message: 'FUNDING_PLAN_PLEDGE_STATE',
+    })
+    expect((await s.plans.get(owner(SOPHIE), s.toCci.id)).lines).toEqual([])
+    // An existing line only envisaged does not confirm a pledge either.
+    const [planned] = (
+      await s.plans.addLine(owner(SOPHIE), s.toCci.id, {
+        categoryId: ba.id,
+        amountEur: 1000,
+        state: 'planned',
+      })
+    ).lines
+    expect(
+      await failure(
+        s.plans.confirmPledge(owner(SOPHIE), s.toCci.id, planned.id, {
+          version: planned.version,
+          pledge: { id: claire.id, version: 7 },
+        }),
+      ),
+    ).toEqual({ status: 409, message: 'FUNDING_PLAN_PLEDGE_STATE' })
+    await s.plans.deleteLine(owner(SOPHIE), s.toCci.id, planned.id, planned.version)
+    const [line] = (await confirm(owner(SOPHIE), claire, ba.id)).lines
+    expect(
+      await failure(
+        s.plans.confirmPledge(inWs(MARIE), s.toCci.id, line.id, {
+          version: line.version,
+          pledge: { id: claire.id, version: 7 },
+        }),
+      ),
+    ).toMatchObject({ status: 403 })
+    expect(
+      await failure(s.plans.releasePledge(inWs(MARIE), s.toCci.id, line.id, line.version)),
+    ).toMatchObject({ status: 403 })
+  })
+
+  it('keeps one line per pledge; the same revision again changes nothing, a new one is confirmed again', async () => {
+    const claire = await s.pledgeOn(CLAIRE.id, 40_000)
+    s.seen.owner = [read(claire, 'Claire')]
+    const ba = await s.category(CCI, 'business_angels_love_money')
+    const [line] = (await confirm(owner(SOPHIE), claire, ba.id)).lines
+    expect(await failure(confirm(owner(SOPHIE), claire, ba.id))).toEqual({
+      status: 409,
+      message: 'FUNDING_PLAN_PLEDGE_HELD',
+    })
+    const other = (
+      await s.plans.addLine(owner(SOPHIE), s.toCci.id, {
+        categoryId: ba.id,
+        amountEur: 1000,
+        state: 'requested',
+      })
+    ).lines.find((l) => l.id !== line.id)!
+    expect(
+      await failure(
+        s.plans.confirmPledge(owner(SOPHIE), s.toCci.id, other.id, {
+          version: other.version,
+          pledge: { id: claire.id, version: 7 },
+        }),
+      ),
+    ).toEqual({ status: 409, message: 'FUNDING_PLAN_PLEDGE_HELD' })
+    const journaled = s.journal().length
+    const same = await s.plans.confirmPledge(owner(SOPHIE), s.toCci.id, line.id, {
+      version: line.version,
+      pledge: { id: claire.id, version: 7 },
+    })
+    expect(same.lines.find((l) => l.id === line.id)?.version).toBe(line.version)
+    expect(s.journal()).toHaveLength(journaled)
+
+    // The investor changes the pledge: promised again, the line marked, until confirmed again.
+    for (const row of [claire, s.fake.table('investorPledge').get(claire.id)!]) {
+      Object.assign(row, { amountEur: 50_000, version: 12 })
+    }
+    const changed = await s.plans.get(owner(SOPHIE), s.toCci.id)
+    expect(changed.pledges).toMatchObject({ count: 1, totalEur: 50_000, confirmable: [] })
+    expect(changed.lines.find((l) => l.id === line.id)?.pledge).toMatchObject({
+      amountEur: 50_000,
+      version: 12,
+      current: false,
+    })
+    expect(
+      await failure(
+        s.plans.confirmPledge(owner(SOPHIE), s.toCci.id, line.id, {
+          version: line.version,
+          pledge: { id: claire.id, version: 7 },
+        }),
+      ),
+    ).toEqual({ status: 409, message: 'FUNDING_PLAN_PLEDGE_CHANGED' })
+    const again = await s.plans.confirmPledge(owner(SOPHIE), s.toCci.id, line.id, {
+      version: line.version,
+      pledge: { id: claire.id, version: 12 },
+    })
+    expect(again.pledges).toMatchObject({ count: 0, totalEur: 0 })
+    const relinked = again.lines.find((l) => l.id === line.id)!
+    expect(relinked).toMatchObject({ version: line.version + 1, pledge: { current: true } })
+
+    // Released: the line stays, the pledge is promised again.
+    const released = await s.plans.releasePledge(
+      owner(SOPHIE),
+      s.toCci.id,
+      line.id,
+      relinked.version,
+    )
+    expect(released.lines.find((l) => l.id === line.id)).toMatchObject({
+      version: relinked.version + 1,
+      pledge: null,
+    })
+    expect(released.pledges).toMatchObject({ count: 1, totalEur: 50_000 })
+    expect(released.pledges.confirmable.map((c) => c.id)).toEqual([claire.id])
+    expect(s.journal().map((e) => (e.metadata as { change: string }).change)).toEqual([
+      'created',
+      'pledge_confirmed',
+      'created',
+      'pledge_confirmed',
+      'pledge_released',
+    ])
+  })
+
+  it('shows the structure its own pledges only: a confirmed pledge it does not read stays unnamed', async () => {
+    const claire = await s.pledgeOn(CLAIRE.id, 40_000)
+    const jean = await s.pledgeOn(JEAN.id, 30_000)
+    s.seen.owner = [read(claire, 'Claire'), read(jean, 'Jean')]
+    // Only Claire showed the CCI her position.
+    s.seen.workspace[CCI] = [read(claire, 'Claire (Angels)')]
+    const ba = await s.category(CCI, 'business_angels_love_money')
+    await confirm(owner(SOPHIE), claire, ba.id)
+    await confirm(owner(SOPHIE), jean, ba.id)
+    const plan = await s.plans.get(inWs(MARIE), s.toCci.id)
+    expect(plan.pledges).toEqual({ count: 0, totalEur: 0, confirmable: [] })
+    expect(plan.lines.map((l) => l.pledge)).toEqual(
+      expect.arrayContaining([
+        null,
+        {
+          id: claire.id,
+          identity: who('Claire (Angels)'),
+          amountEur: 40_000,
+          version: null,
+          current: true,
+        },
+      ]),
+    )
+    // The other plan of the request confirms nothing: both pledges are promised there.
+    expect((await s.plans.get(owner(SOPHIE), s.toClub.id)).pledges).toMatchObject({
+      count: 2,
+      totalEur: 70_000,
+    })
+  })
+})
+
+describe('planPledges (E06.04)', () => {
+  const pledge = (id: string, amountEur: number, version: number) =>
+    ({ id, amountEur, version }) as AudiencePledge['pledge']
+  const a = {
+    pledge: pledge('a', 10, 1),
+    identity: { name: 'A', organizations: [] },
+    individual: true,
+  }
+  const b = {
+    pledge: pledge('b', 20, 2),
+    identity: { name: 'B', organizations: [] },
+    individual: false,
+  }
+
+  it('never counts a pledge with the line confirming its current revision; any other is promised', () => {
+    const lines = [{ id: 'l1' }, { id: 'l2' }]
+    const links = [
+      { lineId: 'l1', pledgeId: 'a', pledgeVersion: 1 },
+      // A stale revision: promised again.
+      { lineId: 'l2', pledgeId: 'b', pledgeVersion: 1 },
+      // A line gone, a pledge gone: ignored.
+      { lineId: 'gone', pledgeId: 'a', pledgeVersion: 1 },
+      { lineId: 'l2', pledgeId: 'withdrawn', pledgeVersion: 1 },
+    ]
+    const owner = planPledges({ side: 'owner' }, lines, links, [a, b])
+    expect(owner.summary).toEqual({ count: 1, totalEur: 20, confirmable: [] })
+    expect(owner.onLine.get('l1')).toMatchObject({ id: 'a', current: true, version: 1 })
+    // `b` is not known one by one: its line does not name it.
+    expect(owner.onLine.has('l2')).toBe(false)
+    const structure = planPledges({ side: 'workspace', workspaceId: 'w' }, lines, links, [a])
+    expect(structure.summary).toEqual({ count: 0, totalEur: 0, confirmable: [] })
+    expect(structure.onLine.get('l1')).toMatchObject({ id: 'a', version: null })
+  })
+
+  it('offers the owner the pledges known one by one that no line holds, the largest first', () => {
+    const c = { ...a, pledge: pledge('c', 30, 3), identity: { name: 'C', organizations: [] } }
+    const view = planPledges({ side: 'owner' }, [], [], [a, b, c])
+    expect(view.summary.confirmable.map((p) => p.id)).toEqual(['c', 'a'])
+    expect(view.summary).toMatchObject({ count: 3, totalEur: 60 })
+    // The structure never confirms: nothing offered, even a pledge it knows one by one.
+    expect(planPledges({ side: 'workspace', workspaceId: 'w' }, [], [], [a, c]).summary).toEqual({
+      count: 2,
+      totalEur: 40,
+      confirmable: [],
+    })
   })
 })
