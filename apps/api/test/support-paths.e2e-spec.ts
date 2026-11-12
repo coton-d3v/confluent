@@ -360,7 +360,7 @@ describe('Support paths (e2e)', () => {
     await openToCandidatures(MARIE, cci)
     await openToCandidatures(PAUL, club)
     await as(MARIE)
-      .post(managed(cci), { label: 'Revue juridique', explanation: 'Statuts relus — 4242.' })
+      .post(managed(cci), { label: 'Revue juridique', explanation: 'Statuts relus — QX4242.' })
       .expect(201)
     const { dossier, toCci, toClub, send } = await present(SOPHIE, 'Biosensio')
     await send(toCci, toClub)
@@ -373,7 +373,7 @@ describe('Support paths (e2e)', () => {
     // The club reads its own path, nothing validated, and never the CCI's.
     const clubPath = (await as(PAUL).get(received(club, toClub)).expect(200)).body
     expect(clubPath.steps.every((s: { validatedAt: null }) => s.validatedAt === null)).toBe(true)
-    expect(JSON.stringify(clubPath)).not.toMatch(/4242|Revue juridique/)
+    expect(JSON.stringify(clubPath)).not.toMatch(/QX4242|Revue juridique/)
     for (const path of [received(club, toCci), received(cci, toCci)]) {
       await as(PAUL).get(path).expect(404)
       await as(PAUL).patch(`${path}/steps/${pitch}`, body).expect(404)
@@ -413,7 +413,7 @@ describe('Support paths (e2e)', () => {
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures/${toClub}`).expect(200)).body,
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures`).expect(200)).body,
     ]) {
-      expect(JSON.stringify(read)).not.toMatch(/4242|Revue juridique|Diagnostic|validatedAt/)
+      expect(JSON.stringify(read)).not.toMatch(/QX4242|Revue juridique|Diagnostic|validatedAt/)
     }
     // Nothing was written by the refused calls.
     expect(fake.table('candidatureStepValidation').size).toBe(1)
@@ -512,19 +512,19 @@ describe('Support paths (e2e)', () => {
   it('keeps the portfolio to the workspace’s conseillers, over its own candidatures only', async () => {
     await openToCandidatures(MARIE, cci)
     await openToCandidatures(PAUL, club)
-    await as(MARIE).post(managed(cci), { label: 'Revue juridique 4242' }).expect(201)
-    const bio = await present(SOPHIE, 'Biosensio 4343')
+    await as(MARIE).post(managed(cci), { label: 'Revue juridique QX4242' }).expect(201)
+    const bio = await present(SOPHIE, 'Biosensio QX4343')
     await bio.send(bio.toClub)
     const agro = await present(MARC, 'Agrotech')
     await agro.send(agro.toCci)
     // Sophie's request was sent to the club only: its draft to the CCI stays out of the CCI's.
     const cciView = (await as(JEAN).get(portfolio(cci)).expect(200)).body
     expect(cciView.items.map((i: { id: string }) => i.id)).toEqual([agro.toCci])
-    expect(JSON.stringify(cciView)).not.toContain('4343')
+    expect(JSON.stringify(cciView)).not.toContain('QX4343')
     // The club sees its own candidature, its own steps, nothing of the CCI.
     const clubView = (await as(PAUL).get(portfolio(club)).expect(200)).body
     expect(clubView.items.map((i: { id: string }) => i.id)).toEqual([bio.toClub])
-    expect(JSON.stringify(clubView)).not.toMatch(/4242|Agrotech/)
+    expect(JSON.stringify(clubView)).not.toMatch(/QX4242|Agrotech/)
     // An investisseur of the CCI: 403; the club's manager, the entrepreneurs, a stranger: 404;
     // nobody signed in: 401.
     await as(CLAIRE).get(portfolio(cci)).expect(403)

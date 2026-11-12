@@ -22,7 +22,10 @@ export interface ClassificationDimension {
   values: readonly ClassificationValue[]
 }
 
-const SCALE: ClassificationValue[] = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} / 5` }))
+const SCALE: ClassificationValue[] = [1, 2, 3, 4, 5].map((n) => ({
+  value: String(n),
+  label: `${n} / 5`,
+}))
 
 export const CLASSIFICATION_DIMENSIONS = {
   sector: { label: 'Secteur', kind: 'label', values: [] },
@@ -54,7 +57,10 @@ export const CLASSIFICATION_DIMENSIONS = {
 export type ClassificationDimensionKey = keyof typeof CLASSIFICATION_DIMENSIONS
 
 export const classificationDimensionSchema = z.enum(
-  Object.keys(CLASSIFICATION_DIMENSIONS) as [ClassificationDimensionKey, ...ClassificationDimensionKey[]],
+  Object.keys(CLASSIFICATION_DIMENSIONS) as [
+    ClassificationDimensionKey,
+    ...ClassificationDimensionKey[],
+  ],
 )
 
 // Technology tag, derived from the `non_tech` and `deeptech_signal` rules: deeptech from 2 signals.

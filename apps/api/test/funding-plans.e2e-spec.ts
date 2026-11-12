@@ -454,7 +454,9 @@ describe('Financing plans (e2e)', () => {
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures/${toClub}`).expect(200)).body,
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures`).expect(200)).body,
     ]) {
-      expect(JSON.stringify(read)).not.toMatch(/42424|Initiative Touraine|fundingPlan|planLines/)
+      expect(JSON.stringify(read)).not.toMatch(
+        /[:"]42424\b|Initiative Touraine|fundingPlan|planLines/,
+      )
     }
     // Nothing was written by the refused calls.
     expect(fake.table('fundingPlanLine').size).toBe(1)

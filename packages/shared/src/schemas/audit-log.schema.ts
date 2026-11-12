@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod'
 
 export const auditActionSchema = z.enum([
   'magic_link_requested',
@@ -84,7 +84,7 @@ export const auditActionSchema = z.enum([
   'entrepreneur_access_request_received',
   'entrepreneur_access_request_discarded',
   'entrepreneur_access_request_decided',
-]);
+])
 
 export const auditLogSchema = z.object({
   id: z.string().uuid(),
@@ -94,7 +94,7 @@ export const auditLogSchema = z.object({
   actionType: auditActionSchema,
   metadata: z.record(z.string(), z.unknown()),
   createdAt: z.string().datetime(),
-});
+})
 
-export type AuditAction = z.infer<typeof auditActionSchema>;
-export type AuditLog = z.infer<typeof auditLogSchema>;
+export type AuditAction = z.infer<typeof auditActionSchema>
+export type AuditLog = z.infer<typeof auditLogSchema>

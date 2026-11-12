@@ -1,0 +1,23 @@
+name: Install the workspace
+description: Node 24 and pnpm from the lockfile (store cached), then @confluent/shared built.
+
+runs:
+  using: composite
+  steps:
+    # The pnpm version comes from the `packageManager` field of package.json.
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+
+    # Also runs the API's postinstall (`prisma generate`).
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    # API and web resolve @confluent/shared from its build.
+    - name: Build @confluent/shared
+      shell: bash
+      run: pnpm --filter @confluent/shared build

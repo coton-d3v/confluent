@@ -1,11 +1,11 @@
-import { z } from 'zod';
-import { COMPANY_NAME_MAX_LENGTH, companySummarySchema } from './company.schema.js';
+import { z } from 'zod'
+import { COMPANY_NAME_MAX_LENGTH, companySummarySchema } from './company.schema.js'
 import {
   dossierNameSchema,
   dossierPresentationShape,
   financingTypeSchema,
-} from './financing.schema.js';
-import { dossierPublicationStatusSchema } from './status.schema.js';
+} from './financing.schema.js'
+import { dossierPublicationStatusSchema } from './status.schema.js'
 
 export const dossierSchema = z.object({
   id: z.string().uuid(),
@@ -41,15 +41,15 @@ export const dossierSchema = z.object({
   updatedAt: z.string().datetime(),
   ownerEmail: z.string().email().optional(),
   ownerName: z.string().optional(),
-});
+})
 
 // A new dossier of a new company, named after it (E05.04).
 export const createDossierSchema = z.object({
   name: z.string().trim().min(1).max(COMPANY_NAME_MAX_LENGTH),
-});
+})
 
 // E05.07: another financing request of an existing company, which presents the same profile.
-export const createCompanyDossierSchema = z.object({ name: dossierNameSchema }).strict();
+export const createCompanyDossierSchema = z.object({ name: dossierNameSchema }).strict()
 
 // The title (`name`) and the presentation of a request (E05.07); null clears an optional part.
 // Unknown keys are refused rather than ignored (publication has its own routes).
@@ -58,7 +58,7 @@ export const updateDossierSchema = z
   .strict()
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'At least one field must be provided.',
-  });
+  })
 
 export const adminDossierListItemSchema = z.object({
   id: z.string().uuid(),
@@ -72,18 +72,18 @@ export const adminDossierListItemSchema = z.object({
   publicationStatus: dossierPublicationStatusSchema,
   createdAt: z.string().datetime(),
   activeShareLinksCount: z.number().int().nonnegative(),
-});
+})
 
 export const adminDossierListSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
   total: z.number().int().nonnegative(),
   items: z.array(adminDossierListItemSchema),
-});
+})
 
-export type Dossier = z.infer<typeof dossierSchema>;
-export type CreateDossierInput = z.infer<typeof createDossierSchema>;
-export type CreateCompanyDossierInput = z.infer<typeof createCompanyDossierSchema>;
-export type UpdateDossierInput = z.input<typeof updateDossierSchema>;
-export type AdminDossierListItem = z.infer<typeof adminDossierListItemSchema>;
-export type AdminDossierList = z.infer<typeof adminDossierListSchema>;
+export type Dossier = z.infer<typeof dossierSchema>
+export type CreateDossierInput = z.infer<typeof createDossierSchema>
+export type CreateCompanyDossierInput = z.infer<typeof createCompanyDossierSchema>
+export type UpdateDossierInput = z.input<typeof updateDossierSchema>
+export type AdminDossierListItem = z.infer<typeof adminDossierListItemSchema>
+export type AdminDossierList = z.infer<typeof adminDossierListSchema>

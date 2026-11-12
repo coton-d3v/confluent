@@ -124,7 +124,10 @@ export const dossierNameSchema = z
 export const dossierPresentationShape = {
   summary: plainTextSchema('Le résumé', DOSSIER_PRESENTATION_LIMITS.summary).optional(),
   objective: plainTextSchema('L’objectif', DOSSIER_PRESENTATION_LIMITS.objective).optional(),
-  description: plainTextSchema('La description', DOSSIER_PRESENTATION_LIMITS.description).optional(),
+  description: plainTextSchema(
+    'La description',
+    DOSSIER_PRESENTATION_LIMITS.description,
+  ).optional(),
   amountEur: z
     .number()
     .int('Le montant s’indique en euros, sans centimes.')

@@ -502,7 +502,7 @@ describe('Eligibility schemes and eligibilities (e2e)', () => {
     const jeir = await schemeId(cci, 'jeir')
     const added = (
       await sophie
-        .post(own(toCci), { schemeId: jeir, note: 'Qualification Tours 4242' })
+        .post(own(toCci), { schemeId: jeir, note: 'Qualification Tours QX4242' })
         .expect(201)
     ).body
     const id = added.eligibilities[0].id
@@ -552,12 +552,12 @@ describe('Eligibility schemes and eligibilities (e2e)', () => {
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures/${toClub}`).expect(200)).body,
       (await as(PAUL).get(`/v1/workspaces/${club}/candidatures`).expect(200)).body,
     ]) {
-      expect(JSON.stringify(read)).not.toMatch(/4242|Qualification|JEIR/)
+      expect(JSON.stringify(read)).not.toMatch(/QX4242|Qualification|JEIR/)
     }
     // A received candidature's page carries none: its own route does (with the same rules).
     const page = (await as(MARIE).get(`/v1/workspaces/${cci}/candidatures/${toCci}`).expect(200))
       .body
-    expect(JSON.stringify(page)).not.toMatch(/4242|Qualification|JEIR|eligibilit/i)
+    expect(JSON.stringify(page)).not.toMatch(/QX4242|Qualification|JEIR|eligibilit/i)
     // Nothing was written by the refused calls.
     expect(fake.table('candidatureEligibility').size).toBe(1)
   })

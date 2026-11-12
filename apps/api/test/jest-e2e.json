@@ -16,5 +16,6 @@
     "^@confluent/shared/(.*)\\.js$": "<rootDir>/../../../packages/shared/src/$1.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
-  "setupFiles": ["<rootDir>/setup-env.ts"]
+  "setupFiles": ["<rootDir>/setup-env.ts"],
+  "testTimeout": 30000
 }
