@@ -21,6 +21,7 @@ import {
 } from '@/features/candidatures/api'
 import { CandidatureFormFields } from '@/features/candidatures/components/CandidatureFormFields'
 import { PoolPublicationPanel } from '@/features/candidatures/components/PoolPublicationPanel'
+import { ShowcaseCardPanel } from '@/features/showcase-cards/components/ShowcaseCardPanel'
 import { CandidateCommitteesPanel } from '@/features/committees/components/CandidateCommitteesPanel'
 import { EligibilitiesPanel } from '@/features/eligibilities/components/EligibilitiesPanel'
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
@@ -287,6 +288,14 @@ function CandidatureEditor({
           />
         )}
 
+        {submitted && (
+          <ShowcaseCardPanel
+            candidatureId={candidature.id}
+            workspaceName={workspace.name}
+            refreshKey={`${candidature.financingStatus}|${dossier.publicationStatus}|${candidature.updatedAt}`}
+          />
+        )}
+
         <SupportPathPanel
           scope={{ side: 'owner', candidatureId: candidature.id }}
           intro={
@@ -300,7 +309,7 @@ function CandidatureEditor({
           scope={{ side: 'owner', candidatureId: candidature.id }}
           intro={
             submitted
-              ? `Vos sources de financement pour cette demande, réparties selon les sources proposées par ${workspace.name}. Vous et ses conseillers pouvez compléter ce plan ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne le voient.`
+              ? `Vos sources de financement pour cette demande, réparties selon les sources proposées par ${workspace.name}. Vous et ses conseillers pouvez compléter ce plan ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne le voient — sauf ses totaux (obtenu, en cours, reste à financer) sur la carte publique, si vous l’affichez.`
               : `Préparez vos sources de financement pour cette demande, réparties selon les sources proposées par ${workspace.name}. Ses conseillers verront ce plan, et pourront le compléter, une fois la candidature envoyée ; ni les autres structures, ni les investisseurs, ni les personnes avec qui vous partagez la demande ne le voient.`
           }
           describeSide={(side) => (side === 'owner' ? 'par vous' : `par ${workspace.name}`)}

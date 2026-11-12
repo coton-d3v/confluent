@@ -12,6 +12,7 @@ import { EligibilitiesPanel } from '@/features/eligibilities/components/Eligibil
 import { FundingPlanPanel } from '@/features/funding-plans/components/FundingPlanPanel'
 import { InterventionsPanel } from '@/features/interventions/components/InterventionsPanel'
 import { ReceivedPoolPublication } from '@/features/candidatures/components/PoolPublicationPanel'
+import { ReceivedShowcaseCard } from '@/features/showcase-cards/components/ShowcaseCardPanel'
 import { SupportPathPanel } from '@/features/support-paths/components/SupportPathPanel'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import type { ApiError } from '@/lib/api-client'
@@ -166,6 +167,8 @@ function ReceivedCandidatureView({
           financingStatus={candidature.financingStatus}
         />
 
+        <ReceivedShowcaseCard workspaceId={workspaceId} candidatureId={candidature.id} />
+
         <SupportPathPanel
           scope={{ side: 'workspace', workspaceId, candidatureId: candidature.id }}
           intro="Les étapes du parcours d’accompagnement de votre structure pour cette demande. Validez une étape une fois franchie : l’entreprise voit la date de validation, pas votre nom ; aucune autre structure ni aucun investisseur ne voit ce parcours."
@@ -173,7 +176,7 @@ function ReceivedCandidatureView({
 
         <FundingPlanPanel
           scope={{ side: 'workspace', workspaceId, candidatureId: candidature.id }}
-          intro="Les sources de financement de cette demande, réparties selon les sources de votre structure. L’entreprise et vous pouvez compléter ce plan ; aucune autre structure ni aucun investisseur ne le voit."
+          intro="Les sources de financement de cette demande, réparties selon les sources de votre structure. L’entreprise et vous pouvez compléter ce plan ; aucune autre structure ni aucun investisseur ne le voit — sauf ses totaux (obtenu, en cours, reste à financer) sur la carte de votre page publique, si l’entreprise l’affiche."
           describeSide={(side) => (side === 'owner' ? 'par l’entreprise' : 'par votre structure')}
           noObjective="L’entreprise n’a pas indiqué le montant recherché de cette demande : le reste à financer ne peut pas être calculé."
         />
