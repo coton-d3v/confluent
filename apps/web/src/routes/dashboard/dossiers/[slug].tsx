@@ -41,6 +41,7 @@ import { RequestEditor } from '@/features/dossiers/components/RequestEditor'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { DossierCandidatures } from '@/features/candidatures/components/DossierCandidatures'
 import { DossierPositionsSection } from '@/features/positions/components/DossierPositionsSection'
+import { DossierHistorySection } from '@/features/history/components/DossierHistorySection'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import {
   ACCESS_LEVELS,
@@ -638,6 +639,9 @@ function DossierView({
               )}
             </div>
           </section>
+
+          {/* E07.09: who consulted, what happened to the accesses, the administration's interventions. */}
+          {isOwner && <DossierHistorySection dossierId={dossierId} />}
 
           {isOwner && (
             <section className="mt-8" aria-labelledby="preview-heading">
