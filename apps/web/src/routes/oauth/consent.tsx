@@ -60,14 +60,28 @@ const { write: WRITE } = OAUTH_SCOPES
 // received candidatures to their workspaces' conseillers). Submitting, presenting, deciding and
 // publishing act on the user's behalf: they start unticked, so that approving without reading never
 // grants them (code review R52); so does following received candidatures, which reads the
-// structure's internal notes. Listed here before the API offers them (E05.10, E06.09): an unknown
-// permission would otherwise join the access level.
+// structure's internal notes. Listed here before the API offers them (E05.10, E06.09, E07.10): an
+// unknown permission would otherwise join the access level. E07.10: following and sharing one's
+// requests, reading one's opportunities and positions and taking a position start unticked too —
+// they read or show what others see (investors' names and amounts, readers, pledges).
 const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
   { scope: OAUTH_SCOPES.formsWrite, title: 'Concevoir des formulaires', ticked: true },
   { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
   {
     scope: OAUTH_SCOPES.present,
     title: 'Présenter vos demandes de financement',
+    ticked: false,
+  },
+  {
+    scope: OAUTH_SCOPES.sharingRead,
+    title: 'Suivre la diffusion de vos demandes',
+    ticked: false,
+  },
+  { scope: OAUTH_SCOPES.sharingWrite, title: 'Partager vos demandes', ticked: false },
+  { scope: OAUTH_SCOPES.opportunitiesRead, title: 'Lire vos opportunités', ticked: false },
+  {
+    scope: OAUTH_SCOPES.opportunitiesWrite,
+    title: 'Vous positionner sur les opportunités',
     ticked: false,
   },
   {
