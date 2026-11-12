@@ -8,7 +8,12 @@ import {
 } from '../../src/modules/committees/committees.service'
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
-import { committeeApplicationsDown, committeesDown, committeesUp } from './sql-file'
+import {
+  committeeApplicationsDown,
+  committeesDown,
+  committeesUp,
+  participationRequestsDown,
+} from './sql-file'
 
 const UP = committeesUp()
 // Without the acceptance: what an operator runs first.
@@ -16,8 +21,8 @@ const DOWN = committeesDown().slice(1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_committees_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_committees_loss = 'off'"
-// E08.03's entries reference the committees: undone first.
-const LATER_DOWN = committeeApplicationsDown()
+// E08.04's participation requests and E08.03's entries reference the committees: undone first.
+const LATER_DOWN = [...participationRequestsDown(), ...committeeApplicationsDown()]
 
 class RolledBack extends Error {}
 

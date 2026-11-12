@@ -30,9 +30,18 @@ export interface CommitteeInput {
   meetingUrl?: string | null
   internalNotes?: string | null
   sharedInfo?: string | null
+  // E08.04: absent, closed for a new committee and kept as it is on an edit.
+  participationRequestsOpen?: boolean
 }
 
-type Field = 'name' | 'schedule' | 'location' | 'meetingUrl' | 'internalNotes' | 'sharedInfo'
+type Field =
+  | 'name'
+  | 'schedule'
+  | 'location'
+  | 'meetingUrl'
+  | 'internalNotes'
+  | 'sharedInfo'
+  | 'participationRequestsOpen'
 
 const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 
@@ -50,7 +59,10 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // candidates and investors, edited alike; a journal entry names a changed text, never copies it.
 // Outside the conseillers, a committee is read through its shared view only, never `CommitteeView`:
 // by the entrepreneurs who may apply to it or whose request has an entry on it (E08.03,
-// `CommitteeApplicationsService`, the link once accepted); its participants come with E08.04–E08.06.
+// `CommitteeApplicationsService`, the link once accepted); by the public, its name and when only,
+// once a manager offers it on the workspace's participation form (E08.04,
+// `participationRequestsOpen`, `ParticipationRequestsService`); its participants come with
+// E08.05–E08.06.
 //
 // Extension point: E08.06 notifies a change of schedule or a cancellation — `update` and
 // `changeStatus` already tell which fields changed.
@@ -87,7 +99,11 @@ export class CommitteesService {
     input: CommitteeInput,
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
-    const data = { ...scheduled(input), sharedInfo: input.sharedInfo ?? null }
+    const data = {
+      ...scheduled(input),
+      sharedInfo: input.sharedInfo ?? null,
+      participationRequestsOpen: input.participationRequestsOpen ?? false,
+    }
     const created = await this.prisma.$transaction(async (tx) => {
       await this.lockForManager(tx, actor, workspaceId)
       const count = await tx.committee.count({ where: { workspaceId } })
@@ -128,6 +144,8 @@ export class CommitteesService {
       const next = {
         ...data,
         sharedInfo: input.sharedInfo === undefined ? current.sharedInfo : input.sharedInfo,
+        participationRequestsOpen:
+          input.participationRequestsOpen ?? current.participationRequestsOpen,
       }
       const changed = changedFields(current, next)
       if (changed.length === 0) return current
@@ -148,6 +166,14 @@ export class CommitteesService {
           ...(changed.includes('name') ? { name: { from: current.name, to: committee.name } } : {}),
           ...(changed.includes('schedule')
             ? { schedule: { from: scheduleOf(current), to: scheduleOf(committee) } }
+            : {}),
+          ...(changed.includes('participationRequestsOpen')
+            ? {
+                participationRequestsOpen: {
+                  from: current.participationRequestsOpen,
+                  to: committee.participationRequestsOpen,
+                },
+              }
             : {}),
         },
       })
@@ -252,7 +278,10 @@ function wallClock(date: string, time: string): Date {
 
 function changedFields(
   current: Committee,
-  next: ReturnType<typeof scheduled> & { sharedInfo: string | null },
+  next: ReturnType<typeof scheduled> & {
+    sharedInfo: string | null
+    participationRequestsOpen: boolean
+  },
 ): Field[] {
   const fields: Field[] = []
   if (current.name !== next.name) fields.push('name')
@@ -267,5 +296,8 @@ function changedFields(
   if (current.meetingUrl !== next.meetingUrl) fields.push('meetingUrl')
   if (current.internalNotes !== next.internalNotes) fields.push('internalNotes')
   if (current.sharedInfo !== next.sharedInfo) fields.push('sharedInfo')
+  if (current.participationRequestsOpen !== next.participationRequestsOpen) {
+    fields.push('participationRequestsOpen')
+  }
   return fields
 }

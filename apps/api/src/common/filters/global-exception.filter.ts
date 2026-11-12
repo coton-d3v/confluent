@@ -75,6 +75,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return
     }
 
+    // The body parser's refusals (body too large, malformed JSON…) are the client's: told as such,
+    // not as a failure of the API.
+    const refused = bodyParserRefusal(exception)
+    if (refused) {
+      response.status(refused.status).json({
+        error: {
+          code: HTTP_STATUS_CODES[refused.status] ?? `HTTP_${refused.status}`,
+          message: refused.message,
+        },
+      } satisfies ErrorBody)
+      return
+    }
+
     this.logger.error(
       `Unhandled exception on ${request.method} ${request.url}`,
       exception instanceof Error ? exception.stack : String(exception),
@@ -85,5 +98,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message: 'An unexpected error occurred.',
       },
     } satisfies ErrorBody)
+  }
+}
+
+// An error of Express's body parser (http-errors with a `type` such as `entity.too.large` or
+// `entity.parse.failed`, and a 4xx status).
+function bodyParserRefusal(exception: unknown): { status: number; message: string } | null {
+  if (!exception || typeof exception !== 'object') return null
+  const { type, status } = exception as { type?: unknown; status?: unknown }
+  if (typeof type !== 'string' || typeof status !== 'number' || status < 400 || status >= 500) {
+    return null
+  }
+  return {
+    status,
+    message:
+      status === 413 ? 'La requête est trop volumineuse.' : 'Le corps de la requête est illisible.',
   }
 }

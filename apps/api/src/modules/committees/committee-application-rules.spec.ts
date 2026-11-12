@@ -33,6 +33,7 @@ const COMMITTEE: Committee = {
   status: 'planned',
   internalNotes: 'NOTE-INTERNE',
   sharedInfo: 'Pitch de 10 minutes.',
+  participationRequestsOpen: true,
   version: 3,
   createdAt: '2099-01-01T00:00:00.000Z',
   updatedAt: '2099-01-01T00:00:00.000Z',

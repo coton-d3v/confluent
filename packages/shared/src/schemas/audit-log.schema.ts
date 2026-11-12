@@ -74,6 +74,8 @@ export const auditActionSchema = z.enum([
   'committee_updated',
   'committee_status_changed',
   'committee_application_changed',
+  'participation_request_received',
+  'participation_request_discarded',
 ]);
 
 export const auditLogSchema = z.object({

@@ -23,6 +23,7 @@ import { hashToken } from './../src/modules/oauth/oauth.constants'
 import { createFakePrisma, selectWholeLibrary } from '../src/testing/fake-prisma'
 import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
 import { classificationSources } from '../src/modules/classification/classification-sources'
+import { ParticipationFormTokens } from '../src/modules/participation-requests/participation-form-token'
 
 const id = (n: number) => `7d3c1b0e-0000-4000-8000-${n.toString().padStart(12, '0')}`
 const FUTURE = new Date(Date.now() + 3600_000)
@@ -967,6 +968,8 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
           meetingUrl: 'https://visio.example.org/COMITE-LIEN',
           internalNotes: 'COMITE-NOTE-INTERNE',
           sharedInfo: 'COMITE-INFO-DIFFUSEE',
+          // E08.04: offered on the CCI's public participation form.
+          participationRequestsOpen: true,
         })
         .expect(201)
     ).body
@@ -980,6 +983,22 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
     await as(ADMIN)
       .post(applications, { candidatureId: dossier.candidatureId, to: 'accepted', version: 1 })
       .expect(200)
+    // E08.04: each reader also asks, from the public form, to take part in that committee, with the
+    // address of their account: a pending request, which grants nothing.
+    const memberships = fake.table('workspaceMembership').size
+    for (const reader of [BOB, IVY, EVE]) {
+      await request(app.getHttpServer())
+        .post('/v1/public/workspaces/cci-touraine/participation-requests')
+        .send({
+          name: reader.email,
+          email: reader.email,
+          committeeIds: [committee.id],
+          formToken: app.get(ParticipationFormTokens).issue(cci, Date.now() - 5000),
+        })
+        .expect(202)
+    }
+    expect(fake.table('participationRequest').size).toBe(3)
+    expect(fake.table('workspaceMembership').size).toBe(memberships)
     const refused = [
       `/v1/dossiers/${dossier.id}/analytics`,
       `/v1/dossiers/${dossier.id}/audit-log`,
@@ -1017,6 +1036,8 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       `/v1/workspaces/${cci}/committees`,
       `/v1/workspaces/${cci}/committees/${committee.id}`,
       applications,
+      // E08.04: the queue of participation requests — theirs included.
+      `/v1/admin/workspaces/${cci}/participation-requests`,
     ]
     for (const reader of [BOB, IVY, EVE]) {
       for (const url of refused) {

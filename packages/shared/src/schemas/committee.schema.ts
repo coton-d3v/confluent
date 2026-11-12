@@ -24,7 +24,9 @@ import { HTML_TAG, plainParagraphs } from './support-path.schema.js'
 // (`COMMITTEE_SHARED_FIELDS`, closed list), the only view any reader outside the workspace's
 // conseillers may get: the entrepreneurs who may apply to it or whose request has an entry on it
 // read it from E08.03 (`candidateCommitteeOf`, committee-application.schema.ts, the link once
-// accepted); its participants come with E08.04–E08.06.
+// accepted); its participants come with E08.05–E08.06. The public (E08.04) reads less still: the
+// committees a manager opened to participation requests (`participationRequestsOpen`, internal), as
+// `toPublicCommittee` (participation-request.schema.ts) — name and when only.
 //
 // Who: read by those who follow the workspace's candidatures (its active conseillers and Confluent
 // administrators, `canReadCommittees`); created, edited and cancelled by those who manage the
@@ -222,7 +224,8 @@ export function zonedTimeIssue(date: string, time: string, timeZone: string): st
 // What a manager types, whole: creating a committee and editing one send the same fields. A place
 // and a link are optional (« lieu à préciser »), and so are both texts. On an edit, an absent
 // `sharedInfo` keeps the current one (a client that predates it never erases it); `null` or blank
-// removes it.
+// removes it. Likewise `participationRequestsOpen` (E08.04: the committee is offered on the
+// workspace's public participation form): absent, kept as it is (closed for a new committee).
 const committeeFields = z
   .object({
     name: nameSchema,
@@ -233,6 +236,7 @@ const committeeFields = z
     meetingUrl: meetingUrlSchema.optional(),
     internalNotes: internalNotesSchema.optional(),
     sharedInfo: sharedInfoSchema.optional(),
+    participationRequestsOpen: z.boolean().optional(),
   })
   .strict()
 
@@ -287,6 +291,8 @@ export const committeeSchema = z.object({
   internalNotes: z.string().nullable(),
   // For the committee's candidates and investors.
   sharedInfo: z.string().nullable(),
+  // E08.04: offered on the workspace's public participation form while planned and not started.
+  participationRequestsOpen: z.boolean(),
   version: z.number().int().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

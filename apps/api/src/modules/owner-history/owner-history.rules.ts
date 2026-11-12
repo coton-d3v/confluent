@@ -121,6 +121,10 @@ export const OWNER_HISTORY_RULES = {
   // E08.03: a request's entries on committees, read by its owner on the candidature (with the side
   // that changed them, never the conseiller).
   committee_application_changed: CANDIDATURE,
+  // E08.04: a request to take part in committees, sent by someone outside the workspace from its
+  // public form; it concerns no request of an owner.
+  participation_request_received: PLATFORM,
+  participation_request_discarded: SECURITY,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a
