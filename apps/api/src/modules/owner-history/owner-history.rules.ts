@@ -45,7 +45,8 @@ export const OWNER_HISTORY_RULES = {
   admin_edited_field: shown('answer_edited', ['administration'], true),
   // Only written by an administrator's reclassification after new rules (E03.12).
   dossier_classified: shown('classification_updated', ['administration'], true),
-  // Not written yet (E10.05): its description names no detail of the entry.
+  // E10.05: a document deposited, or replaced by a new version, by an administrator through this
+  // request (its name and version, never the administrator).
   admin_uploaded_document: shown('document_added', ['administration'], true),
   dossier_submitted: shown('request_submitted', ['request']),
   dossier_published: shown('request_published', ['request']),

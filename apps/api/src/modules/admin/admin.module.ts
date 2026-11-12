@@ -17,6 +17,7 @@ import { AuthModule } from '../auth/auth.module'
 import { WorkspacesModule } from '../workspaces/workspaces.module'
 import { ShareLinksModule } from '../share-links/share-links.module'
 import { ReadingSessionsModule } from '../reading-sessions/reading-sessions.module'
+import { DocumentsModule } from '../documents/documents.module'
 import { AdminWorkspacesController } from './admin-workspaces.controller'
 import { AdminWorkspaceMembersController } from './admin-workspace-members.controller'
 
@@ -31,6 +32,7 @@ import { AdminWorkspaceMembersController } from './admin-workspace-members.contr
     WorkspacesModule,
     ShareLinksModule,
     ReadingSessionsModule,
+    DocumentsModule,
   ],
   controllers: [
     AdminDossiersController,

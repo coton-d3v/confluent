@@ -74,10 +74,57 @@ export const adminDossierListItemSchema = z.object({
   activeShareLinksCount: z.number().int().nonnegative(),
 })
 
+export const ADMIN_DOSSIER_PAGE_SIZE_MAX = 100
+export const ADMIN_DOSSIER_PAGE_MAX = 10_000
+export const ADMIN_DOSSIER_SEARCH_MAX_LENGTH = 200
+
+// ROADMAP E10.05 — the administrators' search of the requests (dossiers), on the server, a page at a
+// time. `q` (trimmed, empty = every request) matches, whole value: a request's slug or identifier, its
+// company's identifier, its owner's email address (case ignored); and, as a part of the text (case
+// ignored): the request's title or its company's name. The latest created first.
+export const adminDossierListQuerySchema = z
+  .object({
+    page: z.coerce
+      .number({ message: 'Page invalide.' })
+      .int('Page invalide.')
+      .min(1, 'Page invalide.')
+      .max(ADMIN_DOSSIER_PAGE_MAX, 'Page invalide.')
+      .optional(),
+    pageSize: z.coerce
+      .number({ message: 'Taille de page invalide.' })
+      .int('Taille de page invalide.')
+      .min(1, 'Taille de page invalide.')
+      .max(ADMIN_DOSSIER_PAGE_SIZE_MAX, 'Taille de page invalide.')
+      .optional(),
+    q: z
+      .string()
+      .trim()
+      .max(ADMIN_DOSSIER_SEARCH_MAX_LENGTH, 'Recherche trop longue : 200 caractères maximum.')
+      .optional(),
+  })
+  .strict()
+export type AdminDossierListQuery = z.infer<typeof adminDossierListQuerySchema>
+
+// « Aller à » : the one request whose slug or identifier is exactly `ref`.
+export const adminDossierLookupQuerySchema = z
+  .object({
+    ref: z
+      .string({ message: 'Slug ou identifiant requis.' })
+      .trim()
+      .min(1, 'Slug ou identifiant requis.')
+      .max(ADMIN_DOSSIER_SEARCH_MAX_LENGTH, 'Slug ou identifiant trop long.'),
+  })
+  .strict()
+export type AdminDossierLookupQuery = z.infer<typeof adminDossierLookupQuerySchema>
+
+// `q`: the search applied (null: none); `exactMatch`: the request whose slug or identifier is `q`
+// itself, wherever it falls in the results, for a direct « aller à ».
 export const adminDossierListSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
   total: z.number().int().nonnegative(),
+  q: z.string().nullable(),
+  exactMatch: adminDossierListItemSchema.nullable(),
   items: z.array(adminDossierListItemSchema),
 })
 

@@ -54,6 +54,13 @@ export class AdminUsersService {
     if (!user) {
       throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found.' })
     }
+    // E10.05: an administrator never locks themselves out (nor the platform out of its last one).
+    if (userId === actorId) {
+      throw new ConflictException({
+        code: 'CANNOT_DEACTIVATE_SELF',
+        message: 'Vous ne pouvez pas désactiver votre propre compte.',
+      })
+    }
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { isActive: false },

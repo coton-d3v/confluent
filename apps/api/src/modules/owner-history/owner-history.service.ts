@@ -289,8 +289,23 @@ export class OwnerHistoryService {
           }),
         }
       }
-      case 'document_added':
-        return { ...base, summary: 'Document déposé par l’administration' }
+      case 'document_added': {
+        // E10.05: a document of the owner's own library, by its name; a new version replaces the
+        // one in force.
+        const filename = text(metadata.filename)
+        const version = typeof metadata.version === 'number' ? metadata.version : null
+        const replaced = metadata.newDocument === false
+        return {
+          ...base,
+          summary: replaced
+            ? 'Document remplacé par l’administration : nouvelle version'
+            : 'Document déposé par l’administration',
+          details: [
+            ...(filename ? [{ label: 'Document', value: cut(filename) }] : []),
+            ...(version !== null ? [{ label: 'Version', value: String(version) }] : []),
+          ],
+        }
+      }
       case 'request_submitted':
         return { ...base, summary: 'Dossier soumis', details: channelDetail(metadata) }
       case 'request_published':

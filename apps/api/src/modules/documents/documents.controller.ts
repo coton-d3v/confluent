@@ -12,7 +12,6 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
-  BadRequestException,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import {
@@ -40,72 +39,30 @@ import { createZodDto } from 'nestjs-zod'
 import {
   ACCEPTED_DOCUMENT_FORMATS_LABEL,
   DOCUMENT_TYPES,
-  documentTypeSchema,
   dossierDocumentSelectionSchema,
   updateDocumentSchema,
-  type DocumentType,
   type DossierDocumentSelected,
   type LibraryDocument,
   type UploadedDocument,
 } from '@confluent/shared'
+import { DocumentsService, type DocumentGroup } from './documents.service'
 import {
-  DocumentsService,
-  MAX_UPLOAD_BYTES,
-  type DocumentGroup,
-  type StoredVersion,
-} from './documents.service'
+  UPLOAD_OPTIONS,
+  documentFieldIdField,
+  documentTypeField,
+  requireFile,
+  versionResponse,
+  type MulterFile,
+} from './upload-request'
 import { UploadSizeGuard } from './upload-size.guard'
 import { DossiersService } from '../dossiers/dossiers.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
-
-interface MulterFile {
-  originalname: string
-  buffer: Buffer
-  size: number
-}
-
-// The multipart limit aborts the upload while streaming (413) instead of buffering an oversized file
-// in memory first. Browsers send the file name in UTF-8, multer reads it as latin1 by default
-// (`defParamCharset` is a multer option missing from Nest's MulterOptions type).
-const UPLOAD_OPTIONS = {
-  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 10 },
-  defParamCharset: 'utf8',
-}
 
 class UpdateDocumentDto extends createZodDto(updateDocumentSchema) {}
 class DossierDocumentSelectionDto extends createZodDto(dossierDocumentSelectionSchema) {}
 
 function currentUser(req: Request): AuthenticatedUser {
   return (req as Request & { user: AuthenticatedUser }).user
-}
-
-// A multipart field is text: an absent or empty `type` means none; any other value must be a known
-// type (closed list, 400 otherwise).
-function documentTypeField(raw: unknown): DocumentType | undefined {
-  if (raw === undefined || raw === '') return undefined
-  const parsed = documentTypeSchema.safeParse(raw)
-  if (!parsed.success) {
-    throw new BadRequestException({
-      code: 'INVALID_DOCUMENT_TYPE',
-      message: 'Type de document inconnu.',
-    })
-  }
-  return parsed.data
-}
-
-function versionResponse(created: StoredVersion): UploadedDocument {
-  return {
-    id: created.id,
-    documentId: created.libraryDocumentId,
-    filename: created.filename,
-    type: created.type,
-    version: created.version,
-    restoredFromVersion: created.restoredFromVersion,
-    mimetype: created.mimetype,
-    size: created.size,
-    fieldId: created.fieldId,
-    createdAt: created.createdAt.toISOString(),
-  }
 }
 
 @ApiTags('Documents')
@@ -177,16 +134,13 @@ export class DocumentsController {
     @UploadedFile() file: MulterFile | undefined,
     @Body() body: { fieldId?: unknown; type?: unknown },
   ): Promise<UploadedDocument> {
-    if (!file) {
-      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'File is required.' })
-    }
+    const uploaded = requireFile(file)
     const dossier = await this.dossiers.getByIdForUser(dossierId, currentUser(req).id)
-    const fieldId = typeof body?.fieldId === 'string' && body.fieldId !== '' ? body.fieldId : null
     const created = await this.documents.upload({
       dossier,
-      filename: file.originalname,
-      buffer: file.buffer,
-      fieldId,
+      filename: uploaded.originalname,
+      buffer: uploaded.buffer,
+      fieldId: documentFieldIdField(body?.fieldId),
       type: documentTypeField(body?.type),
     })
     return versionResponse(created)
