@@ -1,19 +1,44 @@
+import { useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import {
+  PARTICIPATION_ADMISSION_LABELS,
+  PARTICIPATION_REQUEST_STATUS_LABELS,
   committeeOpenToParticipationRequests,
+  participationDecisionNotice,
   type Committee,
+  type ParticipationDecision,
   type ParticipationRequest,
 } from '@confluent/shared'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ConfirmDialog, type ConfirmRequest } from '@/components/confluent/ConfirmDialog'
 import { CopyButton } from '@/features/oauth/components/CopyButton'
 import type { ApiError } from '@/lib/api-client'
 import { useAsync } from '@/lib/useAsync'
-import { listParticipationRequests, participationFormUrl } from '../api'
+import { decideParticipationRequest, listParticipationRequests, participationFormUrl } from '../api'
 
-const receivedOn = (iso: string) =>
+const dayFr = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
 
-// ROADMAP E08.04, for the workspace's managers on a committee's page: whether the committee is
-// offered on the workspace's public participation form, the form's address, and the pending
-// requests asking for it — read-only: deciding them comes with E08.05, and none grants anything.
+const personOf = (p: { email: string; firstName: string | null; lastName: string | null }) =>
+  [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email
+
+// What became of the email telling an accepted person (E08.05): the decision stands either way.
+function invitationLine(request: ParticipationRequest): string | null {
+  if (request.status !== 'accepted' || !request.invitationEmail) return null
+  if (request.invitationEmail === 'sent' && request.invitationEmailAt) {
+    return `Email d’acceptation envoyé le ${dayFr(request.invitationEmailAt)}.`
+  }
+  if (request.invitationEmail === 'failed') {
+    return 'L’email d’acceptation n’a pas pu partir : la personne peut se connecter avec son adresse depuis la page de connexion de Confluent.'
+  }
+  return 'Envoi de l’email d’acceptation non confirmé : la personne peut se connecter avec son adresse depuis la page de connexion de Confluent.'
+}
+
+// ROADMAP E08.04–E08.05, for the workspace's managers on a committee's page: whether the committee
+// is offered on the workspace's public participation form, the form's address, and the requests
+// asking for it — to accept or refuse (once, confirmed), then listed with their decision, its author
+// and date, and what became of the email. The API decides at each call, from the version shown.
 export function ParticipationRequestsSection({
   workspace,
   committee,
@@ -23,10 +48,66 @@ export function ParticipationRequestsSection({
   committee: Committee
   now: number
 }) {
-  const query = useAsync(() => listParticipationRequests(workspace.id), [workspace.id])
+  const pending = useAsync(
+    () => listParticipationRequests(workspace.id, { committeeId: committee.id }),
+    [workspace.id, committee.id],
+  )
+  const decided = useAsync(
+    () => listParticipationRequests(workspace.id, { status: 'decided', committeeId: committee.id }),
+    [workspace.id, committee.id],
+  )
+  const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const offered = committeeOpenToParticipationRequests(committee, now)
   const url = participationFormUrl(workspace.slug, committee.id)
-  const requests = (query.data ?? []).filter((r) => r.committees.some((c) => c.id === committee.id))
+
+  async function decide(request: ParticipationRequest, decision: ParticipationDecision) {
+    setBusy(true)
+    try {
+      const result = await decideParticipationRequest(workspace.id, request.id, {
+        decision,
+        version: request.version,
+      })
+      const notice = participationDecisionNotice(request.name, decision, result)
+      toast[notice.tone](notice.text)
+    } catch (err) {
+      const e = err as Partial<ApiError> | undefined
+      toast.error(
+        e?.status === undefined
+          ? 'Rien n’a été décidé. Vérifiez votre connexion puis réessayez.'
+          : (e.message ?? 'Rien n’a été décidé.'),
+      )
+    } finally {
+      setBusy(false)
+      // Whatever happened (decided, changed or decided by someone else meanwhile): as it now is.
+      pending.refetch()
+      decided.refetch()
+    }
+  }
+
+  function ask(request: ParticipationRequest, decision: ParticipationDecision) {
+    const sessions = request.committees.map((c) => `« ${c.name} »`).join(', ')
+    setConfirm(
+      decision === 'accepted'
+        ? {
+            title: `Accepter la demande de ${request.name} ?`,
+            description:
+              `${request.email} rejoindra le workspace comme investisseur — un compte est créé si l’adresse n’en a pas ; une personne déjà membre garde son accès tel quel. ` +
+              'Une fois connectée, elle verra ce que le workspace montre à ses investisseurs. ' +
+              `Elle sera prévenue par email. La décision vaut pour toutes les sessions demandées (${sessions}), n’ouvre l’accès à aucun comité et est définitive.`,
+            confirmLabel: 'Accepter',
+            onConfirm: () => void decide(request, 'accepted'),
+          }
+        : {
+            title: `Refuser la demande de ${request.name} ?`,
+            description:
+              `La décision vaut pour toutes les sessions demandées (${sessions}) et est définitive. ` +
+              'Aucun compte n’est créé et aucun email n’est envoyé ; la personne pourra envoyer une nouvelle demande depuis le formulaire public.',
+            confirmLabel: 'Refuser',
+            onConfirm: () => void decide(request, 'refused'),
+          },
+    )
+  }
 
   return (
     <section
@@ -65,28 +146,93 @@ export function ParticipationRequestsSection({
 
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-foreground">
-          En attente{query.data ? ` (${requests.length})` : ''}
+          À traiter{pending.data ? ` (${pending.data.length})` : ''}
         </h3>
         <p className="text-xs text-muted-foreground">
-          Lecture seule pour l’instant : l’acceptation ou le refus arrive prochainement. Une demande
-          ne crée aucun compte et n’accorde aucun accès ; personne n’a été prévenu par email.
+          Une demande en attente ne crée aucun compte et n’accorde aucun accès ; personne n’a été
+          prévenu par email. Seule une acceptation ajoute la personne au workspace.
         </p>
-        {query.error ? (
+        {pending.error ? (
           <p role="alert" className="text-sm text-destructive">
-            {(query.error as ApiError).message ?? 'Demandes indisponibles pour le moment.'}
+            {(pending.error as ApiError).message ?? 'Demandes indisponibles pour le moment.'}
           </p>
-        ) : !query.data ? (
+        ) : !pending.data ? (
           <p className="text-sm text-muted-foreground">Chargement…</p>
-        ) : requests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucune demande en attente pour ce comité.</p>
+        ) : pending.data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucune demande à traiter pour ce comité.</p>
         ) : (
-          <ul className="flex flex-col gap-3">
-            {requests.map((request) => (
-              <RequestItem key={request.id} request={request} committeeId={committee.id} />
+          <ul className="flex flex-col gap-3" aria-label="Demandes à traiter">
+            {pending.data.map((request) => (
+              <RequestItem key={request.id} request={request} committeeId={committee.id}>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    className="h-10 px-3"
+                    disabled={busy}
+                    aria-label={`Accepter la demande de ${request.name}`}
+                    onClick={() => ask(request, 'accepted')}
+                  >
+                    Accepter
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 px-3"
+                    disabled={busy}
+                    aria-label={`Refuser la demande de ${request.name}`}
+                    onClick={() => ask(request, 'refused')}
+                  >
+                    Refuser
+                  </Button>
+                </div>
+              </RequestItem>
             ))}
           </ul>
         )}
       </div>
+
+      <div className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-foreground">
+          Traitées{decided.data ? ` (${decided.data.length})` : ''}
+        </h3>
+        {decided.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {(decided.error as ApiError).message ?? 'Demandes indisponibles pour le moment.'}
+          </p>
+        ) : !decided.data ? (
+          <p className="text-sm text-muted-foreground">Chargement…</p>
+        ) : decided.data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucune demande traitée pour ce comité.</p>
+        ) : (
+          <ul className="flex flex-col gap-3" aria-label="Demandes traitées">
+            {decided.data.map((request) => {
+              const invitation = invitationLine(request)
+              return (
+                <RequestItem key={request.id} request={request} committeeId={committee.id}>
+                  <p className="wrap-anywhere text-xs text-muted-foreground">
+                    {request.status === 'accepted' ? 'Acceptée' : 'Refusée'}
+                    {request.decidedAt && ` le ${dayFr(request.decidedAt)}`} par{' '}
+                    {request.decidedBy ? personOf(request.decidedBy) : 'un compte supprimé'}
+                    {request.admission && ` · ${PARTICIPATION_ADMISSION_LABELS[request.admission]}`}
+                  </p>
+                  {invitation && (
+                    <p
+                      className={
+                        request.invitationEmail === 'sent'
+                          ? 'text-xs text-muted-foreground'
+                          : 'text-xs text-foreground'
+                      }
+                    >
+                      {invitation}
+                    </p>
+                  )}
+                </RequestItem>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+      <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </section>
   )
 }
@@ -94,19 +240,29 @@ export function ParticipationRequestsSection({
 function RequestItem({
   request,
   committeeId,
+  children,
 }: {
   request: ParticipationRequest
   committeeId: string
+  children: ReactNode
 }) {
   const others = request.committees.filter((c) => c.id !== committeeId)
   return (
-    <li className="flex min-w-0 flex-col gap-1.5 rounded-md border border-border p-3">
-      <p className="wrap-anywhere text-sm font-medium text-foreground">
-        {request.name}
-        {request.organization && (
-          <span className="font-normal text-muted-foreground"> · {request.organization}</span>
-        )}
-      </p>
+    <li
+      data-testid="participation-request"
+      className="flex min-w-0 flex-col gap-1.5 rounded-md border border-border p-3"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <p className="min-w-0 wrap-anywhere text-sm font-medium text-foreground">
+          {request.name}
+          {request.organization && (
+            <span className="font-normal text-muted-foreground"> · {request.organization}</span>
+          )}
+        </p>
+        <Badge variant={request.status === 'accepted' ? 'default' : 'outline'}>
+          {PARTICIPATION_REQUEST_STATUS_LABELS[request.status]}
+        </Badge>
+      </div>
       <p className="break-all text-sm text-foreground">{request.email}</p>
       {request.message && (
         <p className="whitespace-pre-line wrap-anywhere text-sm text-foreground">
@@ -114,15 +270,16 @@ function RequestItem({
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Reçue le {receivedOn(request.createdAt)}
+        Reçue le {dayFr(request.createdAt)}
         {request.submissionCount > 1 &&
-          ` · envoyée ${request.submissionCount} fois (dernière le ${receivedOn(request.lastSubmittedAt)})`}
+          ` · envoyée ${request.submissionCount} fois (dernière le ${dayFr(request.lastSubmittedAt)})`}
       </p>
       {others.length > 0 && (
         <p className="wrap-anywhere text-xs text-muted-foreground">
           Demande aussi : {others.map((c) => c.name).join(', ')}
         </p>
       )}
+      {children}
     </li>
   )
 }
