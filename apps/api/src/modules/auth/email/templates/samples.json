@@ -33,5 +33,10 @@
     "when": "Nouvelle date : jeudi 11 juin 2099 à 09:30 (Europe/Paris)\nDate précédente : mercredi 10 juin 2099 à 14:00 (Europe/Paris)",
     "audienceLine": "Vous recevez ce message parce que votre demande de participation à ce comité a été acceptée.",
     "signInUrl": "https://confluent.local/auth"
+  },
+  "entrepreneur-access-accepted": {
+    "workspaceName": "CCI Touraine",
+    "accountLine": "Un compte Confluent de porteur de projet a été ouvert à cette adresse.",
+    "signInUrl": "https://confluent.local/auth"
   }
 }

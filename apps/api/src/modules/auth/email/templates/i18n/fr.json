@@ -94,5 +94,22 @@
     "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Ce message est envoyé automatiquement quand une structure change la date d’un comité, l’annule ou le rétablit, aux porteurs dont la demande y est inscrite et aux participants acceptés."
+  },
+  "entrepreneur-access-accepted": {
+    "lang": "fr",
+    "subject": "Votre demande d’accès a été acceptée",
+    "preheader": "Une structure vous invite à lui présenter votre demande de financement sur Confluent.",
+    "brandLabel": "Confluent",
+    "title": "Votre demande d’accès est acceptée",
+    "body": "La structure suivante a accepté votre demande d’accès à son parcours de candidature sur Confluent :",
+    "accountCreated": "Un compte Confluent de porteur de projet a été ouvert à cette adresse.",
+    "accountExisting": "Vous utiliserez votre compte Confluent existant, inchangé.",
+    "stepsIntro": "Pour candidater :",
+    "steps": "1. Connectez-vous à Confluent avec cette adresse.\n2. Créez votre demande de financement (ou ouvrez celle que vous avez déjà).\n3. Choisissez « Présenter la demande à une structure », puis cette structure, et complétez sa candidature.",
+    "nothingYet": "Rien n’a été créé ni envoyé à votre place : votre demande de financement et votre candidature restent à votre initiative.",
+    "cta": "Se connecter à Confluent",
+    "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Vous recevez ce message parce qu’une demande d’accès a été envoyée avec cette adresse depuis la page publique de la structure. Si vous n’en êtes pas l’auteur, ignorez-le : sans connexion de votre part, aucune information ne vous est communiquée."
   }
 }

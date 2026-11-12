@@ -30,6 +30,7 @@ import { OpportunitiesModule } from './modules/opportunities/opportunities.modul
 import { OwnerHistoryModule } from './modules/owner-history/owner-history.module'
 import { CommitteesModule } from './modules/committees/committees.module'
 import { ParticipationRequestsModule } from './modules/participation-requests/participation-requests.module'
+import { EntrepreneurAccessRequestsModule } from './modules/entrepreneur-access-requests/entrepreneur-access-requests.module'
 import { ShowcaseCardsModule } from './modules/showcase-cards/showcase-cards.module'
 import { WorkspacePagesModule } from './modules/workspace-pages/workspace-pages.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
@@ -68,6 +69,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     OwnerHistoryModule,
     CommitteesModule,
     ParticipationRequestsModule,
+    EntrepreneurAccessRequestsModule,
     WorkspacePagesModule,
     ShowcaseCardsModule,
   ],

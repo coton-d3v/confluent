@@ -15,6 +15,7 @@ import { AppModule } from './../src/app.module'
 import { GlobalExceptionFilter } from './../src/common/filters/global-exception.filter'
 import { PrismaService } from './../src/prisma/prisma.service'
 import { EMAIL_TRANSPORT } from './../src/modules/auth/email/email-transport'
+import { EntrepreneurAccessFormTokens } from './../src/modules/entrepreneur-access-requests/entrepreneur-access-form-token'
 import { ParticipationFormTokens } from './../src/modules/participation-requests/participation-form-token'
 import { createFakePrisma } from '../src/testing/fake-prisma'
 
@@ -416,6 +417,22 @@ describe('Public exposure guard (e2e)', () => {
       },
     })
     secrets.push(asked.id)
+    // E09.05: an entrepreneur's pending request for access to the candidature path, and a decided one.
+    for (const status of ['pending', 'refused']) {
+      const access = await fake.prisma.entrepreneurAccessRequest.create({
+        data: {
+          workspaceId: cci,
+          email: `porteur.${status}.prive@externe.fr`,
+          name: 'Porteur PRIVE',
+          companyName: 'ENTREPRISE-PRIVEE Hydrolia',
+          message: 'MESSAGE-ACCES-PRIVE',
+          status,
+          lastSubmittedAt: new Date(),
+          ...(status === 'refused' ? { decidedAt: new Date(), decidedById: MARIE.id } : {}),
+        },
+      })
+      secrets.push(access.id)
+    }
     return june
   }
 
@@ -428,6 +445,8 @@ describe('Public exposure guard (e2e)', () => {
     'get /v1/public/workspaces/:slug/logo',
     'get /v1/public/workspaces/:slug/participation-form',
     'post /v1/public/workspaces/:slug/participation-requests',
+    'get /v1/public/workspaces/:slug/entrepreneur-access-form',
+    'post /v1/public/workspaces/:slug/entrepreneur-access-requests',
   ]
   function publicRoutes(): string[] {
     const router = (
@@ -489,6 +508,26 @@ describe('Public exposure guard (e2e)', () => {
             website: '',
           }),
       )
+      // E09.05: the entrepreneurs' access request form, and a submission to it.
+      keep(
+        SURFACES[4],
+        await server()
+          .get(`/v1/public/workspaces/${slug}/entrepreneur-access-form`)
+          .set('X-Forwarded-For', from()),
+      )
+      keep(
+        SURFACES[5],
+        await server()
+          .post(`/v1/public/workspaces/${slug}/entrepreneur-access-requests`)
+          .set('X-Forwarded-For', from())
+          .send({
+            name: 'Visiteuse',
+            companyName: 'Projet',
+            email: `porteuse${ip}@exemple.fr`,
+            formToken: app.get(EntrepreneurAccessFormTokens).issue(cci, Date.now() - 5000),
+            website: '',
+          }),
+      )
     }
     return reads
   }
@@ -537,7 +576,14 @@ describe('Public exposure guard (e2e)', () => {
     // Unpublished page, no consent: the page answers the 404 of an unknown slug.
     await expectExposure('page not published, no consent', [])
     await setPage(true)
-    await expectExposure('page published, no consent', [])
+    const opened = await expectExposure('page published, no consent', [])
+    // E09.05: the access request form is offered (and read) on the published page, its submission
+    // answered like any other; unknown slug, 404.
+    expect(opened.map((r) => [r.route, r.status]).slice(4, 6)).toEqual([
+      [SURFACES[4], 200],
+      [SURFACES[5], 202],
+    ])
+    expect(opened.map((r) => r.status).slice(10, 12)).toEqual([404, 404])
 
     // Consented, retained for June: the card, by its closed list of fields only.
     await sophie

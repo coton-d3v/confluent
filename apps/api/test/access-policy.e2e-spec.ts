@@ -23,6 +23,7 @@ import { hashToken } from './../src/modules/oauth/oauth.constants'
 import { createFakePrisma, selectWholeLibrary } from '../src/testing/fake-prisma'
 import { DEFAULT_CLASSIFICATION_RULES } from '../src/testing/classification-rules.fixture'
 import { classificationSources } from '../src/modules/classification/classification-sources'
+import { EntrepreneurAccessFormTokens } from '../src/modules/entrepreneur-access-requests/entrepreneur-access-form-token'
 import { ParticipationFormTokens } from '../src/modules/participation-requests/participation-form-token'
 
 const id = (n: number) => `7d3c1b0e-0000-4000-8000-${n.toString().padStart(12, '0')}`
@@ -1022,6 +1023,49 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       await as(ADMIN).post(decision, { decision: 'refused', version: own.version }).expect(200)
     }
     expect(fake.table('workspaceMembership').size).toBe(memberships)
+    // E09.05: and, from the CCI's published page, for access to its candidature path, with the address
+    // of their account: a pending request, which grants nothing and changes no account; deciding it
+    // is not theirs to do; refused by the structure, still nothing.
+    await as(ADMIN)
+      .put(`/v1/admin/workspaces/${cci}/public-page`, {
+        published: true,
+        criteria: null,
+        contact: null,
+        version: 1,
+      })
+      .expect(200)
+    const accounts = JSON.stringify([...fake.table('user').values()])
+    for (const reader of [BOB, IVY, EVE]) {
+      await request(app.getHttpServer())
+        .post('/v1/public/workspaces/cci-touraine/entrepreneur-access-requests')
+        .set('X-Forwarded-For', `192.0.2.${reader.email.length}`)
+        .send({
+          name: reader.email,
+          companyName: 'Projet',
+          email: reader.email,
+          formToken: app.get(EntrepreneurAccessFormTokens).issue(cci, Date.now() - 5000),
+        })
+        .expect(202)
+    }
+    expect(fake.table('entrepreneurAccessRequest').size).toBe(3)
+    const accessQueue = `/v1/admin/workspaces/${cci}/entrepreneur-access-requests`
+    const asking = (await as(ADMIN).get(accessQueue).expect(200)).body as Array<{
+      id: string
+      email: string
+      version: number
+    }>
+    for (const reader of [BOB, IVY, EVE]) {
+      const own = asking.find((r) => r.email === reader.email)!
+      const decision = `${accessQueue}/${own.id}/decision`
+      const { status } = await as(reader).post(decision, {
+        decision: 'accepted',
+        version: own.version,
+      })
+      expect([reader.email, [403, 404].includes(status)]).toEqual([reader.email, true])
+      await as(ADMIN).post(decision, { decision: 'refused', version: own.version }).expect(200)
+    }
+    expect(JSON.stringify([...fake.table('user').values()])).toBe(accounts)
+    expect(fake.table('workspaceMembership').size).toBe(memberships)
     const refused = [
       `/v1/dossiers/${dossier.id}/analytics`,
       `/v1/dossiers/${dossier.id}/audit-log`,
@@ -1062,6 +1106,9 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
       // E08.04: the queue of participation requests — theirs included; E08.05: decided ones too.
       `/v1/admin/workspaces/${cci}/participation-requests`,
       `/v1/admin/workspaces/${cci}/participation-requests?status=decided`,
+      // E09.05: the queue of access requests — theirs included —, pending and decided.
+      `/v1/admin/workspaces/${cci}/entrepreneur-access-requests`,
+      `/v1/admin/workspaces/${cci}/entrepreneur-access-requests?status=decided`,
       // E08.06: the committees' progress, participants and notices.
       `/v1/workspaces/${cci}/committees/progress`,
       `/v1/admin/workspaces/${cci}/committees/${committee.id}/participants`,

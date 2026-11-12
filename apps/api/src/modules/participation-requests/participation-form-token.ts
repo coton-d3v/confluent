@@ -6,19 +6,19 @@ import type { AppConfig } from '../../config/config.schema'
 
 export type FormTokenCheck = 'valid' | 'invalid' | 'too_fast' | 'expired'
 
-// The token a workspace's public participation page hands out with its form (ROADMAP E08.04): when
-// it was issued and for which workspace, signed by the API. A submission must bring one, at least
-// `minFillMs` after it was issued (a robot posting straight away is refused) and at most `maxAgeMs`
-// after (a token is not collected once and replayed for days). Nothing is stored: the signature is
-// the proof. Its key is derived from the API's JWT secret for this use only, so it signs nothing
-// else; changing that secret invalidates the forms open at that moment (their page is reloaded).
-@Injectable()
-export class ParticipationFormTokens {
+// The token a workspace's public form hands out with its page (ROADMAP E08.04, and E09.05 for the
+// entrepreneurs' access requests): when it was issued and for which workspace, signed by the API. A
+// submission must bring one, at least `minFillMs` after it was issued (a robot posting straight away
+// is refused) and at most `maxAgeMs` after (a token is not collected once and replayed for days).
+// Nothing is stored: the signature is the proof. Its key is derived from the API's JWT secret for one
+// form only (`purpose`), so it signs nothing else — a participation form's token is no access
+// request's; changing that secret invalidates the forms open at that moment (their page is reloaded).
+export class SignedFormTokens {
   private readonly key: Buffer
 
-  constructor(config: ConfigService<AppConfig, true>) {
+  constructor(config: ConfigService<AppConfig, true>, purpose: string) {
     this.key = createHmac('sha256', config.get('JWT_SECRET', { infer: true }))
-      .update('confluent/participation-form/v1')
+      .update(purpose)
       .digest()
   }
 
@@ -41,5 +41,13 @@ export class ParticipationFormTokens {
 
   private mac(workspaceId: string, issuedAt: number): string {
     return createHmac('sha256', this.key).update(`${workspaceId}.${issuedAt}`).digest('base64url')
+  }
+}
+
+// The participation form's (E08.04).
+@Injectable()
+export class ParticipationFormTokens extends SignedFormTokens {
+  constructor(config: ConfigService<AppConfig, true>) {
+    super(config, 'confluent/participation-form/v1')
   }
 }

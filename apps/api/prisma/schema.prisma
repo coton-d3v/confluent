@@ -139,6 +139,14 @@ enum audit_action {
   showcase_card_withdrawn
   showcase_card_hidden
   showcase_card_unhidden
+  // E09.05: someone asked, from a workspace's public page, for access to its candidature path
+  // (recorded or merged into their pending request).
+  entrepreneur_access_request_received
+  // E09.05: such a submission set aside without being recorded (robot field, too many for one
+  // address).
+  entrepreneur_access_request_discarded
+  // E09.05: a manager accepted or refused such a request.
+  entrepreneur_access_request_decided
 
   @@map("audit_action")
 }
@@ -191,6 +199,8 @@ model User {
   showcaseCardsConsented      ShowcaseCard[]                    @relation("ShowcaseCardConsenter")
   showcaseCardsWithdrawn      ShowcaseCard[]                    @relation("ShowcaseCardWithdrawer")
   showcaseCardsHidden         ShowcaseCard[]                    @relation("ShowcaseCardHider")
+  accessRequestDecisions      EntrepreneurAccessRequest[]       @relation("EntrepreneurAccessDecider")
+  accessRequestAdmissions     EntrepreneurAccessRequest[]       @relation("EntrepreneurAccessAccount")
 
   @@map("users")
 }
@@ -960,6 +970,8 @@ model Workspace {
   committees            Committee[]
   // E08.04: the participation requests sent from its public form.
   participationRequests ParticipationRequest[]
+  // E09.05: the requests for access to its candidature path sent from its public page.
+  accessRequests        EntrepreneurAccessRequest[]
 
   @@map("workspaces")
 }
@@ -1560,4 +1572,43 @@ model CommitteeNotice {
   @@index([applicationId])
   @@index([participationRequestId])
   @@map("committee_notices")
+}
+
+// ROADMAP E09.05: an entrepreneur without an account asks a workspace, from its public page, for
+// access to its candidature path — rules in @confluent/shared `entrepreneur-access-request.schema.ts`.
+// `pending` until its managers decide it, once: `accepted` (the address's account created as an
+// entrepreneur's, or an existing one kept as it is: `admission`, `accountUserId`; then an invitation
+// email, `invitationEmail`) or `refused` (nothing created). It grants nothing before. At most one
+// pending request per address and workspace (partial unique index of the migration). CHECK: closed
+// values, bounded one-line texts, plain message, each status tied to its decision columns
+// (migration 20261211000000_entrepreneur_access_requests).
+model EntrepreneurAccessRequest {
+  id                String    @id @default(uuid())
+  workspaceId       String    @map("workspace_id")
+  // Lower case; not known to be the sender's until they act on an invitation.
+  email             String
+  name              String
+  companyName       String    @map("company_name")
+  message           String?
+  status            String    @default("pending")
+  submissionCount   Int       @default(1) @map("submission_count")
+  lastSubmittedAt   DateTime  @map("last_submitted_at")
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  decidedAt         DateTime? @map("decided_at")
+  decidedById       String?   @map("decided_by_id")
+  admission         String?
+  accountUserId     String?   @map("account_user_id")
+  invitationEmail   String?   @map("invitation_email")
+  invitationEmailAt DateTime? @map("invitation_email_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  decidedBy User?     @relation("EntrepreneurAccessDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  account   User?     @relation("EntrepreneurAccessAccount", fields: [accountUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([decidedById])
+  @@index([accountUserId])
+  @@map("entrepreneur_access_requests")
 }

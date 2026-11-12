@@ -81,6 +81,9 @@ export const auditActionSchema = z.enum([
   'showcase_card_withdrawn',
   'showcase_card_hidden',
   'showcase_card_unhidden',
+  'entrepreneur_access_request_received',
+  'entrepreneur_access_request_discarded',
+  'entrepreneur_access_request_decided',
 ]);
 
 export const auditLogSchema = z.object({

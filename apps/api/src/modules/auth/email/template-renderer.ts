@@ -11,6 +11,7 @@ export type TemplateName =
   | 'company-transfer-invite'
   | 'participation-accepted'
   | 'committee-changed'
+  | 'entrepreneur-access-accepted'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
@@ -39,6 +40,7 @@ export interface TemplateDynamicVars {
     audienceLine: string
     signInUrl: string
   }
+  'entrepreneur-access-accepted': { workspaceName: string; accountLine: string; signInUrl: string }
 }
 
 export interface RenderedEmail {
