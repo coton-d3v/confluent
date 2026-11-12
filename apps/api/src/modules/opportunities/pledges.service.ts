@@ -1,10 +1,11 @@
 import { ConflictException, Injectable } from '@nestjs/common'
 import { isArchived, type PledgeInputParsed } from '@confluent/shared'
-import type { InvestorPledge, Prisma } from '@prisma/client'
+import type { Dossier, InvestorPledge, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import {
   OpportunitiesService,
   interestIdentity,
@@ -77,6 +78,7 @@ export class PledgesService {
     private readonly opportunities: OpportunitiesService,
     private readonly dossiers: DossiersService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Makes or changes the reader's pledge. The pledge already recorded changes nothing and journals
@@ -91,7 +93,7 @@ export class PledgesService {
     origin?: ActionOrigin,
   ): Promise<OpportunityPledgeView> {
     const wanted: Wanted = { ...input, comment: input.comment ?? null }
-    return this.prisma.$transaction(async (tx) => {
+    const { view, emails } = await this.prisma.$transaction(async (tx) => {
       await lockRequest(tx, dossierId)
       const key = { dossierId_investorId: { dossierId, investorId: reader.id } }
       const found = await tx.investorPledge.findUnique({ where: key })
@@ -102,16 +104,18 @@ export class PledgesService {
         current.showName === wanted.showName &&
         current.showAmount === wanted.showAmount
       ) {
-        return pledgeView(current)
+        return { view: pledgeView(current), emails: [] as string[] }
       }
       if ((current?.version ?? null) !== wanted.version) throw pledgeChanged()
 
       let accessLevel: string | null = null
+      let request: Dossier | null = null
       if (!(current && onlyHides(current, wanted))) {
         const reached = await this.opportunities.reachOne(reader, dossierId, tx)
         if (!reached) throw opportunityNotFound()
         if (isArchived(reached.dossier)) throw pledgeClosed(current ? 'existing' : 'new')
         accessLevel = reached.accessLevel
+        request = reached.dossier
       }
 
       const data = {
@@ -146,8 +150,30 @@ export class PledgesService {
           ...(origin ? originMetadata(origin) : {}),
         },
       })
-      return pledgeView(pledge)
+      // E10.03: the owner learns of a new or changed pledge (not of one only hidden more) — never
+      // who nor how much (D05: shown on the request only where the investor chose so). One per
+      // revision, never reused (R63).
+      const emails = request
+        ? await this.notifications.recordIn(tx, [
+            {
+              recipientId: request.userId,
+              kind: 'pledge_received',
+              key: `pledge_received:${pledge.id}:${pledge.version}`,
+              subject: `pledge:${pledge.id}`,
+              dossierId,
+              payload: {
+                dossierId,
+                dossierName: request.name,
+                dossierSlug: request.slug,
+                change: current ? 'changed' : 'new',
+              },
+            },
+          ])
+        : []
+      return { view: pledgeView(pledge), emails }
     })
+    await this.notifications.deliver(emails)
+    return view
   }
 
   // Withdraws the reader's pledge, whether they still read the request or not — it only removes their

@@ -111,5 +111,14 @@
     "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Vous recevez ce message parce qu’une demande d’accès a été envoyée avec cette adresse depuis la page publique de la structure. Si vous n’en êtes pas l’auteur, ignorez-le : sans connexion de votre part, aucune information ne vous est communiquée."
+  },
+  "notification": {
+    "lang": "fr",
+    "subject": "Du nouveau sur Confluent",
+    "brandLabel": "Confluent",
+    "cta": "Ouvrir dans Confluent",
+    "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe. Cette notification figure aussi dans le site, sous la cloche.",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Ce message est envoyé automatiquement quand un changement vous concerne sur Confluent : votre accès à une demande, une promesse reçue, le suivi de vos candidatures par une structure, une proposition d’entreprise."
   }
 }

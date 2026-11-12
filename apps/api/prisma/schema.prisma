@@ -195,7 +195,7 @@ model User {
   committeeApplicationChanges CommitteeApplication[]
   participationDecisions      ParticipationRequest[]            @relation("ParticipationDecider")
   participationAdmissions     ParticipationRequest[]            @relation("ParticipationMember")
-  committeeNotices            CommitteeNotice[]
+  notifications               Notification[]
   showcaseCardsConsented      ShowcaseCard[]                    @relation("ShowcaseCardConsenter")
   showcaseCardsWithdrawn      ShowcaseCard[]                    @relation("ShowcaseCardWithdrawer")
   showcaseCardsHidden         ShowcaseCard[]                    @relation("ShowcaseCardHider")
@@ -467,6 +467,8 @@ model Dossier {
   investorPledges      InvestorPledge[]
   positionDisclosures  InvestorPositionDisclosure[]
   readingSessions      ReadingSession[]
+  // E10.03: the notifications about it.
+  notifications        Notification[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -975,6 +977,8 @@ model Workspace {
   participationRequests ParticipationRequest[]
   // E09.05: the requests for access to its candidature path sent from its public page.
   accessRequests        EntrepreneurAccessRequest[]
+  // E10.03: the notifications about it.
+  notifications         Notification[]
 
   @@map("workspaces")
 }
@@ -1437,8 +1441,8 @@ model Committee {
   applications          CommitteeApplication[]
   // E08.04: the participation requests asking for it.
   participationRequests ParticipationRequestCommittee[]
-  // E08.06: who was told of its changes of date, cancellation or restoration.
-  notices               CommitteeNotice[]
+  // E08.06/E10.03: who was told of its changes of date, cancellation or restoration.
+  notifications         Notification[]
 
   // Target of the composite foreign keys that keep what joins a committee (E08.03) inside its
   // workspace.
@@ -1466,11 +1470,11 @@ model CommitteeApplication {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  committee   Committee         @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
-  candidature Candidature       @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
-  statusActor User?             @relation(fields: [statusActorId], references: [id], onDelete: SetNull)
-  // E08.06: the notices its request's owner was sent about the committee.
-  notices     CommitteeNotice[]
+  committee     Committee      @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  candidature   Candidature    @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+  statusActor   User?          @relation(fields: [statusActorId], references: [id], onDelete: SetNull)
+  // E08.06/E10.03: the notifications its request's owner was sent about the committee.
+  notifications Notification[]
 
   @@unique([committeeId, candidatureId])
   @@index([committeeId, workspaceId])
@@ -1512,12 +1516,12 @@ model ParticipationRequest {
   invitationEmail   String?   @map("invitation_email")
   invitationEmailAt DateTime? @map("invitation_email_at")
 
-  workspace  Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  committees ParticipationRequestCommittee[]
-  decidedBy  User?                           @relation("ParticipationDecider", fields: [decidedById], references: [id], onDelete: SetNull)
-  member     User?                           @relation("ParticipationMember", fields: [memberUserId], references: [id], onDelete: SetNull)
-  // E08.06: the notices the accepted participant was sent about its sessions.
-  notices    CommitteeNotice[]
+  workspace     Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  committees    ParticipationRequestCommittee[]
+  decidedBy     User?                           @relation("ParticipationDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  member        User?                           @relation("ParticipationMember", fields: [memberUserId], references: [id], onDelete: SetNull)
+  // E08.06/E10.03: the notifications the accepted participant was sent about its sessions.
+  notifications Notification[]
 
   // Target of the composite foreign key that keeps its sessions inside its workspace.
   @@unique([id, workspaceId])
@@ -1543,38 +1547,52 @@ model ParticipationRequestCommittee {
   @@map("participation_request_committees")
 }
 
-// E08.06: one person told of one change of a committee — its new schedule, its cancellation or its
-// restoration (`kind`, COMMITTEE_NOTICE_KINDS) — at the committee's version that change produced
-// (never reused, R63): at most one per change and person. Why the person is told: the request's
-// entry on the committee (`applicationId`, its owner) and/or the participant's accepted request
-// (`participationRequestId`). No address nor text is copied: the email is read from the account when
-// sent. `state` (COMMITTEE_NOTICE_STATES): `to_send` in the change's transaction, `sending` once a
-// sender claimed it, then `sent` or `failed`; `superseded` when a later change of the same committee
-// tells the same person before it left. Rules: @confluent/shared `committee-follow-up.schema.ts`.
-model CommitteeNotice {
-  id                     String   @id @default(uuid())
-  workspaceId            String   @map("workspace_id")
-  committeeId            String   @map("committee_id")
-  committeeVersion       Int      @map("committee_version")
+// E10.03: one person told of one event (`kind`, NOTIFICATION_KINDS) — rules in @confluent/shared
+// `notification.schema.ts`. Written in the event's transaction; never twice for the same event and
+// person (`dedupKey`: the event, its object and, when it has one, its version — unique per recipient).
+// `subjectKey`: the object it is about, whose later notification supersedes an email still unsent.
+// `payload`: what the text is written from, only the fields of the kind's allowlist
+// (notifications/notification-payloads.ts), all readable by the recipient when it was written.
+// `emailState` (NOTIFICATION_EMAIL_STATES): `none` for an in-app-only kind; otherwise `to_send` in the
+// event's transaction, `sending` once a sender claimed it, then `sent` or `failed`; `superseded` when
+// a later one about the same object reaches the same person before it left. The objects it hangs on
+// remove it with them (a request, a workspace, a committee and, for a committee's change — E08.06,
+// whose `committee_notices` it replaces —, the entry or participation request the person is told
+// for, at the committee's version that change produced). CHECK: migration
+// 20261213000000_notifications.
+model Notification {
+  id                     String    @id @default(uuid())
+  recipientId            String    @map("recipient_id")
   kind                   String
-  recipientId            String   @map("recipient_id")
-  applicationId          String?  @map("application_id")
-  participationRequestId String?  @map("participation_request_id")
-  state                  String
-  stateAt                DateTime @map("state_at")
-  createdAt              DateTime @default(now()) @map("created_at")
+  dedupKey               String    @map("dedup_key")
+  subjectKey             String    @map("subject_key")
+  workspaceId            String?   @map("workspace_id")
+  dossierId              String?   @map("dossier_id")
+  committeeId            String?   @map("committee_id")
+  committeeVersion       Int?      @map("committee_version")
+  applicationId          String?   @map("application_id")
+  participationRequestId String?   @map("participation_request_id")
+  payload                Json
+  readAt                 DateTime? @map("read_at")
+  emailState             String    @map("email_state")
+  emailStateAt           DateTime  @map("email_state_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
 
-  committee            Committee             @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
   recipient            User                  @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  workspace            Workspace?            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dossier              Dossier?              @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  committee            Committee?            @relation(fields: [committeeId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
   application          CommitteeApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   participationRequest ParticipationRequest? @relation(fields: [participationRequestId], references: [id], onDelete: Cascade)
 
-  @@unique([committeeId, committeeVersion, recipientId])
+  @@unique([recipientId, dedupKey])
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([committeeId, workspaceId])
-  @@index([recipientId])
+  @@index([workspaceId])
+  @@index([dossierId])
   @@index([applicationId])
   @@index([participationRequestId])
-  @@map("committee_notices")
+  @@map("notifications")
 }
 
 // ROADMAP E09.05: an entrepreneur without an account asks a workspace, from its public page, for

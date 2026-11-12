@@ -22,6 +22,7 @@ import { ShareLinksService } from '../../src/modules/share-links/share-links.ser
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { testDatabase } from './database'
 import { positionDisclosuresDown, positionDisclosuresUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = positionDisclosuresUp()
 // Without the acceptance: what an operator runs first.
@@ -97,6 +98,7 @@ describe('positions (PostgreSQL)', () => {
     questionnaires,
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
     readings,
+    quietNotifications(prisma),
   )
   const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, readings)
   const candidatures = new CandidaturesService(
@@ -106,10 +108,23 @@ describe('positions (PostgreSQL)', () => {
     questionnaires,
     {} as AnswerSourcesService,
     audit,
+    quietNotifications(prisma),
   )
   const positions = new PositionsService(prisma, opportunities, dossiers, candidatures, audit)
-  const interests = new InterestsService(prisma, opportunities, dossiers, audit)
-  const pledges = new PledgesService(prisma, opportunities, dossiers, audit)
+  const interests = new InterestsService(
+    prisma,
+    opportunities,
+    dossiers,
+    audit,
+    quietNotifications(prisma),
+  )
+  const pledges = new PledgesService(
+    prisma,
+    opportunities,
+    dossiers,
+    audit,
+    quietNotifications(prisma),
+  )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
   let formId = ''

@@ -11,6 +11,7 @@ import { DossiersService } from '../dossiers/dossiers.service'
 import type { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { CompanyTransfersService } from './company-transfers.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // Marie: conseillère of the CCI (a financeur account, as an invitation leaves it); Jean: another
 // conseiller of the CCI; Paul: conseiller of the club deal; Claire: investisseur of the CCI.
@@ -62,6 +63,7 @@ async function setup() {
     dossiers,
     config,
     email,
+    quietNotifications(p as never),
   )
   const prepared = (name = 'Biosensio', ownerEmail = SOPHIE.email) =>
     transfers.prepare(MARIE, CCI, { companyName: name, ownerEmail })

@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { originMetadata, type ActionOrigin } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { DossiersService } from '../dossiers/dossiers.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import {
   OpportunitiesService,
   interestIdentity,
@@ -40,6 +41,7 @@ export class InterestsService {
     private readonly opportunities: OpportunitiesService,
     private readonly dossiers: DossiersService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Marks the reader's interest, or changes whether their name shows on it. The same answer changes
@@ -79,6 +81,23 @@ export class InterestsService {
           ...(origin ? originMetadata(origin) : {}),
         },
       })
+      // E10.03: the owner learns of this investor's first mark, once ever for this request (the
+      // key: a name shown or hidden, a mark withdrawn then made again tell nothing more) — never who
+      // (D05: their name shows on the request only if they chose so).
+      await this.notifications.recordIn(tx, [
+        {
+          recipientId: found.dossier.userId,
+          kind: 'interest_received',
+          key: `interest_received:${dossierId}:${reader.id}`,
+          subject: `dossier:${dossierId}:interests`,
+          dossierId,
+          payload: {
+            dossierId,
+            dossierName: found.dossier.name,
+            dossierSlug: found.dossier.slug,
+          },
+        },
+      ])
       return interestView(mark)
     })
   }

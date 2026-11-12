@@ -20,6 +20,7 @@ import { Prisma, type Candidature, type Committee, type CommitteeApplication } f
 import { PrismaService } from '../../prisma/prisma.service'
 import { type ActionOrigin, channelMetadata, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { CandidaturesService, type CandidatureParty } from '../candidatures/candidatures.service'
 import { requestArchived } from '../dossiers/dossiers.service'
 import type { WorkspaceActor } from '../workspaces/workspace-access'
@@ -92,6 +93,7 @@ export class CommitteeApplicationsService {
     private readonly candidatures: CandidaturesService,
     private readonly committees: CommitteesService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The owner of the request ─────────────────────────────────────────────────────────────────
@@ -219,7 +221,7 @@ export class CommitteeApplicationsService {
   ): Promise<CommitteeApplicationChange> {
     const by: CommitteeApplicationSide = party.side
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const locked = await this.candidatures.lockAs(tx, party, candidatureId)
         if (!locked.submittedAt) throw CommitteeApplicationErrors.notSent()
         const committee = await holdCommittee(tx, committeeId, locked.workspaceId)
@@ -269,8 +271,34 @@ export class CommitteeApplicationsService {
             ...origin,
           },
         })
-        return { application: saved, from, to: input.to, by }
+        // E10.03: the owner learns of the structure's change — by its workspace, never which of its
+        // members. One per version of the entry, never reused.
+        const dossier = await tx.dossier.findUnique({ where: { id: candidature.dossierId } })
+        const workspace = await tx.workspace.findUnique({ where: { id: candidature.workspaceId } })
+        const emails =
+          by === 'workspace' && dossier && workspace && dossier.userId !== actorId
+            ? await this.notifications.recordIn(tx, [
+                {
+                  recipientId: dossier.userId,
+                  kind: 'committee_application_changed',
+                  key: `committee_application_changed:${saved.id}:${saved.version}`,
+                  subject: `committee_application:${saved.id}`,
+                  workspaceId: workspace.id,
+                  dossierId: dossier.id,
+                  payload: {
+                    candidatureId: candidature.id,
+                    dossierName: dossier.name,
+                    workspaceName: workspace.name,
+                    committeeName: committee.name,
+                    to: input.to,
+                  },
+                },
+              ])
+            : []
+        return { change: { application: saved, from, to: input.to, by }, emails }
       })
+      await this.notifications.deliver(result.emails)
+      return result.change
     } catch (err) {
       // Two first changes at once that the candidature's lock did not order: the unique index lets
       // one through.

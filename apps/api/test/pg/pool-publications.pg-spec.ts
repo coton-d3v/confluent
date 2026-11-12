@@ -15,6 +15,7 @@ import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-a
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
 import { poolPublicationsDown, poolPublicationsUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = poolPublicationsUp()
 // Without the acceptance: what an operator runs first.
@@ -82,6 +83,7 @@ describe('pool publications (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const pool = new PoolPublicationsService(prisma, candidatures, dossiers, audit)
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)

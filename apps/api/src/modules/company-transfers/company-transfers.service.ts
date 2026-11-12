@@ -6,6 +6,7 @@ import type { AppConfig } from '../../config/config.schema'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
+import { NotificationsService } from '../notifications/notifications.service'
 import { DossiersService } from '../dossiers/dossiers.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { CompanyTransferErrors } from './company-transfer-errors'
@@ -85,6 +86,7 @@ export class CompanyTransfersService {
     private readonly dossiers: DossiersService,
     private readonly config: ConfigService<AppConfig, true>,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The workspace's conseillers ──────────────────────────────────────────────────────────────
@@ -221,7 +223,9 @@ export class CompanyTransfersService {
         throw CompanyTransferErrors.invitationNotFound()
       }
       const status = currentStatus(transfer)
-      if (status === decision) return { transfer, changed: false, dossierIds: [] as string[] }
+      if (status === decision) {
+        return { transfer, changed: false, dossierIds: [] as string[], emails: [] as string[] }
+      }
       if (status === 'accepted' || status === 'declined') {
         throw CompanyTransferErrors.alreadyDecided(status)
       }
@@ -252,7 +256,27 @@ export class CompanyTransfersService {
         where: { id: transfer.id },
         data: { status: decision, decidedAt: new Date() },
       })
-      return { transfer: decided, changed: true, dossierIds }
+      // E10.03: the conseiller who offered it learns the answer (the company's name, which they
+      // chose, and nothing of the entrepreneur's account).
+      const company = await tx.company.findUnique({ where: { id: transfer.companyId } })
+      const emails =
+        transfer.fromUserId && company
+          ? await this.notifications.recordIn(tx, [
+              {
+                recipientId: transfer.fromUserId,
+                kind: 'company_transfer_answered',
+                key: `company_transfer_answered:${transfer.id}`,
+                subject: `company_transfer:${transfer.id}`,
+                workspaceId: transfer.workspaceId,
+                payload: {
+                  workspaceId: transfer.workspaceId,
+                  companyName: company.name,
+                  decision,
+                },
+              },
+            ])
+          : []
+      return { transfer: decided, changed: true, dossierIds, emails }
     })
     if (outcome.changed) {
       await this.audit.record({
@@ -264,6 +288,7 @@ export class CompanyTransfersService {
           ...(decision === 'accepted' ? { dossierIds: outcome.dossierIds } : {}),
         },
       })
+      await this.notifications.deliver(outcome.emails)
     }
     return {
       status: decision,
@@ -317,6 +342,17 @@ export class CompanyTransfersService {
       },
     })
     const from = await tx.user.findUnique({ where: { id: actor.id } })
+    // E10.03: in the site only — the invitation's own email follows.
+    await this.notifications.recordIn(tx, [
+      {
+        recipientId: invitee.id,
+        kind: 'company_transfer_proposed',
+        key: `company_transfer_proposed:${transfer.id}`,
+        subject: `company_transfer:${transfer.id}`,
+        workspaceId: workspace.id,
+        payload: { companyName: company.name, workspaceName: workspace.name },
+      },
+    ])
     return { transfer, company, workspace, invitee, from, createdAccount: created.count === 1 }
   }
 

@@ -14,6 +14,7 @@ import { FormsService } from '../questionnaires/forms.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { CandidaturesService } from './candidatures.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E05.09: a request presented to two workspaces reuses its company's profile as is, answers
 // each workspace's complementary form apart, and no workspace ever reads the other's answers.
@@ -83,6 +84,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
 
   // A published complementary form, assigned to the workspace's candidatures: one required long

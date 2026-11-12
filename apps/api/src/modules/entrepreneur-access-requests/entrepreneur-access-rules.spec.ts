@@ -10,6 +10,7 @@ import {
   EntrepreneurAccessRequestsService,
   offersEntrepreneurAccess,
 } from './entrepreneur-access-requests.service'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E09.05: when the access request form is offered, what its token proves, and what a manager
 // is told after a decision.
@@ -86,6 +87,7 @@ describe('entrepreneur access rules', () => {
       {} as never,
       {} as never,
       limits,
+      quietNotifications(prisma as never),
     )
     const send = (ip: string) =>
       service

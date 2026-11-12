@@ -17,6 +17,7 @@ import type { QuestionnairesService } from '../../src/modules/questionnaires/que
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { documentOf, testDatabase } from './database'
 import { CHECKS, MIGRATIONS, sqlStatements } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261114000000_company_transfers/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261114000000_company_transfers.down.sql'))
@@ -87,6 +88,7 @@ describe('company transfers (PostgreSQL)', () => {
     dossiers,
     config,
     email,
+    quietNotifications(prisma),
   )
   const documents = new DocumentsService(prisma, new MemoryStorageAdapter(), audit)
   const tag = randomUUID().slice(0, 8)

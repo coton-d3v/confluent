@@ -29,6 +29,10 @@ import { DossiersService, lockDossier, requestArchived } from '../dossiers/dossi
 import { DocumentsService, type DocumentGroup } from '../documents/documents.service'
 import { fieldVisibleAt, grantedLevel, presentationForShare } from '../dossiers/financeur-access'
 import { ReadingSessionsService } from '../reading-sessions/reading-sessions.service'
+import {
+  NotificationsService,
+  type NotificationDraft,
+} from '../notifications/notifications.service'
 
 const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -112,6 +116,7 @@ export class ShareLinksService {
     private readonly questionnaires: QuestionnairesService,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
     private readonly readings: ReadingSessionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // E02.08: a share link opens the dossier only to the account it was sent to. A forwarded link
@@ -321,6 +326,17 @@ export class ShareLinksService {
             accessLevel: params.accessLevel,
           },
         })
+        // E10.03: in the site only — the invitation's email below carries the link.
+        await this.notifications.recordIn(tx, [
+          {
+            recipientId: recipient.id,
+            kind: 'share_invited',
+            key: `share_invited:${link.id}`,
+            subject: `share_link:${link.id}`,
+            dossierId: dossier.id,
+            payload: { dossierId: dossier.id, dossierName: dossier.name },
+          },
+        ])
         return { dossier, link, recipient, createdNewUser: known === null }
       },
     )
@@ -425,7 +441,15 @@ export class ShareLinksService {
         data: { accessLevel: params.accessLevel },
       })
       if (count === 0) throw shareChangedMeanwhile()
-      return { link, from }
+      const emails = await this.notifyRecipient(tx, dossier, link, (recipientId, seq) => ({
+        recipientId,
+        kind: 'share_level_changed',
+        key: `share_level_changed:${link.id}:${seq}`,
+        subject: `share_link:${link.id}`,
+        dossierId: dossier.id,
+        payload: { dossierId: dossier.id, dossierName: dossier.name, level: params.accessLevel },
+      }))
+      return { link, from, emails }
     })
     if (changed) {
       await this.audit.record({
@@ -440,6 +464,7 @@ export class ShareLinksService {
           ...(params.origin ? originMetadata(params.origin) : {}),
         },
       })
+      await this.notifications.deliver(changed.emails)
     }
     return this.accessEntry(held.id, params.linkId)
   }
@@ -476,13 +501,13 @@ export class ShareLinksService {
   ) {
     const link = await this.findLink(this.prisma, dossierId, linkId)
     const revokedAt = new Date()
-    await this.prisma.$transaction(async (tx) => {
+    const emails = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM "dossiers" WHERE "id" = ${dossierId} FOR UPDATE`
       const { count } = await tx.shareLink.updateMany({
         where: { id: link.id, status: { not: 'revoked' } },
         data: { status: 'revoked', revokedAt },
       })
-      if (count === 0) return
+      if (count === 0) return []
       await this.audit.recordIn(tx, {
         actionType: actor.as === 'admin' ? 'admin_revoked_share_link' : 'share_link_revoked',
         actorId: actor.id,
@@ -495,8 +520,41 @@ export class ShareLinksService {
           ...(origin ? originMetadata(origin) : {}),
         },
       })
+      const dossier = await tx.dossier.findUnique({ where: { id: dossierId } })
+      if (!dossier) return []
+      return this.notifyRecipient(tx, dossier, link, (recipientId) => ({
+        recipientId,
+        kind: 'share_revoked',
+        key: `share_revoked:${link.id}`,
+        subject: `share_link:${link.id}`,
+        dossierId,
+        payload: { dossierName: dossier.name },
+      }))
     })
+    await this.notifications.deliver(emails)
     return this.accessEntry(dossierId, link.id)
+  }
+
+  // E10.03: tells a share's recipient — the account of its address, whole (R64) — of a change of
+  // their access, under the dossier's lock. `seq`: the rank of this change among the share's level
+  // changes the account was told of — the share has no version of its own; under the lock, two
+  // changes never take the same rank.
+  private async notifyRecipient(
+    tx: Prisma.TransactionClient,
+    dossier: Dossier,
+    link: ShareLink,
+    draft: (recipientId: string, seq: number) => NotificationDraft,
+  ): Promise<string[]> {
+    const recipient = await tx.user.findUnique({ where: { email: link.recipientEmail } })
+    if (!recipient || recipient.id === dossier.userId) return []
+    const told = await tx.notification.count({
+      where: {
+        recipientId: recipient.id,
+        subjectKey: `share_link:${link.id}`,
+        kind: 'share_level_changed',
+      },
+    })
+    return this.notifications.recordIn(tx, [draft(recipient.id, told + 1)])
   }
 
   private async accessEntry(dossierId: string, linkId: string): Promise<ShareAccess> {

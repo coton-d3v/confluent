@@ -88,6 +88,17 @@ export interface SendEntrepreneurAccessAcceptedInput {
   locale: Locale
 }
 
+// ROADMAP E10.03: a notification's email — the same sentence as in the site (written from what the
+// recipient may read, `notifications/notification-payloads.ts`), and the page it is about. The link
+// opens the site, where the person signs in (magic link) if they are not already.
+export interface SendNotificationInput {
+  to: string
+  title: string
+  body: string | null
+  actionUrl: string
+  locale: Locale
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
@@ -96,4 +107,5 @@ export interface EmailTransport {
   sendParticipationAccepted(input: SendParticipationAcceptedInput): Promise<void>
   sendCommitteeChanged(input: SendCommitteeChangedInput): Promise<void>
   sendEntrepreneurAccessAccepted(input: SendEntrepreneurAccessAcceptedInput): Promise<void>
+  sendNotification(input: SendNotificationInput): Promise<void>
 }

@@ -16,6 +16,7 @@ import {
   type ListEntrepreneurAccessRequestsQuery,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
+import { NotificationsService, workspaceManagers } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 import { openCandidatureFormVersion } from '../candidatures/candidatures.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
@@ -111,6 +112,7 @@ export class EntrepreneurAccessRequestsService {
     private readonly audit: AuditService,
     private readonly tokens: EntrepreneurAccessFormTokens,
     @Inject(ThrottlerStorage) private readonly limits: ThrottlerStorage,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The public ───────────────────────────────────────────────────────────────────────────────
@@ -281,6 +283,22 @@ export class EntrepreneurAccessRequestsService {
           merged: pending !== null,
         },
       })
+      // E10.03: the workspace's managers learn of a new request — in the site only (a public form:
+      // no email a stranger could trigger at will), once per request (the key: a submission merged
+      // into a pending one tells nothing more), without the sender's name, company, address nor
+      // message.
+      const managers = await workspaceManagers(tx, workspaceId)
+      await this.notifications.recordIn(
+        tx,
+        managers.map((recipientId) => ({
+          recipientId,
+          kind: 'entrepreneur_access_request_received' as const,
+          key: `entrepreneur_access_request_received:${request.id}`,
+          subject: `entrepreneur_access_request:${request.id}`,
+          workspaceId,
+          payload: { workspaceId, workspaceName: workspace.name },
+        })),
+      )
     })
   }
 }

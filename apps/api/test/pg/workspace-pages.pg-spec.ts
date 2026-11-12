@@ -24,6 +24,7 @@ import {
   workspacePageIndexingDown,
 } from './sql-file'
 import { join } from 'node:path'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261207000000_workspace_public_page/migration.sql'))
 // Without the acceptance: what an operator runs first.
@@ -88,13 +89,21 @@ describe('workspace public page (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const pages = new WorkspacePagesService(
     prisma,
     access,
     audit,
     new MemoryStorageAdapter(),
-    new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access),
+    new ShowcaseCardsService(
+      prisma,
+      candidatures,
+      dossiers,
+      audit,
+      access,
+      quietNotifications(prisma),
+    ),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

@@ -14,6 +14,7 @@ import { AuditService } from '../audit/audit.service'
 import { EMAIL_TRANSPORT, type EmailTransport } from '../auth/email/email-transport'
 import { scheduleOf } from '../committees/committee-views'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
+import { NotificationsService } from '../notifications/notifications.service'
 import { WorkspaceMembersService } from '../workspaces/workspace-members.service'
 import { lockWorkspaceRow } from '../workspaces/workspaces.service'
 import { ParticipationRequestErrors } from './participation-request-errors'
@@ -74,6 +75,7 @@ export class ParticipationDecisionsService {
     private readonly requests: ParticipationRequestsService,
     private readonly config: ConfigService<AppConfig, true>,
     @Inject(EMAIL_TRANSPORT) private readonly email: EmailTransport,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async decide(
@@ -128,6 +130,19 @@ export class ParticipationDecisionsService {
           version: current.version + 1,
         },
       })
+      // E10.03: in the site only — the acceptance's own email follows, recorded with the request.
+      if (memberUserId) {
+        await this.notifications.recordIn(tx, [
+          {
+            recipientId: memberUserId,
+            kind: 'participation_accepted',
+            key: `participation_accepted:${requestId}`,
+            subject: `participation_request:${requestId}`,
+            workspaceId,
+            payload: { workspaceId, workspaceName: workspace.name },
+          },
+        ])
+      }
       const committeeIds = (
         await tx.participationRequestCommittee.findMany({ where: { requestId, workspaceId } })
       ).map((l) => l.committeeId)

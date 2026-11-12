@@ -30,6 +30,7 @@ import {
   showcaseCardsDown,
   supportPathsDown,
 } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = fundingPlansUp()
 // Without the acceptance: what an operator runs first.
@@ -111,6 +112,7 @@ describe('financing plans (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const plans = new FundingPlansService(prisma, candidatures, NO_PLEDGES, audit)
   const tag = randomUUID().slice(0, 8)

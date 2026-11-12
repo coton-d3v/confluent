@@ -18,6 +18,8 @@ import {
   ParticipationRequestsService,
   type ParticipationRequestInput,
 } from './participation-requests.service'
+import { quietNotifications } from '../../testing/notifications'
+import { NotificationsService } from '../notifications/notifications.service'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
 const MANAGER = { id: 'marie', role: 'financeur' }
@@ -68,12 +70,22 @@ describe('ParticipationRequestsService', () => {
     const access = new WorkspaceAccessService(prisma)
     tokens = new ParticipationFormTokens(config)
     storage = new ThrottlerStorageService()
-    service = new ParticipationRequestsService(prisma, access, audit, tokens, storage)
+    service = new ParticipationRequestsService(
+      prisma,
+      access,
+      audit,
+      tokens,
+      storage,
+      quietNotifications(prisma),
+    )
     committees = new CommitteesService(
       prisma,
       access,
       audit,
-      new CommitteeNoticesService(prisma, config, {} as EmailTransport),
+      new CommitteeNoticesService(
+        prisma,
+        new NotificationsService(prisma, config, {} as EmailTransport),
+      ),
     )
     const workspaces = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
     cci = (await workspaces.create(ADMIN, { name: 'CCI Touraine', slug: 'cci-touraine' })).id

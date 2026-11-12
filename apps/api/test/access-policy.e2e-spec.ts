@@ -1171,9 +1171,11 @@ describe('Reading policy across channels (e2e, E07.04)', () => {
         version: committee.version,
       })
       .expect(200)
-    expect([...fake.table('committeeNotice').values()].map((n) => n.recipientId)).toEqual([
-      SOPHIE.id,
-    ])
+    expect(
+      [...fake.table('notification').values()]
+        .filter((n) => n.kind === 'committee_cancelled')
+        .map((n) => n.recipientId),
+    ).toEqual([SOPHIE.id])
     // A pool's investors read it as an opportunity only (MCP: E07.10), never as a shared request.
     for (const reader of [IVY, EVE]) {
       for (const url of ['', '/answers', '/documents']) {

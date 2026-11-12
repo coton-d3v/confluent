@@ -13,10 +13,7 @@ import type {
 import { CandidaturesService } from '../../src/modules/candidatures/candidatures.service'
 import type { ClassificationService } from '../../src/modules/classification/classification.service'
 import { CommitteeApplicationsService } from '../../src/modules/committees/committee-applications.service'
-import {
-  CommitteeNoticesService,
-  type NoticeBatch,
-} from '../../src/modules/committees/committee-notices.service'
+import { CommitteeNoticesService } from '../../src/modules/committees/committee-notices.service'
 import { CommitteesService } from '../../src/modules/committees/committees.service'
 import { CompaniesService } from '../../src/modules/companies/companies.service'
 import type { DocumentsService } from '../../src/modules/documents/documents.service'
@@ -30,11 +27,16 @@ import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-a
 import { WorkspaceMembersService } from '../../src/modules/workspaces/workspace-members.service'
 import { WorkspacesService } from '../../src/modules/workspaces/workspaces.service'
 import { testDatabase } from './database'
-import { committeeNoticesDown, committeeNoticesUp } from './sql-file'
+import { committeeNoticeKindOfNotification } from '@confluent/shared'
+import { NotificationsService } from '../../src/modules/notifications/notifications.service'
+import { quietNotifications } from '../../src/testing/notifications'
+import { committeeNoticesDown, committeeNoticesUp, notificationsDown } from './sql-file'
 
 const UP = committeeNoticesUp()
-// Without the acceptance: what an operator runs first.
-const DOWN = committeeNoticesDown().slice(1)
+// E10.03 undone first (its notifications go back to `committee_notices`), then, without the
+// acceptance, what an operator runs.
+const LATER_DOWN = notificationsDown()
+const DOWN = committeeNoticesDown().slice(LATER_DOWN.length + 1)
 const ACCEPT_LOSS = "SET LOCAL confluent.accept_committee_notices_loss = 'on'"
 // The acceptance lasts for the whole transaction: withdrawn before a revert that must be checked.
 const REFUSE_LOSS = "SET LOCAL confluent.accept_committee_notices_loss = 'off'"
@@ -109,6 +111,7 @@ describe('committee notices (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const config = {
     get: (key: string) => (key === 'FRONTEND_URL' ? 'https://confluent.example' : 'p'.repeat(32)),
@@ -121,14 +124,37 @@ describe('committee notices (PostgreSQL)', () => {
     },
     sendParticipationAccepted: () => Promise.resolve(),
   } as unknown as EmailTransport
-  const notices = new CommitteeNoticesService(prisma, config, transport)
+  const notices = new CommitteeNoticesService(
+    prisma,
+    new NotificationsService(prisma, config, transport),
+  )
   const committees = new CommitteesService(prisma, access, audit, notices)
-  const applications = new CommitteeApplicationsService(prisma, candidatures, committees, audit)
+  const applications = new CommitteeApplicationsService(
+    prisma,
+    candidatures,
+    committees,
+    audit,
+    quietNotifications(prisma),
+  )
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tokens = new ParticipationFormTokens(config)
   const limits = new ThrottlerStorageService()
-  const requests = new ParticipationRequestsService(prisma, access, audit, tokens, limits)
-  const members = new WorkspaceMembersService(prisma, audit, access, config, transport)
+  const requests = new ParticipationRequestsService(
+    prisma,
+    access,
+    audit,
+    tokens,
+    limits,
+    quietNotifications(prisma),
+  )
+  const members = new WorkspaceMembersService(
+    prisma,
+    audit,
+    access,
+    config,
+    transport,
+    quietNotifications(prisma),
+  )
   const decisions = new ParticipationDecisionsService(
     prisma,
     access,
@@ -137,6 +163,7 @@ describe('committee notices (PostgreSQL)', () => {
     requests,
     config,
     transport,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []
@@ -271,11 +298,19 @@ describe('committee notices (PostgreSQL)', () => {
       time,
       version: (await current(s)).version,
     })
-  const noticesOf = (committeeId: string) =>
-    prisma.committeeNotice.findMany({
-      where: { committeeId },
-      orderBy: [{ committeeVersion: 'asc' }, { recipientId: 'asc' }],
-    })
+  // E10.03: the notices are the notifications of the committee's changes.
+  const noticesOf = async (committeeId: string) =>
+    (
+      await prisma.notification.findMany({
+        where: { committeeId },
+        orderBy: [{ committeeVersion: 'asc' }, { recipientId: 'asc' }],
+      })
+    ).map((n) => ({
+      ...n,
+      kind: committeeNoticeKindOfNotification(n.kind),
+      state: n.emailState,
+      committeeVersion: n.committeeVersion!,
+    }))
 
   const insert = (columns: Record<string, string>) => {
     const values = {
@@ -301,11 +336,12 @@ describe('committee notices (PostgreSQL)', () => {
                   (SELECT count(*)::int FROM users) AS users,
                   (SELECT count(*)::int FROM audit_log) AS journal`
         const [before] = await rows(tx, counts)
-        // A notice recorded: refused unless accepted.
+        // A notice recorded (back from E10.03's notifications): refused unless accepted.
+        await run(tx, LATER_DOWN)
         await tx.$executeRawUnsafe('SAVEPOINT before_down')
         await expect(run(tx, DOWN)).rejects.toThrow(/would be lost/)
         await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT before_down')
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         expect(await rows(tx, `SELECT to_regclass('committee_notices')::text AS t`)).toEqual([
           { t: null },
         ])
@@ -326,7 +362,7 @@ describe('committee notices (PostgreSQL)', () => {
 
     it('survives an interrupted deployment: any prefix of the migration, then all of it, gives the same database', async () => {
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS])
         await tx.$executeRawUnsafe('SAVEPOINT legacy')
         await run(tx, UP)
         const reference = await fingerprint(tx)
@@ -349,7 +385,7 @@ describe('committee notices (PostgreSQL)', () => {
         where: { committeeId: s.committeeId },
       })
       await rolledBack(async (tx) => {
-        await run(tx, [ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
+        await run(tx, [...LATER_DOWN, ACCEPT_LOSS, ...DOWN, REFUSE_LOSS, ...UP])
         const ok = {
           workspace_id: `'${s.workspaceId}'`,
           committee_id: `'${s.committeeId}'`,
@@ -518,12 +554,10 @@ describe('committee notices (PostgreSQL)', () => {
       const deliver = notices.deliver.bind(notices)
       let release!: () => void
       const held = new Promise<void>((resolve) => (release = resolve))
-      const spy = jest
-        .spyOn(notices, 'deliver')
-        .mockImplementationOnce(async (batch: NoticeBatch) => {
-          await held
-          return deliver(batch)
-        })
+      const spy = jest.spyOn(notices, 'deliver').mockImplementationOnce(async (ids: string[]) => {
+        await held
+        return deliver(ids)
+      })
       const first = reschedule(s, '15:00')
       for (let i = 0; i < 100 && (await noticesOf(s.committeeId)).length === 0; i++) {
         await new Promise((resolve) => setTimeout(resolve, 20))
@@ -550,14 +584,8 @@ describe('committee notices (PostgreSQL)', () => {
         [1, 'cancelled', 'sent'],
       ])
       // Delivered again, by two senders at once: nothing leaves twice.
-      const batch = {
-        ids: (await noticesOf(s.committeeId)).map((n) => n.id),
-        kind: 'cancelled' as const,
-        workspaceName: 'Structure test',
-        committee: { name: JUNE.name, date: JUNE.date, time: JUNE.time, timeZone: JUNE.timeZone },
-        previous: null,
-      }
-      await Promise.all([notices.deliver(batch), notices.deliver(batch)])
+      const ids = (await noticesOf(s.committeeId)).map((n) => n.id)
+      await Promise.all([notices.deliver(ids), notices.deliver(ids)])
       expect(sent).toHaveLength(2)
     })
 

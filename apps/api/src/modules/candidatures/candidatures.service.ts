@@ -49,6 +49,7 @@ import { InvalidAnswersException } from '../answers/invalid-answers.exception'
 import { type ActionOrigin, SITE_ORIGIN, originMetadata } from '../audit/action-origin'
 import { AuditService } from '../audit/audit.service'
 import { assertCanOwnCompanies } from '../companies/company-access'
+import { NotificationsService } from '../notifications/notifications.service'
 import { DossiersService, requestArchived } from '../dossiers/dossiers.service'
 import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
@@ -226,6 +227,7 @@ export class CandidaturesService {
     private readonly questionnaires: QuestionnairesService,
     private readonly sources: AnswerSourcesService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── The owner of the request ─────────────────────────────────────────────────────────────────
@@ -444,7 +446,7 @@ export class CandidaturesService {
     const { candidature, dossier } = await this.findOwned(candidatureId, userId)
     const changed = await this.prisma.$transaction(async (tx) => {
       const current = await lockCandidature(tx, candidature.id, userId)
-      return applyFinancingStatus(tx, current, change, 'owner', userId)
+      return (await applyFinancingStatus(tx, current, change, 'owner', userId)).updated
     })
     await this.recordStatusChange(changed, change, 'owner', userId, originMetadata(origin))
     return this.ownerView(changed, dossier)
@@ -468,9 +470,40 @@ export class CandidaturesService {
         where: { id: candidatureId, workspaceId, submittedAt: { not: null } },
       })
       if (!current) throw CandidatureErrors.notFound()
-      return applyFinancingStatus(tx, current, change, 'workspace', actor.id)
+      const { updated, changeId } = await applyFinancingStatus(
+        tx,
+        current,
+        change,
+        'workspace',
+        actor.id,
+      )
+      // E10.03: the owner learns of the structure's change — by its workspace, never which of its
+      // members.
+      const dossier = await tx.dossier.findUnique({ where: { id: updated.dossierId } })
+      const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } })
+      const emails =
+        dossier && workspace && dossier.userId !== actor.id
+          ? await this.notifications.recordIn(tx, [
+              {
+                recipientId: dossier.userId,
+                kind: 'candidature_status_changed',
+                key: `candidature_status_changed:${changeId}`,
+                subject: `candidature:${updated.id}:status`,
+                workspaceId,
+                dossierId: dossier.id,
+                payload: {
+                  candidatureId: updated.id,
+                  dossierName: dossier.name,
+                  workspaceName: workspace.name,
+                  to: change.to,
+                },
+              },
+            ])
+          : []
+      return { updated, emails }
     })
-    await this.recordStatusChange(changed, change, 'workspace', actor.id)
+    await this.recordStatusChange(changed.updated, change, 'workspace', actor.id)
+    await this.notifications.deliver(changed.emails)
     return this.getReceived(actor, workspaceId, candidatureId)
   }
 
@@ -869,7 +902,7 @@ async function applyFinancingStatus(
   change: ChangeFinancingStatusInput,
   by: FinancingStatusActor,
   actorId: string,
-): Promise<Candidature> {
+): Promise<{ updated: Candidature; changeId: string }> {
   if (!current.submittedAt) throw CandidatureErrors.notSent()
   const status = financingStatusOf(current.financingStatus)
   if (status !== change.from) throw CandidatureErrors.statusChanged(status)
@@ -881,7 +914,7 @@ async function applyFinancingStatus(
     where: { id: current.id },
     data: { financingStatus: change.to, financingStatusChangedAt: now },
   })
-  await tx.candidatureStatusChange.create({
+  const recorded = await tx.candidatureStatusChange.create({
     data: {
       candidatureId: current.id,
       fromStatus: change.from,
@@ -891,7 +924,7 @@ async function applyFinancingStatus(
       changedAt: now,
     },
   })
-  return updated
+  return { updated, changeId: recorded.id }
 }
 
 // The candidature's row, held for the rest of the transaction; still its owner's request once the

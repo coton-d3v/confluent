@@ -39,7 +39,7 @@ const valid = <T>(schema: { safeParse: (v: unknown) => { error?: { issues: T[] }
 describe('Companies prepared for an entrepreneur (e2e)', () => {
   let app: INestApplication<App>
   let fake: ReturnType<typeof createFakePrisma>
-  let email: { sendCompanyTransferInvite: jest.Mock }
+  let email: { sendCompanyTransferInvite: jest.Mock; sendNotification: jest.Mock }
   const tokens: Record<string, string> = {}
   let cci: string
 
@@ -55,7 +55,10 @@ describe('Companies prepared for an entrepreneur (e2e)', () => {
     await p.questionnaireVersion.create({
       data: { id: VERSION, questionnaireId: 'form-1', version: 1, status: 'published' },
     })
-    email = { sendCompanyTransferInvite: jest.fn().mockResolvedValue(undefined) }
+    email = {
+      sendCompanyTransferInvite: jest.fn().mockResolvedValue(undefined),
+      sendNotification: jest.fn().mockResolvedValue(undefined),
+    }
     const moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue(p)
@@ -248,5 +251,53 @@ describe('Companies prepared for an entrepreneur (e2e)', () => {
     const withdrawn = await marie.delete(`${prepared()}/${companyId}/invitation`).expect(200)
     expect(withdrawn.body.invitation.status).toBe('cancelled')
     await marie.get(`/v1/companies/${companyId}`).expect(200)
+  })
+  // E10.03: the invited entrepreneur is told in the site (the proposal's own email carries its
+  // expiry), the conseiller of the answer — once, whatever is answered again; nobody else.
+  it('tells the invited entrepreneur of the proposal and the conseiller of the answer, once', async () => {
+    const marie = as(MARIE)
+    const created = await marie
+      .post(prepared(), { companyName: 'Biosensio', ownerEmail: SOPHIE.email })
+      .expect(201)
+    const companyId = created.body.preparation.company.id as string
+    const told = (u: { id: string }, kind: string) =>
+      [...fake.table('notification').values()].filter(
+        (n) => n.recipientId === u.id && n.kind === kind,
+      )
+    expect(told(SOPHIE, 'company_transfer_proposed')).toHaveLength(1)
+    expect(told(SOPHIE, 'company_transfer_proposed')[0]).toMatchObject({ emailState: 'none' })
+    const [offer] = (await as(SOPHIE).get('/v1/company-transfers').expect(200)).body
+    await as(SOPHIE).post(`/v1/company-transfers/${offer.id}/decline`).expect(200)
+    await as(SOPHIE).post(`/v1/company-transfers/${offer.id}/decline`).expect(200)
+    const answered = (await marie.get('/v1/notifications').expect(200)).body.items.filter(
+      (i: { kind: string }) => i.kind.startsWith('company_'),
+    )
+    expect(answered).toEqual([
+      expect.objectContaining({
+        kind: 'company_transfer_answered',
+        title: 'L’entreprise « Biosensio » a été refusée',
+        href: `/workspaces/${cci}`,
+      }),
+    ])
+    expect(JSON.stringify(answered)).not.toContain(SOPHIE.email)
+    expect(email.sendNotification).toHaveBeenCalledTimes(1)
+    expect(email.sendNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: MARIE.email,
+        title: 'L’entreprise « Biosensio » a été refusée',
+      }),
+    )
+    // A new invitation, accepted: told again, for that one.
+    await marie.post(`${prepared()}/${companyId}/invitation`, { email: SOPHIE.email }).expect(201)
+    const [second] = (await as(SOPHIE).get('/v1/company-transfers').expect(200)).body
+    await as(SOPHIE).post(`/v1/company-transfers/${second.id}/accept`).expect(200)
+    expect(told(MARIE, 'company_transfer_answered').map((n) => n.payload)).toEqual([
+      { workspaceId: cci, companyName: 'Biosensio', decision: 'declined' },
+      { workspaceId: cci, companyName: 'Biosensio', decision: 'accepted' },
+    ])
+    for (const other of [CLAIRE, BOB, ADMIN]) {
+      const items = (await as(other).get('/v1/notifications').expect(200)).body.items
+      expect(items.filter((i: { kind: string }) => i.kind.startsWith('company_'))).toEqual([])
+    }
   })
 })

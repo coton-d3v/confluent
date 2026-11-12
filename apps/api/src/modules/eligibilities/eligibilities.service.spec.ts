@@ -11,6 +11,7 @@ import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { EligibilitiesService } from './eligibilities.service'
 import { createDefaultEligibilitySchemes } from './eligibility-scheme-defaults'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E06.05: who keeps a candidature's eligibilities — its owner, and once sent the conseillers
 // of its workspace, who alone verify —, nobody else; every write checked again under the
@@ -85,6 +86,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const eligibilities = new EligibilitiesService(prisma, candidatures, audit)
 

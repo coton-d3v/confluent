@@ -30,6 +30,7 @@ import {
   statusesUp,
   supportPathsDown,
 } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = sqlStatements(join(MIGRATIONS, '20261115000000_workspace_forms/migration.sql'))
 const DOWN = sqlStatements(join(CHECKS, '20261115000000_workspace_forms.down.sql'))
@@ -111,6 +112,7 @@ describe('workspace forms and candidatures (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

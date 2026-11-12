@@ -10,6 +10,7 @@ import { MemoryStorageAdapter } from '../documents/storage/memory-storage.adapte
 import { WorkspaceAccessService } from './workspace-access'
 import { WorkspaceMembersService } from './workspace-members.service'
 import { WorkspacesService } from './workspaces.service'
+import { quietNotifications } from '../../testing/notifications'
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
 const MANAGER = { id: 'manager-1', role: 'financeur' }
@@ -50,6 +51,7 @@ describe('WorkspaceMembersService', () => {
       access,
       config,
       email as unknown as EmailTransport,
+      quietNotifications(prisma),
     )
     for (const [id, role] of [
       [ADMIN.id, 'admin'],

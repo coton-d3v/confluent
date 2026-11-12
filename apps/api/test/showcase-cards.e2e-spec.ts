@@ -765,6 +765,22 @@ describe('Showcase cards (e2e)', () => {
     const again = (await sophie.put(cardOf(inCci), { ...CONSENT, version }).expect(200)).body
     expect(again.card).toMatchObject({ state: 'paused', pausedBecause: 'hidden_by_workspace' })
     expect(await cards()).toEqual([])
+
+    // E10.03: the owner is told of each hiding — once per hiding, not of a restoration, never who
+    // hid it —, by email too; nobody else.
+    const told = (await sophie.get('/v1/notifications').expect(200)).body.items.filter(
+      (i: { kind: string }) => i.kind === 'showcase_card_hidden',
+    )
+    expect(told).toHaveLength(2)
+    expect(told[0]).toMatchObject({
+      title: 'La carte de « Biosensio » est masquée',
+      href: `/dashboard/candidatures/${inCci}`,
+    })
+    expect(JSON.stringify(told)).not.toMatch(/Marie|marie@|Héron/)
+    for (const someone of [MARIE, JEAN, CLAIRE, PAUL, BOB]) {
+      const theirs = (await as(someone).get('/v1/notifications').expect(200)).body.items
+      expect(theirs.filter((i: { kind: string }) => i.kind === 'showcase_card_hidden')).toEqual([])
+    }
   })
 
   it('never shows a stored pseudonym that would be refused now; its owner reads why and chooses another', async () => {

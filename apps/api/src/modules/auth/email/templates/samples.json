@@ -38,5 +38,11 @@
     "workspaceName": "CCI Touraine",
     "accountLine": "Un compte Confluent de porteur de projet a été ouvert à cette adresse.",
     "signInUrl": "https://confluent.local/auth"
+  },
+  "notification": {
+    "title": "Nouvelle promesse pour « Levée d’amorçage »",
+    "preheader": "Nouvelle promesse pour « Levée d’amorçage »",
+    "body": "Une intention de financement, non engageante. Le total est à jour sur votre demande ; le nom et le montant n’apparaissent que si l’investisseur a choisi de les montrer.",
+    "actionUrl": "https://confluent.local/dashboard/dossiers/view/levee-d-amorcage"
   }
 }

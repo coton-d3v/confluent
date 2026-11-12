@@ -16,6 +16,7 @@ import { ReadingSessionsService } from '../../src/modules/reading-sessions/readi
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { testDatabase } from './database'
 import { opportunityViewsDown, opportunityViewsUp } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = opportunityViewsUp()
 // Without the acceptance: what an operator runs first.
@@ -58,6 +59,7 @@ describe('opportunities (PostgreSQL)', () => {
     questionnaires,
     { sendShareInvite: () => Promise.resolve() } as unknown as EmailTransport,
     readings,
+    quietNotifications(prisma),
   )
   const opportunities = new OpportunitiesService(prisma, dossiers, shareLinks, readings)
   const tag = randomUUID().slice(0, 8)

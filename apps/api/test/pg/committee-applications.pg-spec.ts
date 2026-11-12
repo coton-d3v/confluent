@@ -20,6 +20,7 @@ import {
   committeeApplicationsUp,
   committeeNoticesDown,
 } from './sql-file'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const UP = committeeApplicationsUp()
 // Without the acceptance: what an operator runs first.
@@ -94,9 +95,16 @@ describe('committee applications (PostgreSQL)', () => {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const committees = new CommitteesService(prisma, access, audit, quietNotices(prisma))
-  const applications = new CommitteeApplicationsService(prisma, candidatures, committees, audit)
+  const applications = new CommitteeApplicationsService(
+    prisma,
+    candidatures,
+    committees,
+    audit,
+    quietNotifications(prisma),
+  )
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

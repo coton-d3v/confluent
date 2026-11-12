@@ -11,6 +11,7 @@ import { QuestionnairesService } from '../questionnaires/questionnaires.service'
 import { WorkspaceAccessService } from '../workspaces/workspace-access'
 import { SupportPathsService } from './support-paths.service'
 import { createDefaultSupportSteps } from './support-step-defaults'
+import { quietNotifications } from '../../testing/notifications'
 
 // ROADMAP E06.06: who reads a candidature's support path — its owner (never who validated), and
 // once sent the conseillers of its workspace, who alone validate and reopen —, nobody else; every
@@ -84,6 +85,7 @@ async function setup() {
     questionnaires,
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
+    quietNotifications(prisma),
   )
   const paths = new SupportPathsService(prisma, candidatures, audit)
 

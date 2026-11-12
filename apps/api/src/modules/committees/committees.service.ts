@@ -15,7 +15,7 @@ import { AuditService } from '../audit/audit.service'
 import { WorkspaceAccessService, type WorkspaceActor } from '../workspaces/workspace-access'
 import { lockWorkspaceRow } from '../workspaces/workspaces.service'
 import { CommitteeErrors } from './committee-errors'
-import { CommitteeNoticesService, type NoticeBatch } from './committee-notices.service'
+import { CommitteeNoticesService } from './committee-notices.service'
 import { scheduleOf, toView, type CommitteeView } from './committee-views'
 
 export type { CommitteeView } from './committee-views'
@@ -145,7 +145,7 @@ export class CommitteesService {
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
     const data = scheduled(input)
-    const { updated, batch } = await this.prisma.$transaction(async (tx) => {
+    const { updated, emails } = await this.prisma.$transaction(async (tx) => {
       const { current, workspace } = await this.lockCommittee(
         tx,
         actor,
@@ -162,7 +162,7 @@ export class CommitteesService {
           input.participationRequestsOpen ?? current.participationRequestsOpen,
       }
       const changed = changedFields(current, next)
-      if (changed.length === 0) return { updated: current, batch: null }
+      if (changed.length === 0) return { updated: current, emails: [] as string[] }
       const committee = await tx.committee.update({
         where: { id: current.id },
         data: { ...next, version: current.version + 1 },
@@ -192,12 +192,13 @@ export class CommitteesService {
         },
       })
       const kind = committeeNoticeKind({ fields: changed })
-      const batch = kind
+      const emails = kind
         ? await this.notices.recordIn(tx, { workspace, before: current, after: committee, kind })
-        : null
-      return { updated: committee, batch }
+        : []
+      return { updated: committee, emails }
     })
-    await this.deliver(batch)
+    // After the commit; never throws (the change stands whatever the emails do).
+    await this.notices.deliver(emails)
     return toView(updated)
   }
 
@@ -210,7 +211,7 @@ export class CommitteesService {
     input: { status: CommitteeStatus; version: number },
   ): Promise<CommitteeView> {
     await this.access.assertCanManage(actor, workspaceId)
-    const { updated, batch } = await this.prisma.$transaction(async (tx) => {
+    const { updated, emails } = await this.prisma.$transaction(async (tx) => {
       const { current, workspace } = await this.lockCommittee(
         tx,
         actor,
@@ -241,18 +242,14 @@ export class CommitteesService {
         },
       })
       const kind = committeeNoticeKind({ from, to: input.status })
-      const batch = kind
+      const emails = kind
         ? await this.notices.recordIn(tx, { workspace, before: current, after: committee, kind })
-        : null
-      return { updated: committee, batch }
+        : []
+      return { updated: committee, emails }
     })
-    await this.deliver(batch)
+    // After the commit; never throws (the change stands whatever the emails do).
+    await this.notices.deliver(emails)
     return toView(updated)
-  }
-
-  // After the commit; never throws (the change stands whatever the emails do).
-  private async deliver(batch: NoticeBatch | null): Promise<void> {
-    if (batch) await this.notices.deliver(batch)
   }
 
   private async assertCanRead(actor: WorkspaceActor, workspaceId: string): Promise<void> {

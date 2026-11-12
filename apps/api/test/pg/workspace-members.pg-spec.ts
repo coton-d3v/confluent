@@ -7,6 +7,7 @@ import type { EmailTransport } from '../../src/modules/auth/email/email-transpor
 import { WorkspaceAccessService } from '../../src/modules/workspaces/workspace-access'
 import { WorkspaceMembersService } from '../../src/modules/workspaces/workspace-members.service'
 import { testDatabase } from './database'
+import { quietNotifications } from '../../src/testing/notifications'
 
 const statusOf = (result: PromiseSettledResult<unknown>) =>
   result.status === 'rejected' && result.reason instanceof HttpException
@@ -26,6 +27,7 @@ describe('workspace members (PostgreSQL)', () => {
     access,
     config,
     email,
+    quietNotifications(prisma),
   )
   const tag = randomUUID().slice(0, 8)
   const address = (name: string) => `${name}-${tag}@pg-test.dev`
