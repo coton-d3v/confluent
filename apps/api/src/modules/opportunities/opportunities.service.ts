@@ -83,14 +83,23 @@ export interface OpportunityAccessView {
 }
 
 // One request the reader reaches, before its projection; the share ids are for the journal only,
-// the organizations (the reader's, in the workspaces whose pools bring it) for their name (E07.05).
+// the organizations (the reader's, in the workspaces whose pools bring it) for their name (E07.05),
+// each of them by workspace for the structures they may show their position to (E07.07).
 export interface ReachedOpportunity extends Omit<OpportunityAccessView, 'interest' | 'pledge'> {
   dossier: Dossier
   shareLinkIds: string[]
   organizations: string[]
+  organizationIn: Map<string, string | null>
 }
 
-type ListedDossier = Pick<
+// @confluent/shared `opportunityStructureSchema` (E07.07).
+export interface OpportunityStructureView {
+  workspace: WorkspaceRef
+  shownAs: InterestIdentityView
+  disclosure: { id: string; disclosedAt: Date } | null
+}
+
+export type ListedDossier = Pick<
   Dossier,
   | 'id'
   | 'name'
@@ -120,7 +129,10 @@ export interface OpportunitiesView {
 
 // @confluent/shared `opportunitySchema`.
 export type OpportunityView = RecipientView & {
-  opportunity: OpportunityAccessView & { shownAs: InterestIdentityView }
+  opportunity: OpportunityAccessView & {
+    shownAs: InterestIdentityView
+    structures: OpportunityStructureView[]
+  }
 }
 
 export const opportunityNotFound = () =>
@@ -245,10 +257,13 @@ export class OpportunitiesService {
     const found = await this.reachOne(reader, dossierId)
     if (!found) throw opportunityNotFound()
     const view = await this.shareLinks.recipientView(found.dossier, found.accessLevel)
-    const [interests, pledges, account] = await Promise.all([
+    const [interests, pledges, account, disclosures] = await Promise.all([
       this.interestsOf(reader, [found.dossier.id]),
       this.pledgesOf(reader, [found.dossier.id]),
       this.prisma.user.findUnique({ where: { id: reader.id } }),
+      this.prisma.investorPositionDisclosure.findMany({
+        where: { investorId: reader.id, dossierId: found.dossier.id },
+      }),
     ])
     await this.audit.record({
       actionType: 'opportunity_viewed',
@@ -271,8 +286,47 @@ export class OpportunitiesService {
         interest: interests.get(found.dossier.id) ?? null,
         pledge: pledges.get(found.dossier.id) ?? null,
         shownAs: interestIdentity(account ?? {}, found.organizations),
+        // E07.07: the structures whose pool brings it, each with the reader's consent, if given.
+        structures: found.sources.flatMap((s) => {
+          if (s.kind !== 'pool') return []
+          const consent = disclosures.find(
+            (d) => d.investorId === reader.id && d.workspaceId === s.workspace.id,
+          )
+          const organization = found.organizationIn.get(s.workspace.id)
+          return [
+            {
+              workspace: s.workspace,
+              shownAs: interestIdentity(account ?? {}, organization ? [organization] : []),
+              disclosure: consent ? { id: consent.id, disclosedAt: consent.createdAt } : null,
+            },
+          ]
+        }),
       },
     }
+  }
+
+  // Those of these requests the reader reads as opportunities now (THE rule, as `list` applies it),
+  // each with how and the list's part of its projection at its level — what « Mes positionnements »
+  // (E07.07) shows of a request; nothing for the others.
+  async readable(
+    reader: OpportunityReader,
+    dossierIds: string[],
+  ): Promise<Map<string, { access: ReachedOpportunity; dossier: ListedDossier }>> {
+    if (dossierIds.length === 0) return new Map()
+    const wanted = new Set(dossierIds)
+    const reached = (await this.reach(reader)).reached.filter((r) => wanted.has(r.dossier.id))
+    const projected = await this.dossiers.projectEachForLevel(
+      reached.map((r) => ({ dossier: r.dossier, level: r.accessLevel })),
+    )
+    return new Map(
+      reached.map(
+        (access, i) =>
+          [
+            access.dossier.id,
+            { access, dossier: listedDossier(presentationForShare(projected[i])) },
+          ] as const,
+      ),
+    )
   }
 
   // THE rule of who reads one request as an opportunity, and how, as `get` applies it: also what a
@@ -360,7 +414,7 @@ export class OpportunitiesService {
     const poolMemberships = memberships.filter((m) => m.userId === reader.id && readsPool(m))
     const poolIds = poolMemberships.map((m) => m.workspaceId)
     const organizationIn = new Map(
-      poolMemberships.map((m) => [m.workspaceId, m.organization?.trim() ?? ''] as const),
+      poolMemberships.map((m) => [m.workspaceId, m.organization?.trim() || null] as const),
     )
     const [workspaces, listed] = await Promise.all([
       poolIds.length === 0
@@ -421,16 +475,16 @@ export class OpportunitiesService {
       // The reader's own requests are theirs, not opportunities.
       if (!dossier || dossier.userId === reader.id || sources.length === 0) continue
       sources.sort(sourceOrder)
-      const organizations = sources.flatMap((s) =>
-        s.kind === 'pool' ? [organizationIn.get(s.workspace.id) ?? ''] : [],
-      )
+      const pools = sources.flatMap((s) => (s.kind === 'pool' ? [s.workspace.id] : []))
+      const organizations = pools.flatMap((w) => organizationIn.get(w) ?? [])
       reached.push({
         dossier,
         accessLevel: highestAccessLevel(sources.map((s) => s.accessLevel))!,
         sources,
         receivedAt: new Date(Math.max(...sources.map((s) => s.since.getTime()))),
         shareLinkIds,
-        organizations: [...new Set(organizations.filter((o) => o !== ''))],
+        organizations: [...new Set(organizations)],
+        organizationIn: new Map(pools.map((w) => [w, organizationIn.get(w) ?? null] as const)),
       })
     }
     return { reached, pools }

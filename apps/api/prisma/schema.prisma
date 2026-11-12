@@ -111,6 +111,10 @@ enum audit_action {
   investor_pledge_set
   // E07.06: an investor withdrew their pledge.
   investor_pledge_withdrawn
+  // E07.07: an investor consented to show their position on a request to a structure.
+  investor_position_disclosed
+  // E07.07: an investor withdrew that consent.
+  investor_position_disclosure_withdrawn
 
   @@map("audit_action")
 }
@@ -153,6 +157,7 @@ model User {
   poolPublicationsWithdrawn   PoolPublication[]                 @relation("PoolPublicationWithdrawer")
   interestsMarked             InvestorInterest[]
   pledgesMade                 InvestorPledge[]
+  positionDisclosures         InvestorPositionDisclosure[]
 
   @@map("users")
 }
@@ -405,18 +410,19 @@ model Dossier {
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   // NoAction: a company keeps its dossiers (checked at the end of the statement, so deleting an
   // account still removes both).
-  company              Company              @relation("CompanyDossiers", fields: [companyId, userId], references: [id, ownerId], onDelete: NoAction, onUpdate: Cascade)
-  companyProfile       Company              @relation("CompanyProfileDossiers", fields: [companyId, questionnaireVersionId], references: [id, profileVersionId], onDelete: NoAction, onUpdate: Cascade)
-  questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
+  company              Company                      @relation("CompanyDossiers", fields: [companyId, userId], references: [id, ownerId], onDelete: NoAction, onUpdate: Cascade)
+  companyProfile       Company                      @relation("CompanyProfileDossiers", fields: [companyId, questionnaireVersionId], references: [id, profileVersionId], onDelete: NoAction, onUpdate: Cascade)
+  questionnaireVersion QuestionnaireVersion         @relation(fields: [questionnaireVersionId], references: [id])
   shareLinks           ShareLink[]
   auditLogs            AuditLog[]
   documentSelection    DossierDocument[]
   candidatures         Candidature[]
   investorInterests    InvestorInterest[]
   investorPledges      InvestorPledge[]
+  positionDisclosures  InvestorPositionDisclosure[]
 
   // Target of the selection's (dossier, company) foreign key.
   @@unique([id, companyId])
@@ -858,14 +864,16 @@ model Workspace {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  memberships        WorkspaceMembership[]
-  preparedCompanies  Company[]
-  companyTransfers   CompanyTransfer[]
-  forms              Questionnaire[]
-  candidatures       Candidature[]
-  fundingSources     FundingSourceCategory[]
-  eligibilitySchemes EligibilityScheme[]
-  supportSteps       SupportStep[]
+  memberships         WorkspaceMembership[]
+  preparedCompanies   Company[]
+  companyTransfers    CompanyTransfer[]
+  forms               Questionnaire[]
+  candidatures        Candidature[]
+  fundingSources      FundingSourceCategory[]
+  eligibilitySchemes  EligibilityScheme[]
+  supportSteps        SupportStep[]
+  // E07.07: the positions its investors consented to show it.
+  positionDisclosures InvestorPositionDisclosure[]
 
   @@map("workspaces")
 }
@@ -1163,6 +1171,30 @@ model InvestorPledge {
   // E07.07 lists an investor's pledges.
   @@index([investorId])
   @@map("investor_pledges")
+}
+
+// An investor's consent to show a structure their position on a request (ROADMAP E07.07, rules in
+// @confluent/shared `position.schema.ts`): one per (request, investor, workspace) — unique —, given
+// explicitly (no default) on a request the investor reads through that workspace's pool, withdrawn
+// by deleting it (the journal keeps both). Whether it still shows anything is read at each request
+// (the investor still reads the request through that pool), never stored. Removed with the request,
+// the account or the workspace.
+model InvestorPositionDisclosure {
+  id          String   @id @default(uuid())
+  dossierId   String   @map("dossier_id")
+  investorId  String   @map("investor_id")
+  workspaceId String   @map("workspace_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  dossier   Dossier   @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  investor  User      @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([dossierId, investorId, workspaceId])
+  // « Mes positionnements » lists an investor's consents; a structure reads those it was given.
+  @@index([investorId])
+  @@index([workspaceId, dossierId])
+  @@map("investor_position_disclosures")
 }
 
 // A person's place in one workspace (ROADMAP E05.02), distinct from the account's global role

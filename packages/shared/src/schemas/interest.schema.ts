@@ -17,7 +17,8 @@ import { z } from 'zod'
 //    membership or account was deactivated, is neither counted nor named while that lasts — the mark
 //    itself stays theirs (withdrawable, back if access comes back).
 //  * Nobody else: neither the workspace's conseillers or managers, nor administrators (outside the
-//    raw journal), nor other investors, read the marks (their follow-up: E07.07).
+//    raw journal), nor other investors, read the marks — except a structure the investor explicitly
+//    consented to show their position on that request (E07.07, position.schema.ts).
 //  * The name shown: the investor's account name (first and last name), and the organization their
 //    membership records in each workspace whose pool brings them the request — none for a direct
 //    share. Never their email address: an account without name shows « name not given ».
