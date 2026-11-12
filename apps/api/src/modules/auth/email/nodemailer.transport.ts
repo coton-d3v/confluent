@@ -6,6 +6,7 @@ import type {
   EmailTransport,
   SendCompanyTransferInviteInput,
   SendMagicLinkInput,
+  SendParticipationAcceptedInput,
   SendShareInviteInput,
   SendWorkspaceInviteInput,
 } from './email-transport'
@@ -75,6 +76,20 @@ export class NodemailerTransport implements EmailTransport {
     await this.send({ to: input.to, subject, html, text })
   }
 
+  async sendParticipationAccepted(input: SendParticipationAcceptedInput): Promise<void> {
+    const { subject, html, text } = render('participation-accepted', input.locale, {
+      workspaceName: input.workspaceName,
+      sessions: participationSessionLines(input.sessions),
+      accountLine: templateString(
+        'participation-accepted',
+        input.locale,
+        ADMISSION_LINES[input.admission],
+      ),
+      signInUrl: input.signInUrl,
+    })
+    await this.send({ to: input.to, subject, html, text })
+  }
+
   private async send(payload: {
     to: string
     subject: string
@@ -90,4 +105,27 @@ export class NodemailerTransport implements EmailTransport {
       throw err
     }
   }
+}
+
+const ADMISSION_LINES = {
+  account_created: 'accountCreated',
+  membership_created: 'membershipCreated',
+  already_member: 'alreadyMember',
+} as const
+
+const SESSION_STATUS_SUFFIX: Record<string, string> = { cancelled: ' (annulée)', held: ' (tenue)' }
+
+// « • Comité de juin — mercredi 10 juin 2099 à 14:00 (Europe/Paris) », one session per line, at the
+// wall-clock time of the committee's own time zone, as the public form showed it.
+export function participationSessionLines(
+  sessions: SendParticipationAcceptedInput['sessions'],
+): string {
+  const day = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeZone: 'UTC' })
+  return sessions
+    .map(
+      (s) =>
+        `• ${s.name} — ${day.format(new Date(`${s.date}T00:00:00Z`))} à ${s.time} (${s.timeZone})` +
+        (SESSION_STATUS_SUFFIX[s.status] ?? ''),
+    )
+    .join('\n')
 }

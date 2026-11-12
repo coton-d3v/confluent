@@ -130,6 +130,8 @@ enum audit_action {
   // E08.04: a public submission set aside without being recorded (robot field, too many for one
   // address).
   participation_request_discarded
+  // E08.05: a manager accepted or refused a participation request.
+  participation_request_decided
 
   @@map("audit_action")
 }
@@ -176,6 +178,8 @@ model User {
   positionDisclosures         InvestorPositionDisclosure[]
   readingSessions             ReadingSession[]
   committeeApplicationChanges CommitteeApplication[]
+  participationDecisions      ParticipationRequest[]            @relation("ParticipationDecider")
+  participationAdmissions     ParticipationRequest[]            @relation("ParticipationMember")
 
   @@map("users")
 }
@@ -1393,33 +1397,48 @@ model CommitteeApplication {
 }
 
 // E08.04: a request, sent from a workspace's public form by someone outside it (no account), to take
-// part in some of its committees — pending until E08.05 decides it; it grants nothing. At most one
+// part in some of its committees — pending, granting nothing, until a manager accepts it (E08.05:
+// the address's account and membership are then created or reused) or refuses it. At most one
 // pending request per address and workspace (partial unique index
 // `participation_requests_pending_email_key`, in the migration only): a new submission adds its
 // sessions to it and keeps what it said first. Rules: @confluent/shared
 // `participation-request.schema.ts`.
 model ParticipationRequest {
-  id              String   @id @default(uuid())
-  workspaceId     String   @map("workspace_id")
+  id                String    @id @default(uuid())
+  workspaceId       String    @map("workspace_id")
   // Lower case, as typed otherwise; not known to be the sender's until they act on an invitation.
-  email           String
-  name            String
-  organization    String?
-  message         String?
-  // PARTICIPATION_REQUEST_STATUSES (`pending` only until E08.05).
-  status          String   @default("pending")
-  submissionCount Int      @default(1) @map("submission_count")
-  lastSubmittedAt DateTime @map("last_submitted_at")
-  version         Int      @default(1)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  email             String
+  name              String
+  organization      String?
+  message           String?
+  // PARTICIPATION_REQUEST_STATUSES: `pending`, then `accepted` or `refused` (E08.05, final).
+  status            String    @default("pending")
+  submissionCount   Int       @default(1) @map("submission_count")
+  lastSubmittedAt   DateTime  @map("last_submitted_at")
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  // E08.05 — the decision: when and by whom (null once that account is gone).
+  decidedAt         DateTime? @map("decided_at")
+  decidedById       String?   @map("decided_by_id")
+  // Accepted only: PARTICIPATION_ADMISSIONS — what the acceptance did to the address's account and
+  // membership — and the account admitted (null once that account is gone).
+  admission         String?
+  memberUserId      String?   @map("member_user_id")
+  // Accepted only: PARTICIPATION_INVITATION_EMAIL_STATUSES, and when it last changed.
+  invitationEmail   String?   @map("invitation_email")
+  invitationEmailAt DateTime? @map("invitation_email_at")
 
   workspace  Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   committees ParticipationRequestCommittee[]
+  decidedBy  User?                           @relation("ParticipationDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  member     User?                           @relation("ParticipationMember", fields: [memberUserId], references: [id], onDelete: SetNull)
 
   // Target of the composite foreign key that keeps its sessions inside its workspace.
   @@unique([id, workspaceId])
   @@index([workspaceId, createdAt])
+  @@index([decidedById])
+  @@index([memberUserId])
   @@map("participation_requests")
 }
 

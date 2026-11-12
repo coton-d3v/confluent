@@ -51,5 +51,22 @@
     "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Si vous ne connaissez pas cette structure, ignorez ce message ou refusez la proposition : sans acceptation de votre part, aucune donnée n’est rattachée à votre compte."
+  },
+  "participation-accepted": {
+    "lang": "fr",
+    "subject": "Votre demande de participation a été acceptée",
+    "preheader": "Une structure accepte votre demande de participation à ses comités sur Confluent.",
+    "brandLabel": "Confluent",
+    "title": "Votre demande est acceptée",
+    "body": "La structure suivante a accepté votre demande de participation à ses comités :",
+    "sessionsIntro": "Sessions demandées :",
+    "accountCreated": "Un compte Confluent a été ouvert à cette adresse : vous rejoignez le workspace de la structure comme investisseur.",
+    "membershipCreated": "Vous rejoignez le workspace de la structure comme investisseur, avec votre compte Confluent existant.",
+    "alreadyMember": "Vous êtes déjà membre du workspace de cette structure : votre accès reste inchangé.",
+    "practical": "Les informations pratiques des sessions (lieu, accès) ne figurent pas dans ce message : la structure vous les communiquera.",
+    "cta": "Se connecter à Confluent",
+    "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe.",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Vous recevez ce message parce qu’une demande de participation a été envoyée avec cette adresse depuis le formulaire public de la structure. Si vous n’en êtes pas l’auteur, ignorez-le : sans connexion de votre part, aucune information ne vous est communiquée."
   }
 }

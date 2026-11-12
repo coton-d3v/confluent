@@ -9,6 +9,7 @@ export type TemplateName =
   | 'share-invite'
   | 'workspace-invite'
   | 'company-transfer-invite'
+  | 'participation-accepted'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
@@ -21,6 +22,12 @@ export interface TemplateDynamicVars {
     expiresOn: string
     accountLine: string
     invitationsUrl: string
+  }
+  'participation-accepted': {
+    workspaceName: string
+    sessions: string
+    accountLine: string
+    signInUrl: string
   }
 }
 

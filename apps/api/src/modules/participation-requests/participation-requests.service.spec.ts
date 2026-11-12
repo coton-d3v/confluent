@@ -332,6 +332,13 @@ describe('ParticipationRequestsService', () => {
         submissionCount: 1,
         lastSubmittedAt: expect.any(Date),
         createdAt: expect.any(Date),
+        // E08.05: undecided.
+        version: 1,
+        decidedAt: null,
+        decidedBy: null,
+        admission: null,
+        invitationEmail: null,
+        invitationEmailAt: null,
       },
     ])
     expect(await service.listForManagers(ADMIN, cci)).toHaveLength(1)

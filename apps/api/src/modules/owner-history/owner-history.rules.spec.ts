@@ -57,6 +57,7 @@ describe('owner history rules (E07.09)', () => {
       'committee_application_changed',
       'participation_request_received',
       'participation_request_discarded',
+      'participation_request_decided',
     ]) {
       expect([action, ownerRule(action)]).toEqual([action, null])
     }

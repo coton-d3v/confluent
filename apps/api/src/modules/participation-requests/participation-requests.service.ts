@@ -1,15 +1,27 @@
 import { createHash } from 'node:crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { ThrottlerStorage } from '@nestjs/throttler'
-import { Prisma, type Committee, type ParticipationRequest, type Workspace } from '@prisma/client'
 import {
+  Prisma,
+  type Committee,
+  type ParticipationRequest,
+  type User,
+  type Workspace,
+} from '@prisma/client'
+import {
+  PARTICIPATION_ADMISSIONS,
   PARTICIPATION_HONEYPOT_FIELD,
+  PARTICIPATION_INVITATION_EMAIL_STATUSES,
   PARTICIPATION_REQUEST_LIMITS,
+  PARTICIPATION_REQUEST_STATUSES,
   committeeOpenToParticipationRequests,
   committeeStatusOf,
   toPublicCommittee,
   workspaceSlugSchema,
   type CommitteeStatus,
+  type ListParticipationRequestsQuery,
+  type ParticipationAdmission,
+  type ParticipationInvitationEmailStatus,
   type ParticipationRequestStatus,
 } from '@confluent/shared'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -55,6 +67,13 @@ export interface ParticipationRequestView {
   submissionCount: number
   lastSubmittedAt: Date
   createdAt: Date
+  // E08.05.
+  version: number
+  decidedAt: Date | null
+  decidedBy: { id: string; email: string; firstName: string | null; lastName: string | null } | null
+  admission: ParticipationAdmission | null
+  invitationEmail: ParticipationInvitationEmailStatus | null
+  invitationEmailAt: Date | null
 }
 
 // What a valid submission brings, as validated by createParticipationRequestSchema.
@@ -93,8 +112,8 @@ const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 // `participation_request_discarded` (why), without the name, address or message (they live in the
 // request, which E08.05 will keep or delete). Kept out of every request owner's history.
 //
-// The queue is read, for now, by the workspace's managers (`canManageWorkspace`), read-only; E08.05
-// processes it. No MCP tool (E08.07).
+// The queue is read by the workspace's managers (`canManageWorkspace`): pending requests, or decided
+// ones (E08.05, `ParticipationDecisionsService`). No MCP tool (E08.07).
 @Injectable()
 export class ParticipationRequestsService {
   constructor(
@@ -156,24 +175,59 @@ export class ParticipationRequestsService {
 
   // ── The workspace's managers ─────────────────────────────────────────────────────────────────
 
-  // The pending requests, oldest first, with the sessions each asks for as they now are.
+  // The pending requests, oldest first — or the decided ones, latest decision first (at most
+  // `decidedListed`) —, optionally only those asking for one committee, with the sessions each asks
+  // for as they now are.
   async listForManagers(
     actor: WorkspaceActor,
     workspaceId: string,
+    query: { status?: ListParticipationRequestsQuery['status']; committeeId?: string } = {},
   ): Promise<ParticipationRequestView[]> {
     await this.access.assertCanManage(actor, workspaceId)
-    const requests = await this.prisma.participationRequest.findMany({
-      where: { workspaceId, status: 'pending' },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    })
+    let only: string[] | undefined
+    if (query.committeeId) {
+      only = (
+        await this.prisma.participationRequestCommittee.findMany({
+          where: { committeeId: query.committeeId, workspaceId },
+        })
+      ).map((l) => l.requestId)
+      if (only.length === 0) return []
+    }
+    const requests =
+      (query.status ?? 'pending') === 'pending'
+        ? await this.prisma.participationRequest.findMany({
+            where: { workspaceId, status: 'pending', ...(only && { id: { in: only } }) },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          })
+        : await this.prisma.participationRequest.findMany({
+            where: {
+              workspaceId,
+              status: { in: ['accepted', 'refused'] },
+              ...(only && { id: { in: only } }),
+            },
+            orderBy: [{ decidedAt: 'desc' }, { id: 'asc' }],
+            take: PARTICIPATION_REQUEST_LIMITS.decidedListed,
+          })
+    return this.views(workspaceId, requests)
+  }
+
+  // Requests of one workspace as its managers read them.
+  async views(
+    workspaceId: string,
+    requests: ParticipationRequest[],
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<ParticipationRequestView[]> {
     if (requests.length === 0) return []
-    const links = await this.prisma.participationRequestCommittee.findMany({
+    const links = await db.participationRequestCommittee.findMany({
       where: { requestId: { in: requests.map((r) => r.id) }, workspaceId },
     })
-    const committees = await this.prisma.committee.findMany({
+    const committees = await db.committee.findMany({
       where: { id: { in: [...new Set(links.map((l) => l.committeeId))] }, workspaceId },
       orderBy: ORDER,
     })
+    const deciderIds = [...new Set(requests.flatMap((r) => (r.decidedById ? [r.decidedById] : [])))]
+    const deciders =
+      deciderIds.length === 0 ? [] : await db.user.findMany({ where: { id: { in: deciderIds } } })
     return requests.map((request) => {
       const asked = new Set(
         links.filter((l) => l.requestId === request.id).map((l) => l.committeeId),
@@ -181,6 +235,7 @@ export class ParticipationRequestsService {
       return requestView(
         request,
         committees.filter((c) => asked.has(c.id)),
+        deciders.find((u) => u.id === request.decidedById) ?? null,
       )
     })
   }
@@ -328,14 +383,24 @@ async function lockPending(
   return locked?.status === 'pending' ? locked : null
 }
 
+// A value read from the database outside its closed list (ahead of this code): the most restrictive
+// reading — an unknown status is shown as refused (nothing granted), unknown details as absent.
+function oneOf<T extends string>(list: readonly T[], value: string | null, fallback: T | null) {
+  return value !== null && (list as readonly string[]).includes(value) ? (value as T) : fallback
+}
+
 function requestView(
   request: ParticipationRequest,
   committees: Committee[],
+  decider: User | null,
 ): ParticipationRequestView {
   return {
     id: request.id,
-    // Only pending requests are read (closed by default: nothing else is listed until E08.05).
-    status: 'pending',
+    status: oneOf(
+      PARTICIPATION_REQUEST_STATUSES,
+      request.status,
+      'refused',
+    ) as ParticipationRequestStatus,
     name: request.name,
     organization: request.organization,
     email: request.email,
@@ -355,5 +420,18 @@ function requestView(
     submissionCount: request.submissionCount,
     lastSubmittedAt: request.lastSubmittedAt,
     createdAt: request.createdAt,
+    version: request.version,
+    decidedAt: request.decidedAt,
+    decidedBy: decider
+      ? {
+          id: decider.id,
+          email: decider.email,
+          firstName: decider.firstName,
+          lastName: decider.lastName,
+        }
+      : null,
+    admission: oneOf(PARTICIPATION_ADMISSIONS, request.admission, null),
+    invitationEmail: oneOf(PARTICIPATION_INVITATION_EMAIL_STATUSES, request.invitationEmail, null),
+    invitationEmailAt: request.invitationEmailAt,
   }
 }

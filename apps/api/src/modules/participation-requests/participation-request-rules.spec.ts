@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import {
   COMMITTEE_PUBLIC_FIELDS,
   COMMITTEE_SHARED_FIELDS,
+  PARTICIPATION_ADMISSIONS,
+  PARTICIPATION_INVITATION_EMAIL_STATUSES,
   PARTICIPATION_REQUEST_LIMITS,
   PARTICIPATION_REQUEST_STATUSES,
   committeeOpenToParticipationRequests,
@@ -44,6 +46,15 @@ const MIGRATION = readFileSync(
   join(__dirname, '../../../prisma/migrations/20261204000000_participation_requests/migration.sql'),
   'utf8',
 )
+// E08.05 widens the status list and adds the decision's closed lists.
+const DECISIONS_MIGRATION = readFileSync(
+  join(
+    __dirname,
+    '../../../prisma/migrations/20261205000000_participation_decisions/migration.sql',
+  ),
+  'utf8',
+)
+const quoted = (list: readonly string[]) => list.map((s) => `'${s}'`).join(', ')
 
 // ROADMAP E08.04: what the public reads of a committee, which committees it is offered, and what a
 // submission may hold — the same rules for the site, the API and the database.
@@ -133,8 +144,11 @@ describe('participation request rules', () => {
   })
 
   it('keeps the database’s CHECK equal to the shared limits and closed status list', () => {
-    expect(MIGRATION).toContain(
-      `"status" IN (${PARTICIPATION_REQUEST_STATUSES.map((s) => `'${s}'`).join(', ')})`,
+    expect(MIGRATION).toContain(`"status" IN ('pending')`)
+    expect(DECISIONS_MIGRATION).toContain(`"status" IN (${quoted(PARTICIPATION_REQUEST_STATUSES)})`)
+    expect(DECISIONS_MIGRATION).toContain(`"admission" IN (${quoted(PARTICIPATION_ADMISSIONS)})`)
+    expect(DECISIONS_MIGRATION).toContain(
+      `"invitation_email" IN (${quoted(PARTICIPATION_INVITATION_EMAIL_STATUSES)})`,
     )
     expect(MIGRATION).toContain(
       `char_length("email") BETWEEN 3 AND ${PARTICIPATION_REQUEST_LIMITS.email}`,

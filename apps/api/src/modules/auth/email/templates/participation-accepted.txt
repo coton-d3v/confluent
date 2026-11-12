@@ -1,0 +1,20 @@
+{{brandLabel}}
+
+{{title}}
+
+{{body}}
+
+  {{workspaceName}}
+
+{{sessionsIntro}}
+{{sessions}}
+
+{{accountLine}}
+
+{{practical}}
+
+{{cta}} : {{signInUrl}}
+
+{{signInHint}}
+
+{{footer}}

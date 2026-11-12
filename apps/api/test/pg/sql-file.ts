@@ -287,3 +287,17 @@ export function participationRequestsDown(): string[] {
 export function participationRequestsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261204000000_participation_requests/migration.sql'))
 }
+
+// The revert of E08.05 (participation decisions), as the tests of earlier migrations that drop what
+// it changes (the participation requests, the committees) run it before their own: it accepts that
+// the decided requests and their journal are lost (SET LOCAL, test transactions only).
+export function participationDecisionsDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_participation_decisions_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261205000000_participation_decisions.down.sql')),
+  ]
+}
+
+export function participationDecisionsUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261205000000_participation_decisions/migration.sql'))
+}

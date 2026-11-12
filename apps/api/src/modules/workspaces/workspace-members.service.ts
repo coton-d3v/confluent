@@ -143,32 +143,16 @@ export class WorkspaceMembersService {
       outcome = await this.prisma.$transaction(async (tx) => {
         const workspace = await this.lockForManager(tx, actor, workspaceId)
         assertEmailAllowed(workspace, email, input.role)
-        // The global role of a new account is the narrowest one (as for a share invitation): the
-        // membership, not the global role, says what the person does in the workspace. An existing
-        // account keeps its global role.
-        const created = await tx.user.createMany({
-          data: [{ email, role: 'financeur', isActive: true, emailVerifiedAt: null }],
-          skipDuplicates: true,
-        })
-        const user = await tx.user.findUnique({ where: { email } })
-        if (!user) throw new Error(`account ${email} neither created nor found`)
+        const { user, created } = await accountIn(tx, email)
         const existing = await tx.workspaceMembership.findUnique({
           where: { workspaceId_userId: { workspaceId, userId: user.id } },
         })
         if (existing) throw WorkspaceErrors.alreadyMember(existing.deactivatedAt !== null)
         const member = await tx.workspaceMembership.create({
-          data: {
-            workspaceId,
-            userId: user.id,
-            role: input.role,
-            organization: input.organization ?? null,
-            investorType: input.role === 'investisseur' ? (input.investorType ?? null) : null,
-            canManageWorkspace: input.role === 'conseiller' && input.canManageWorkspace === true,
-            invitedById: actor.id,
-          },
+          data: newMembership(workspaceId, user.id, actor.id, input),
           include: WITH_PEOPLE,
         })
-        return { member, workspace, createdAccount: created.count === 1 }
+        return { member, workspace, createdAccount: created }
       })
     } catch (err) {
       // Backstop of the workspace lock: the unique (workspace, user) index.
@@ -193,6 +177,38 @@ export class WorkspaceMembersService {
     })
     const invitationEmailSent = await this.sendInvitation(member, workspace)
     return { member: toView(member), invitationEmailSent }
+  }
+
+  // ROADMAP E08.05: the membership an accepted participation request gives its address, inside the
+  // decision's transaction — which locked the workspace row and read the manager's right after the
+  // lock, as every membership write does. The account is created when the address is unknown (as
+  // for an invitation). An active membership is kept as it is, whatever its role and rights (never
+  // narrowed nor widened); a deactivated one is left deactivated (`deactivated`: the caller refuses —
+  // reactivating someone is a decision of the members' page). No email here: the decision sends its
+  // own.
+  async admitIn(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    workspaceId: string,
+    input: { email: string; role: WorkspaceMemberRole; organization: string | null },
+  ): Promise<{
+    userId: string
+    admission: 'account_created' | 'membership_created' | 'already_member' | 'deactivated'
+  }> {
+    const { user, created } = await accountIn(tx, input.email)
+    const existing = await tx.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: user.id } },
+    })
+    if (existing) {
+      return {
+        userId: user.id,
+        admission: existing.deactivatedAt === null ? 'already_member' : 'deactivated',
+      }
+    }
+    await tx.workspaceMembership.create({
+      data: newMembership(workspaceId, user.id, actorId, input),
+    })
+    return { userId: user.id, admission: created ? 'account_created' : 'membership_created' }
   }
 
   // Only what is sent changes. A new role clears what it cannot hold; becoming a conseiller follows
@@ -364,6 +380,40 @@ function assertEmailAllowed(workspace: Workspace, email: string, role: Workspace
   if (role !== 'conseiller' || !workspace.emailDomain) return
   if (emailDomainOf(email) !== workspace.emailDomain) {
     throw WorkspaceErrors.emailDomainMismatch(workspace.emailDomain)
+  }
+}
+
+// The account of an address, created when unknown. The global role of a new account is the narrowest
+// one (as for a share invitation), unverified until its first sign-in: the membership, not the
+// global role, says what the person does in the workspace. An existing account keeps its global role.
+async function accountIn(
+  tx: Prisma.TransactionClient,
+  email: string,
+): Promise<{ user: User; created: boolean }> {
+  const created = await tx.user.createMany({
+    data: [{ email, role: 'financeur', isActive: true, emailVerifiedAt: null }],
+    skipDuplicates: true,
+  })
+  const user = await tx.user.findUnique({ where: { email } })
+  if (!user) throw new Error(`account ${email} neither created nor found`)
+  return { user, created: created.count === 1 }
+}
+
+// A new membership: what its role may hold, nothing more.
+function newMembership(
+  workspaceId: string,
+  userId: string,
+  invitedById: string,
+  input: Pick<InviteMemberInput, 'role' | 'organization' | 'investorType' | 'canManageWorkspace'>,
+) {
+  return {
+    workspaceId,
+    userId,
+    role: input.role,
+    organization: input.organization ?? null,
+    investorType: input.role === 'investisseur' ? (input.investorType ?? null) : null,
+    canManageWorkspace: input.role === 'conseiller' && input.canManageWorkspace === true,
+    invitedById,
   }
 }
 
