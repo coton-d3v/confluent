@@ -84,6 +84,7 @@ const UPDATED_AT = new Set([
   'committee',
   'committeeApplication',
   'participationRequest',
+  'showcaseCard',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -577,6 +578,14 @@ export function createFakePrisma() {
       withdrawnAt: null,
       withdrawnById: null,
       withdrawalReason: null,
+    })),
+    showcaseCard: model('showcaseCard', () => ({
+      region: null,
+      consentedById: null,
+      withdrawnAt: null,
+      withdrawnById: null,
+      withdrawalReason: null,
+      version: 1,
     })),
     investorInterest: model('investorInterest', () => ({ nameVisible: false })),
     investorPledge: model('investorPledge', () => ({ comment: null, version: 1 })),
