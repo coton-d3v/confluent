@@ -585,6 +585,8 @@ export function createFakePrisma() {
       withdrawnAt: null,
       withdrawnById: null,
       withdrawalReason: null,
+      hiddenAt: null,
+      hiddenById: null,
       version: 1,
     })),
     investorInterest: model('investorInterest', () => ({ nameVisible: false })),

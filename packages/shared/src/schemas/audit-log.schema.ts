@@ -79,6 +79,8 @@ export const auditActionSchema = z.enum([
   'participation_request_decided',
   'showcase_card_published',
   'showcase_card_withdrawn',
+  'showcase_card_hidden',
+  'showcase_card_unhidden',
 ]);
 
 export const auditLogSchema = z.object({

@@ -26,6 +26,8 @@ const CARD: ShowcaseCard = {
   withdrawnAt: null,
   withdrawnById: null,
   withdrawalReason: null,
+  hiddenAt: null,
+  hiddenById: null,
   version: 987651,
   createdAt: new Date('2031-02-03T04:05:06.789Z'),
   updatedAt: new Date('2031-03-04T05:06:07.891Z'),

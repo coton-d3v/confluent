@@ -6,6 +6,7 @@ import request from 'supertest'
 import type { App } from 'supertest/types'
 import {
   PUBLIC_CARD_FIELDS,
+  managedShowcaseCardSchema,
   ownerShowcaseCardSchema,
   publicWorkspacePageSchema,
   receivedShowcaseCardSchema,
@@ -631,5 +632,163 @@ describe('Showcase cards (e2e)', () => {
     await as(MARC).get(receivedCardOf(cci, inCci)).expect(404)
     await as(MARIE).get(receivedCardOf(cci, draft.id)).expect(404)
     await as(PAUL).get(receivedCardOf(club, inCci)).expect(404)
+  })
+  // ROADMAP E09.03.
+  it('lets the workspace’s managers hide a card from their page and restore it — never change it —, journaled; its owner reads it hidden and may still withdraw it', async () => {
+    const { dossierId, inCci, inClub } = await biosensio()
+    await setPage(cci, true)
+    await sophie.put(cardOf(inCci), CONSENT).expect(200)
+    const list = `/v1/admin/workspaces/${cci}/public-page/cards`
+    const hiddenPath = (workspaceId: string, candidatureId: string) =>
+      `/v1/admin/workspaces/${workspaceId}/public-page/cards/${candidatureId}/hidden`
+    const marie = as(MARIE)
+    const before = JSON.stringify([...fake.table('showcaseCard').values()])
+
+    // Only the workspace's managers and the administrators: its conseiller and investor 403,
+    // anyone outside it 404 — on every route, nothing written.
+    for (const [someone, status] of [
+      [JEAN, 403],
+      [CLAIRE, 403],
+      [PAUL, 404],
+      [SOPHIE, 404],
+      [BOB, 404],
+    ] as const) {
+      const them = as(someone)
+      await them.get(list).expect(status)
+      await them.put(hiddenPath(cci, inCci), {}).expect(status)
+      await them.delete(hiddenPath(cci, inCci)).expect(status)
+    }
+    expect(JSON.stringify([...fake.table('showcaseCard').values()])).toBe(before)
+    // No card for that candidature on this workspace's page, or never consented: 404 alike.
+    for (const [workspaceId, candidatureId] of [
+      [cci, inClub],
+      [club, inCci],
+      [cci, '7d3c1b0e-0000-4000-8000-000000000000'],
+    ]) {
+      const manager = as(workspaceId === cci ? MARIE : PAUL)
+      const missing = await manager.put(hiddenPath(workspaceId, candidatureId), {}).expect(404)
+      expect(missing.body.error.message).toBe(
+        'Aucune carte consentie pour cette candidature sur la page publique.',
+      )
+      await manager.delete(hiddenPath(workspaceId, candidatureId)).expect(404)
+    }
+    await marie
+      .put(`/v1/admin/workspaces/${cci}/public-page/cards/not-a-uuid/hidden`, {})
+      .expect(400)
+
+    const listed = (await marie.get(list).expect(200)).body
+    expect(listed).toHaveLength(1)
+    valid(managedShowcaseCardSchema, listed[0])
+    expect(listed[0]).toMatchObject({
+      candidatureId: inCci,
+      pseudonym: 'Projet Héron',
+      region: 'centre-val-de-loire',
+      state: 'shown',
+      pausedBecause: null,
+      hiddenAt: null,
+    })
+    // Never a title or a name of the request.
+    expect(JSON.stringify(listed)).not.toMatch(/Biosensio|Sophie|Martin/)
+
+    // Hidden: gone from the page at the next read, from the preview too; the card itself unchanged.
+    const hidden = (await marie.put(hiddenPath(cci, inCci), {}).expect(200)).body
+    valid(managedShowcaseCardSchema, hidden)
+    expect(hidden).toMatchObject({
+      state: 'paused',
+      pausedBecause: 'hidden_by_workspace',
+      hiddenAt: expect.any(String),
+    })
+    expect(await cards()).toEqual([])
+    const settings = (await marie.get(`/v1/admin/workspaces/${cci}/public-page`).expect(200)).body
+    expect(settings.preview.cards).toEqual([])
+    const row = [...fake.table('showcaseCard').values()][0]
+    expect(row).toMatchObject({
+      pseudonym: 'Projet Héron',
+      region: 'centre-val-de-loire',
+      withdrawnAt: null,
+      hiddenById: MARIE.id,
+      version: 2,
+    })
+    // Again: nothing changes, no entry.
+    await marie.put(hiddenPath(cci, inCci), {}).expect(200)
+    expect(journal().map((e) => [e.actionType, e.actorId, e.metadata])).toEqual([
+      ['showcase_card_published', SOPHIE.id, expect.anything()],
+      [
+        'showcase_card_hidden',
+        MARIE.id,
+        { channel: 'site', candidatureId: inCci, workspaceId: cci, version: 2 },
+      ],
+    ])
+    expect(journal()[1].dossierId).toBe(dossierId)
+
+    // The owner and the conseillers read it hidden, never who hid it.
+    const owner = (await sophie.get(cardOf(inCci)).expect(200)).body
+    expect(owner).toMatchObject({
+      version: 2,
+      card: { state: 'paused', pausedBecause: 'hidden_by_workspace' },
+    })
+    expect(JSON.stringify(owner)).not.toContain(MARIE.id)
+    expect((await as(JEAN).get(receivedCardOf(cci, inCci)).expect(200)).body.card).toMatchObject({
+      state: 'paused',
+      pausedBecause: 'hidden_by_workspace',
+    })
+    // A change of pseudonym from the version read: applied, still hidden.
+    await sophie.put(cardOf(inCci), { ...CONSENT, version: 1 }).expect(409)
+    await sophie.put(cardOf(inCci), { ...CONSENT, pseudonym: 'Héron bleu', version: 2 }).expect(200)
+    expect(await cards()).toEqual([])
+    expect((await marie.get(list).expect(200)).body[0]).toMatchObject({
+      pseudonym: 'Héron bleu',
+      pausedBecause: 'hidden_by_workspace',
+    })
+
+    // Restored by another manager (an administrator here): back; again, nothing changes.
+    const restored = (await as(ADMIN).delete(hiddenPath(cci, inCci)).expect(200)).body
+    expect(restored).toMatchObject({ state: 'shown', hiddenAt: null })
+    expect(await cards()).toEqual([{ ...EXPECTED_CARD, pseudonym: 'Héron bleu' }])
+    await marie.delete(hiddenPath(cci, inCci)).expect(200)
+    expect(
+      journal().map((e) => [e.actionType, (e.metadata as { version: number }).version]),
+    ).toEqual([
+      ['showcase_card_published', 1],
+      ['showcase_card_hidden', 2],
+      ['showcase_card_published', 3],
+      ['showcase_card_unhidden', 4],
+    ])
+
+    // Hidden, the owner withdraws it: gone from the managers' list, nothing left to restore; a new
+    // consent finds it still hidden.
+    await marie.put(hiddenPath(cci, inCci), {}).expect(200)
+    await sophie.delete(cardOf(inCci)).expect(200)
+    expect((await marie.get(list).expect(200)).body).toEqual([])
+    await marie.delete(hiddenPath(cci, inCci)).expect(404)
+    const version = (await sophie.get(cardOf(inCci)).expect(200)).body.version
+    const again = (await sophie.put(cardOf(inCci), { ...CONSENT, version }).expect(200)).body
+    expect(again.card).toMatchObject({ state: 'paused', pausedBecause: 'hidden_by_workspace' })
+    expect(await cards()).toEqual([])
+  })
+
+  it('never shows a stored pseudonym that would be refused now; its owner reads why and chooses another', async () => {
+    const { dossierId, inCci } = await biosensio()
+    await setPage(cci, true)
+    await sophie.put(cardOf(inCci), CONSENT).expect(200)
+    const row = [...fake.table('showcaseCard').values()][0]
+    // Written by an older client or by hand.
+    row.pseudonym = 'Écrivez à sophie@biosensio.fr'
+    expect(await cards()).toEqual([])
+    expect((await sophie.get(cardOf(inCci)).expect(200)).body.card).toMatchObject({
+      state: 'paused',
+      pausedBecause: 'pseudonym_invalid',
+    })
+    row.pseudonym = 'Projet Héron'
+    expect(await cards()).toHaveLength(1)
+    // The request renamed to its pseudonym after the consent: no real name in its place (D06).
+    fake.table('dossier').get(dossierId)!.name = 'Projet HÉRON'
+    expect(await cards()).toEqual([])
+    const owner = (await sophie.get(cardOf(inCci)).expect(200)).body
+    expect(owner.card).toMatchObject({ state: 'paused', pausedBecause: 'pseudonym_invalid' })
+    // The same pseudonym again is refused; another one shows the card again.
+    await sophie.put(cardOf(inCci), { ...CONSENT, version: 1 }).expect(400)
+    await sophie.put(cardOf(inCci), { ...CONSENT, pseudonym: 'Aigrette', version: 1 }).expect(200)
+    expect(await cards()).toEqual([{ ...EXPECTED_CARD, pseudonym: 'Aigrette' }])
   })
 })

@@ -131,6 +131,10 @@ export const OWNER_HISTORY_RULES = {
   // its pool publication.
   showcase_card_published: CANDIDATURE,
   showcase_card_withdrawn: CANDIDATURE,
+  // E09.03: hidden or restored by the workspace's managers, read by the owner on the card
+  // (« masquée par la structure »), never naming who.
+  showcase_card_hidden: CANDIDATURE,
+  showcase_card_unhidden: CANDIDATURE,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a

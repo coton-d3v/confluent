@@ -88,7 +88,7 @@ describe('showcase cards (PostgreSQL)', () => {
     new AnswerSourcesService(prisma, {} as DocumentsService),
     audit,
   )
-  const cards = new ShowcaseCardsService(prisma, candidatures, dossiers, audit)
+  const cards = new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access)
   const workspacesService = new WorkspacesService(prisma, audit, new MemoryStorageAdapter(), access)
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

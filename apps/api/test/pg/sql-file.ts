@@ -329,3 +329,16 @@ export function showcaseCardsDown(): string[] {
 export function showcaseCardsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261208000000_showcase_cards/migration.sql'))
 }
+
+// The revert of E09.03 (cards hidden by the workspaces' managers): it accepts that hidings and their
+// journal are lost (SET LOCAL, test transactions only).
+export function showcaseCardModerationDown(): string[] {
+  return [
+    "SET LOCAL confluent.accept_showcase_card_moderation_loss = 'on'",
+    ...sqlStatements(join(CHECKS, '20261209000000_showcase_card_moderation.down.sql')),
+  ]
+}
+
+export function showcaseCardModerationUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261209000000_showcase_card_moderation/migration.sql'))
+}

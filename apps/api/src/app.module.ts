@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common'
+import { type MiddlewareConsumer, Module, type NestModule, RequestMethod } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'
 import { APP_GUARD } from '@nestjs/core'
 import { AppController } from './app.controller'
+import { PUBLIC_ROUTES, publicNoStore } from './common/http/public-no-store'
 import { validateConfig } from './config/config.schema'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './modules/auth/auth.module'
@@ -76,4 +77,9 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     { provide: APP_INTERCEPTOR, useClass: RateLimitAuditInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // E09.03: no cache keeps what the public reads (`Cache-Control: no-store`).
+    consumer.apply(publicNoStore).forRoutes({ path: PUBLIC_ROUTES, method: RequestMethod.ALL })
+  }
+}

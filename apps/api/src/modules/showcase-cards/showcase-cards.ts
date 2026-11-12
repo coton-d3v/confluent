@@ -1,4 +1,4 @@
-import type { Prisma, ShowcaseCard } from '@prisma/client'
+import type { Company, Dossier, Prisma, ShowcaseCard, User } from '@prisma/client'
 import {
   showcaseCardState,
   showcaseRegionOf,
@@ -20,22 +20,34 @@ export interface ShowcaseCardView {
   withdrawnBecause: ShowcaseWithdrawalReason | null
 }
 
+// @confluent/shared `managedShowcaseCardSchema` (E09.03).
+export interface ManagedShowcaseCardView {
+  candidatureId: string
+  pseudonym: string
+  region: ShowcaseRegion | null
+  state: ShowcaseCardState
+  pausedBecause: ShowcasePauseReason | null
+  consentedAt: Date
+  hiddenAt: Date | null
+}
+
 // A candidature's card as its owner and its workspace's conseillers read it (E09.02), null when never
-// consented: where it stands by THE rule of the cards, given the request, the candidature and the
-// workspace's page as they are now. Closed by default: an unexpected region reads as none, an
-// unexpected reason as none.
+// consented: where it stands by THE rule of the cards, given the request, the candidature, the
+// workspace's page and the real names its pseudonym may not be (`showcaseRealNames`) as they are now.
+// Closed by default: an unexpected region reads as none, an unexpected reason as none.
 export function showcaseCardView(
   row: ShowcaseCard | null | undefined,
   request: { publicationStatus: string },
   candidature: { submittedAt: Date | null; financingStatus: string },
   page: { publicPagePublished: boolean },
+  realNames: ReadonlyArray<string | null>,
 ): ShowcaseCardView | null {
   if (!row) return null
   const reason = showcaseWithdrawalReasonSchema.safeParse(row.withdrawalReason)
   return {
     pseudonym: row.pseudonym,
     region: showcaseRegionOf(row.region),
-    ...showcaseCardState(row, request, candidature, page),
+    ...showcaseCardState(row, request, candidature, page, realNames),
     consentedAt: row.consentedAt,
     withdrawnAt: row.withdrawnAt,
     withdrawnBecause: row.withdrawnAt && reason.success ? reason.data : null,
@@ -93,4 +105,41 @@ export function showcaseWithdrawalEntry(
       reason,
     },
   }
+}
+
+// The real names a request's pseudonym may not be (E09.02 at the consent, E09.03 at each read too):
+// its company's name, its title and its owner's name, either way round.
+export function showcaseRealNames(
+  request: Pick<Dossier, 'name'>,
+  company: Pick<Company, 'name'> | null | undefined,
+  owner: Pick<User, 'firstName' | 'lastName'> | null | undefined,
+): Array<string | null> {
+  const first = owner?.firstName ?? null
+  const last = owner?.lastName ?? null
+  return [
+    company?.name ?? null,
+    request.name,
+    first && last ? `${first} ${last}` : null,
+    first && last ? `${last} ${first}` : null,
+  ]
+}
+
+// The same for several requests at once, by request id (one read of their companies and owners).
+export async function showcaseRealNamesOf(
+  db: Prisma.TransactionClient,
+  requests: ReadonlyArray<Pick<Dossier, 'id' | 'name' | 'companyId' | 'userId'>>,
+): Promise<Map<string, Array<string | null>>> {
+  if (requests.length === 0) return new Map()
+  const [companies, owners] = await Promise.all([
+    db.company.findMany({ where: { id: { in: [...new Set(requests.map((r) => r.companyId))] } } }),
+    db.user.findMany({ where: { id: { in: [...new Set(requests.map((r) => r.userId))] } } }),
+  ])
+  const companyById = new Map(companies.map((c) => [c.id, c]))
+  const ownerById = new Map(owners.map((u) => [u.id, u]))
+  return new Map(
+    requests.map((r) => [
+      r.id,
+      showcaseRealNames(r, companyById.get(r.companyId), ownerById.get(r.userId)),
+    ]),
+  )
 }

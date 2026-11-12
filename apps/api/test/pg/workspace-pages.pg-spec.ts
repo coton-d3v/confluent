@@ -88,7 +88,7 @@ describe('workspace public page (PostgreSQL)', () => {
     access,
     audit,
     new MemoryStorageAdapter(),
-    new ShowcaseCardsService(prisma, candidatures, dossiers, audit),
+    new ShowcaseCardsService(prisma, candidatures, dossiers, audit, access),
   )
   const tag = randomUUID().slice(0, 8)
   const workspaces: string[] = []

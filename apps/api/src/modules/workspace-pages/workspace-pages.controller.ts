@@ -71,7 +71,10 @@ export class PublicWorkspacePagesController {
       `demandes de participation (au plus ${WORKSPACE_PAGE_LIMITS.committees}), par nom, date, ` +
       'heure et fuseau (`toPublicCommittee` : ni lieu, ni lien, ni informations diffusées, ni notes ' +
       'internes). `receivesCandidatures` : un formulaire de candidature est publié (candidature ' +
-      `depuis un compte Confluent). Rate-limit ${WORKSPACE_PAGE_RATE_LIMITS.page} req/min/IP.`,
+      'depuis un compte Confluent). `cards` : les cartes anonymes des demandes (E09.02). Jamais ' +
+      'mise en cache (`Cache-Control: no-store`, comme toute route `/v1/public`) : un retrait, une ' +
+      `pause ou un masquage vaut dès la lecture suivante. Rate-limit ${WORKSPACE_PAGE_RATE_LIMITS.page} ` +
+      'req/min/IP.',
   })
   @ApiOkResponse({ description: 'Page publique.' })
   page(@Param('slug') slug: string): Promise<PublicWorkspacePageView> {
@@ -85,7 +88,8 @@ export class PublicWorkspacePagesController {
     description:
       'L’image du logo (PNG, JPEG ou WebP, ≤ 1 Mo), lue par l’API dans le bucket privé tant que la ' +
       'page est publiée : aucune adresse du bucket n’est donnée. `404` identique sans page publiée, ' +
-      'sans logo ou image perdue. Mise en cache 5 min. ' +
+      'sans logo ou image perdue. Mise en cache 5 min (`public, max-age=300` ; l’adresse du site ' +
+      'porte `logoVersion`, une nouvelle image n’attend pas) ; un refus n’est jamais mis en cache. ' +
       `Rate-limit ${WORKSPACE_PAGE_RATE_LIMITS.logo} req/min/IP.`,
   })
   @ApiProduces('image/png', 'image/jpeg', 'image/webp')

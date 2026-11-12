@@ -4,7 +4,8 @@ import {
   SHOWCASE_REGIONS,
   pseudonymRevealsName,
   setShowcaseCardSchema,
-  showcaseCardState,
+  showcaseCardState as stateWithNames,
+  showcasePseudonymUsable,
   showcaseCommitteeOf,
 } from '@confluent/shared'
 
@@ -14,7 +15,14 @@ describe('showcase card rules', () => {
   const sent = { submittedAt: new Date(), financingStatus: 'preparing' }
   const published = { publicationStatus: 'published' }
   const page = { publicPagePublished: true }
-  const active = { withdrawnAt: null, pseudonym: 'Projet Héron' }
+  const active = { withdrawnAt: null, pseudonym: 'Projet Héron', hiddenAt: null }
+  const NAMES = ['Biosensio SAS', 'Capteurs d’eau', 'Sophie Martin', 'Martin Sophie']
+  const showcaseCardState = (
+    card: Parameters<typeof stateWithNames>[0],
+    request: Parameters<typeof stateWithNames>[1],
+    candidature: Parameters<typeof stateWithNames>[2],
+    page: Parameters<typeof stateWithNames>[3],
+  ) => stateWithNames(card, request, candidature, page, NAMES)
 
   it('shows a card only while consented under a pseudonym, the page published, the candidature sent, the request published and its follow-up open', () => {
     expect(showcaseCardState(active, published, sent, page)).toEqual({
@@ -46,17 +54,51 @@ describe('showcase card rules', () => {
     expect(
       showcaseCardState(active, published, { ...sent, submittedAt: null }, page),
     ).toMatchObject({ state: 'paused' })
-    // Withdrawn, or without a pseudonym: nothing to show, whatever else holds.
+    // Withdrawn: nothing to show, whatever else holds — hidden or not.
     for (const card of [
-      { withdrawnAt: new Date(), pseudonym: 'Projet Héron' },
-      { withdrawnAt: null, pseudonym: '' },
-      { withdrawnAt: null, pseudonym: '   ' },
-      { withdrawnAt: null, pseudonym: null },
+      { ...active, withdrawnAt: new Date() },
+      { ...active, withdrawnAt: new Date(), hiddenAt: new Date() },
+      { withdrawnAt: new Date(), pseudonym: '', hiddenAt: null },
     ]) {
       expect(showcaseCardState(card, published, sent, page)).toEqual({
         state: 'withdrawn',
         pausedBecause: null,
       })
+    }
+    // E09.03 — without a usable pseudonym (D06: never a real name in its place), or hidden by the
+    // workspace: paused, whatever else holds; the pseudonym first (only its owner can fix it).
+    for (const pseudonym of [
+      '',
+      '   ',
+      null,
+      undefined,
+      'H',
+      ' Projet Héron',
+      'Projet  Héron',
+      'Projet\nHéron',
+      'x'.repeat(61),
+      '<b>Héron</b>',
+      'contact@biosensio.fr',
+      'https://biosensio.fr',
+      'www.biosensio.fr',
+      'biosensio sas',
+      'Capteurs d eau',
+      'SOPHIE MARTIN',
+      'martin sophie',
+    ]) {
+      for (const hiddenAt of [null, new Date()]) {
+        expect([
+          pseudonym,
+          showcaseCardState({ ...active, pseudonym, hiddenAt }, published, sent, page),
+        ]).toEqual([pseudonym, { state: 'paused', pausedBecause: 'pseudonym_invalid' }])
+      }
+    }
+    for (const hiddenAt of [new Date(), '2031-01-01T00:00:00Z', undefined]) {
+      for (const p of [page, { publicPagePublished: false }]) {
+        expect(
+          showcaseCardState({ ...active, hiddenAt }, { publicationStatus: 'draft' }, sent, p),
+        ).toEqual({ state: 'paused', pausedBecause: 'hidden_by_workspace' })
+      }
     }
   })
 
@@ -147,5 +189,16 @@ describe('showcase card rules', () => {
     for (const p of ['Biosensio', 'Projet Biosensio SAS', 'Capteurs']) {
       expect([p, pseudonymRevealsName(p, names)]).toEqual([p, false])
     }
+  })
+
+  it('shows a stored pseudonym only if it would be accepted now, against the real names as they are now', () => {
+    expect(showcasePseudonymUsable('Projet Héron', NAMES)).toBe(true)
+    expect(showcasePseudonymUsable('Projet Biosensio', NAMES)).toBe(true)
+    // Accepted by the schema only once normalised: stored otherwise, it was never written by the API.
+    expect(showcasePseudonymUsable('Projet\tHéron', [])).toBe(false)
+    // A company renamed to the pseudonym after the consent.
+    expect(showcasePseudonymUsable('Projet Héron', ['Projet Héron SAS'])).toBe(true)
+    expect(showcasePseudonymUsable('Projet Héron', ['PROJET-HERON'])).toBe(false)
+    expect(showcasePseudonymUsable(42 as unknown as string, [])).toBe(false)
   })
 })
