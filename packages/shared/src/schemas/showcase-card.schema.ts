@@ -40,6 +40,18 @@ import { HTML_TAG } from './support-path.schema.js'
 //    or any member's identity or contact, the candidature's answers, eligibilities, support path,
 //    financing status or internal notes, investors or their interest, the committee's place, link,
 //    shared information or notes, any identifier of the request, its candidature or its company.
+//
+// ROADMAP E09.03 — exclusions and retraction, checked on every public surface by one recipe
+// (apps/api/test/public-exposure.e2e-spec.ts):
+//  * Closed at read time too: a stored pseudonym that this file would refuse now — empty, not one
+//    plain line, carrying an address, a link or markup, or equal to the company's name, the request's
+//    title or the owner's name as they are now (a company renamed after the consent) — is never shown;
+//    the card is paused (`pseudonym_invalid`) until its owner chooses another.
+//  * The workspace's managers may hide a card from their own page — never edit it —, journaled and
+//    reversible by them only; its owner reads it « masquée par la structure » (`hidden_by_workspace`)
+//    and keeps the right to withdraw it. A hidden card stays hidden through a change of pseudonym or a
+//    new consent: lifting it is the managers' decision.
+//  * Retracted at the next public read: no public response is stored by any cache (`no-store`).
 
 export const SHOWCASE_CARD_LIMITS = {
   pseudonym: { min: 2, max: 60 },
@@ -152,6 +164,18 @@ export function pseudonymRevealsName(
   return names.some((name) => name != null && comparableName(name) === p)
 }
 
+// E09.03: whether a stored pseudonym may be shown now — what `pseudonymSchema` accepts, stored exactly
+// as it normalises it, and none of the real names it hides as they are now. Closed by default: a
+// value written by an older client or by hand, or a real name that changed to meet it, is not.
+export function showcasePseudonymUsable(
+  pseudonym: string | null | undefined,
+  realNames: ReadonlyArray<string | null | undefined>,
+): boolean {
+  if (typeof pseudonym !== 'string') return false
+  const parsed = pseudonymSchema.safeParse(pseudonym)
+  return parsed.success && parsed.data === pseudonym && !pseudonymRevealsName(pseudonym, realNames)
+}
+
 // Giving (or giving again, or changing the pseudonym or region of) the consent, from the version of
 // the card the client read (`null`: it saw none). A card changed meanwhile is refused (409), never
 // overwritten. No region is assumed: `null` shows none.
@@ -188,6 +212,9 @@ export const SHOWCASE_PAUSE_REASONS = [
   'page_not_published',
   'request_not_published',
   'financing_closed',
+  // E09.03.
+  'hidden_by_workspace',
+  'pseudonym_invalid',
 ] as const
 export const showcasePauseReasonSchema = z.enum(SHOWCASE_PAUSE_REASONS)
 export type ShowcasePauseReason = z.infer<typeof showcasePauseReasonSchema>
@@ -205,20 +232,33 @@ export const SHOWCASE_PAUSE_REASON_LABELS: Record<ShowcasePauseReason, string> =
     'La demande n’est plus publiée : la carte réapparaîtra dès sa nouvelle publication.',
   financing_closed:
     'Le suivi de cette demande est clos dans cette structure (financée, refusée ou abandonnée).',
+  hidden_by_workspace:
+    'Masquée par la structure : elle n’apparaît pas sur sa page publique tant que la structure ne la rétablit pas.',
+  pseudonym_invalid:
+    'Le pseudonyme n’est plus accepté (il correspond au nom de l’entreprise, au titre de la demande ou au nom du porteur, ou n’est pas valide) : la carte reste masquée jusqu’au choix d’un autre pseudonyme.',
 }
 
-// THE rule of the public cards: shown while the consent is not withdrawn, a pseudonym is set, the
-// workspace's page is published and the pool's conditions hold.
+// THE rule of the public cards: shown while the consent is not withdrawn, its pseudonym usable
+// (`showcasePseudonymUsable`, against the real names given), the card not hidden by the workspace,
+// the pool's conditions hold and the workspace's page is published.
 export function showcaseCardState(
-  card: { withdrawnAt: Date | string | null; pseudonym: string | null | undefined },
+  card: {
+    withdrawnAt: Date | string | null
+    pseudonym: string | null | undefined
+    hiddenAt: Date | string | null | undefined
+  },
   request: { publicationStatus: string | null | undefined },
   candidature: { submittedAt: Date | string | null; financingStatus: string | null | undefined },
   page: { publicPagePublished: boolean },
+  realNames: ReadonlyArray<string | null | undefined>,
 ): { state: ShowcaseCardState; pausedBecause: ShowcasePauseReason | null } {
-  // Without a pseudonym there is nothing to show under (the database refuses one anyway).
-  if (card.withdrawnAt !== null || !card.pseudonym?.trim()) {
-    return { state: 'withdrawn', pausedBecause: null }
+  if (card.withdrawnAt !== null) return { state: 'withdrawn', pausedBecause: null }
+  // Without a usable pseudonym there is nothing to show under (D06: no real name in its place).
+  if (!showcasePseudonymUsable(card.pseudonym, realNames)) {
+    return { state: 'paused', pausedBecause: 'pseudonym_invalid' }
   }
+  // Closed by default: anything but an explicit absence of a hiding hides.
+  if (card.hiddenAt !== null) return { state: 'paused', pausedBecause: 'hidden_by_workspace' }
   const blocker = showcaseCardBlocker(request, candidature)
   if (blocker !== null) {
     return {
@@ -324,6 +364,21 @@ export const ownerShowcaseCardSchema = z
   })
   .strict()
 export type OwnerShowcaseCard = z.infer<typeof ownerShowcaseCardSchema>
+
+// E09.03: a card as the workspace's managers moderate it (every consent not withdrawn, hidden or
+// not): the candidature it belongs to, to open it, and where it stands. Never a title or a name.
+export const managedShowcaseCardSchema = z
+  .object({
+    candidatureId: z.string().uuid(),
+    pseudonym: z.string(),
+    region: showcaseRegionSchema.nullable(),
+    state: showcaseCardStateSchema,
+    pausedBecause: showcasePauseReasonSchema.nullable(),
+    consentedAt: z.string().datetime(),
+    hiddenAt: z.string().datetime().nullable(),
+  })
+  .strict()
+export type ManagedShowcaseCard = z.infer<typeof managedShowcaseCardSchema>
 
 // What the workspace's conseillers read of a received candidature's card (read-only).
 export const receivedShowcaseCardSchema = z

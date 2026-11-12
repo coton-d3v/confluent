@@ -137,6 +137,8 @@ enum audit_action {
   showcase_card_published
   // E09.02: that consent withdrawn (by the owner, or with the archiving of the request).
   showcase_card_withdrawn
+  showcase_card_hidden
+  showcase_card_unhidden
 
   @@map("audit_action")
 }
@@ -188,6 +190,7 @@ model User {
   committeeNotices            CommitteeNotice[]
   showcaseCardsConsented      ShowcaseCard[]                    @relation("ShowcaseCardConsenter")
   showcaseCardsWithdrawn      ShowcaseCard[]                    @relation("ShowcaseCardWithdrawer")
+  showcaseCardsHidden         ShowcaseCard[]                    @relation("ShowcaseCardHider")
 
   @@map("users")
 }
@@ -1221,6 +1224,9 @@ model ShowcaseCard {
   withdrawnAt      DateTime? @map("withdrawn_at")
   withdrawnById    String?   @map("withdrawn_by_id")
   withdrawalReason String?   @map("withdrawal_reason")
+  // E09.03: hidden from the workspace's page by one of its managers (null: not hidden), and by whom.
+  hiddenAt         DateTime? @map("hidden_at")
+  hiddenById       String?   @map("hidden_by_id")
   version          Int       @default(1)
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -1228,11 +1234,13 @@ model ShowcaseCard {
   candidature Candidature @relation(fields: [candidatureId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
   consentedBy User?       @relation("ShowcaseCardConsenter", fields: [consentedById], references: [id], onDelete: SetNull)
   withdrawnBy User?       @relation("ShowcaseCardWithdrawer", fields: [withdrawnById], references: [id], onDelete: SetNull)
+  hiddenBy    User?       @relation("ShowcaseCardHider", fields: [hiddenById], references: [id], onDelete: SetNull)
 
   // The cards of a workspace's public page.
   @@index([workspaceId, withdrawnAt])
   @@index([consentedById])
   @@index([withdrawnById])
+  @@index([hiddenById])
   @@map("showcase_cards")
 }
 

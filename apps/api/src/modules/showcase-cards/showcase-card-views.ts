@@ -35,6 +35,9 @@ export const SHOWCASE_CARD_COLUMN_AUDIENCE = {
   withdrawnAt: 'internal',
   withdrawnById: 'internal',
   withdrawalReason: 'internal',
+  // E09.03: decides whether the card is shown, never told (nor who hid it).
+  hiddenAt: 'internal',
+  hiddenById: 'internal',
   version: 'internal',
   createdAt: 'internal',
   updatedAt: 'internal',
@@ -119,7 +122,8 @@ export const COMMITTEE_APPLICATION_COLUMN_AUDIENCE = {
   updatedAt: 'internal',
 } as const satisfies Record<keyof CommitteeApplication, Audience>
 
-// Read only to refuse a pseudonym equal to the company's name.
+// Read only to refuse a pseudonym equal to the company's name (at the consent and, E09.03, at each
+// read).
 export const COMPANY_COLUMN_AUDIENCE = {
   id: 'internal',
   ownerId: 'internal',

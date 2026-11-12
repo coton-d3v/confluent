@@ -26,6 +26,7 @@ import { createZodDto } from 'nestjs-zod'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard'
+import type { ManagedShowcaseCardView } from './showcase-cards'
 import {
   ShowcaseCardsService,
   type OwnerShowcaseCardView,
@@ -118,7 +119,7 @@ export class ShowcaseCardsController {
     description:
       'Retire la carte de ce seul workspace, absente dès la lecture publique suivante ; journalisé ' +
       '(`showcase_card_withdrawn`). Rien ne change pour une carte déjà retirée ou jamais consentie. ' +
-      'Toujours possible.',
+      'Toujours possible, même masquée par la structure.',
   })
   @ApiOkResponse({ description: 'Carte, état et aperçu.' })
   withdraw(
@@ -151,7 +152,8 @@ export class ReceivedShowcaseCardController {
     summary: 'Carte de la candidature sur la page publique (structure)',
     description:
       'Lecture seule : `card` (`null` sans consentement du porteur) — pseudonyme, région, état, ' +
-      'dates — et `pagePublished`. Seul le porteur consent ou retire. ' +
+      'dates — et `pagePublished`. Seul le porteur consent ou retire ; les gestionnaires masquent ' +
+      'ou rétablissent depuis `…/admin/workspaces/:id/public-page/cards`. ' +
       CARD_SCOPE,
   })
   @ApiOkResponse({ description: 'Carte et état.' })
@@ -161,5 +163,82 @@ export class ReceivedShowcaseCardController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ReceivedShowcaseCardView> {
     return this.cards.forWorkspace(user, workspaceId, candidatureId)
+  }
+}
+
+// ROADMAP E09.03: the cards of the workspace's public page, for its managers, who may hide one from
+// it — never change it — and restore it.
+@ApiTags('Admin · Workspaces')
+@ApiBearerAuth('jwt')
+@ApiUnauthorizedResponse({ description: 'JWT manquant.' })
+@ApiParam({ name: 'workspaceId', description: 'UUID du workspace' })
+@ApiForbiddenResponse({ description: 'Membre du workspace sans le droit de le gérer.' })
+@ApiNotFoundResponse({
+  description: 'Workspace inexistant ou dont le compte n’est pas membre actif (même réponse).',
+})
+@UseGuards(WorkspaceAccessGuard)
+@Controller('admin/workspaces/:workspaceId/public-page/cards')
+export class ShowcaseCardModerationController {
+  constructor(private readonly cards: ShowcaseCardsService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Cartes de la page publique (gestionnaires)',
+    description:
+      'Chaque carte consentie et non retirée par son porteur, affichée, en pause ou masquée, de la ' +
+      'plus récente à la plus ancienne : `candidatureId` (pour ouvrir la candidature reçue), ' +
+      'pseudonyme, région, état et raison de la pause, date du consentement, `hiddenAt` (masquée ' +
+      'par la structure depuis, ou `null`). Gestionnaires et administrateurs.',
+  })
+  @ApiOkResponse({ description: 'Cartes.' })
+  list(
+    @Param('workspaceId', uuid) workspaceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ManagedShowcaseCardView[]> {
+    return this.cards.listForManagers(user, workspaceId)
+  }
+
+  @Put(':candidatureId/hidden')
+  @ApiParam({ name: 'candidatureId', description: 'UUID de la candidature' })
+  @ApiOperation({
+    summary: 'Masquer une carte de la page publique',
+    description:
+      'La carte disparaît de la page publique dès la lecture suivante, sans rien changer d’autre : ' +
+      'pseudonyme, région et consentement restent ceux du porteur, qui lit « Masquée par la ' +
+      'structure » et peut toujours la retirer. Elle reste masquée si le porteur change de ' +
+      'pseudonyme ou consent à nouveau, jusqu’à ce qu’un gestionnaire la rétablisse. Déjà ' +
+      'masquée : rien ne change. Journal `showcase_card_hidden`.',
+  })
+  @ApiOkResponse({ description: 'Carte masquée.' })
+  @ApiNotFoundResponse({
+    description: 'Aucune carte consentie et non retirée pour cette candidature du workspace.',
+  })
+  hide(
+    @Param('workspaceId', uuid) workspaceId: string,
+    @Param('candidatureId', uuid) candidatureId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ManagedShowcaseCardView> {
+    return this.cards.setHidden(user, workspaceId, candidatureId, true)
+  }
+
+  @Delete(':candidatureId/hidden')
+  @HttpCode(200)
+  @ApiParam({ name: 'candidatureId', description: 'UUID de la candidature' })
+  @ApiOperation({
+    summary: 'Rétablir une carte masquée',
+    description:
+      'La carte reprend sa place sur la page publique si rien d’autre ne la met en pause. Non ' +
+      'masquée : rien ne change. Journal `showcase_card_unhidden`.',
+  })
+  @ApiOkResponse({ description: 'Carte rétablie.' })
+  @ApiNotFoundResponse({
+    description: 'Aucune carte consentie et non retirée pour cette candidature du workspace.',
+  })
+  unhide(
+    @Param('workspaceId', uuid) workspaceId: string,
+    @Param('candidatureId', uuid) candidatureId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ManagedShowcaseCardView> {
+    return this.cards.setHidden(user, workspaceId, candidatureId, false)
   }
 }
