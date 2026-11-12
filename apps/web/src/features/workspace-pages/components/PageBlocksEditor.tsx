@@ -20,7 +20,7 @@ const PAGE_BLOCK_LABELS: Record<PublicPageBlock, { label: string; help: string }
   },
   apply: {
     label: 'Appel à candidater',
-    help: 'Comment présenter une demande depuis un compte Confluent, tant qu’un formulaire de candidature est publié.',
+    help: 'Comment présenter une demande depuis un compte Confluent, et le formulaire de demande d’accès pour les porteurs sans compte, tant qu’un formulaire de candidature est publié.',
   },
   participate: {
     label: 'Appel à participer',

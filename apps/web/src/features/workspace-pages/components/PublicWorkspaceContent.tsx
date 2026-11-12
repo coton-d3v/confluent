@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { PublicPageBlock, PublicWorkspacePage } from '@confluent/shared'
 import { buttonVariants } from '@/components/ui/button'
 import { CommitteeWhen } from '@/features/committees/components/CommitteeSummary'
+import { entrepreneurAccessFormPath } from '@/features/entrepreneur-access/api'
 import { PublicCardView } from '@/features/showcase-cards/components/PublicCardView'
 import { cn } from '@/lib/utils'
 
@@ -10,7 +11,8 @@ import { cn } from '@/lib/utils'
 // sessions offered to participation requests, how to apply and to take part, contact and sign-in —,
 // for the public (`/w/:slug`) and, as a preview, for its managers. Texts are plain: shown as typed,
 // line breaks kept, never interpreted as HTML or Markdown. No sign-up: accounts are created on
-// invitation (E09.05 decides any other path). E09.02: the anonymous cards of the requests whose
+// invitation — E09.05: an entrepreneur without one asks the structure for access to its candidature
+// path (`/w/:slug/candidater`), which its managers accept or refuse. E09.02: the anonymous cards of the requests whose
 // owners consented to show them here, under their pseudonym. E09.04: below the header, the blocks its
 // managers chose, in their order (`page.blocks`, built by @confluent/shared `toPublicWorkspacePage`
 // for the public and for the managers' preview alike).
@@ -109,16 +111,28 @@ export function PublicWorkspaceContent({
           receivesCandidatures && (
             <CallToAction heading="Vous portez un projet ?" as={Heading}>
               <p className="text-sm text-foreground">
-                Présentez votre demande de financement à {structure} depuis votre compte
+                Présentez votre demande de financement à {structure} depuis un compte
                 Confluent&nbsp;: connectez-vous, ouvrez votre demande, puis choisissez{' '}
                 {'«\u00a0Présenter la demande à une structure\u00a0»'}.
               </p>
-              <p className="text-xs text-muted-foreground">
-                Les comptes sont créés sur invitation : sans compte, contactez la structure.
+              <p className="text-sm text-foreground">
+                Pas encore de compte&nbsp;? Demandez un accès&nbsp;: la structure étudie chaque
+                demande et vous invite par email si elle l’accepte.
               </p>
-              <Link to="/auth" className={cn(buttonVariants({ size: 'lg' }), 'h-11 self-start')}>
-                Se connecter pour candidater
-              </Link>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Link
+                  to={entrepreneurAccessFormPath(workspace.slug)}
+                  className={cn(buttonVariants({ size: 'lg' }), 'h-11')}
+                >
+                  Demander un accès pour candidater
+                </Link>
+                <Link
+                  to="/auth"
+                  className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'h-11')}
+                >
+                  J’ai déjà un compte
+                </Link>
+              </div>
             </CallToAction>
           )
         )

@@ -28,6 +28,7 @@ import AdminWorkspaceSourcesRoute from '@/routes/admin/workspaces/[workspaceId]/
 import AdminWorkspaceSchemesRoute from '@/routes/admin/workspaces/[workspaceId]/dispositifs'
 import AdminWorkspaceSupportPathRoute from '@/routes/admin/workspaces/[workspaceId]/parcours'
 import AdminWorkspacePublicPageRoute from '@/routes/admin/workspaces/[workspaceId]/page-publique'
+import AdminWorkspaceRequestsRoute from '@/routes/admin/workspaces/[workspaceId]/demandes'
 import MyWorkspacesRoute from '@/routes/workspaces'
 import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
@@ -47,6 +48,7 @@ import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
 import ConfidentialiteRoute from '@/routes/legal/confidentialite'
 import OAuthConsentRoute from '@/routes/oauth/consent'
 import ParticipationRoute from '@/routes/w/participer'
+import EntrepreneurAccessRoute from '@/routes/w/candidater'
 import PublicWorkspaceRoute from '@/routes/w/[slug]'
 
 export const router = createBrowserRouter([
@@ -163,6 +165,11 @@ export const router = createBrowserRouter([
         element: <AdminWorkspacePublicPageRoute />,
         handle: { hideBreadcrumb: true },
       },
+      {
+        path: 'admin/workspaces/:workspaceId/demandes',
+        element: <AdminWorkspaceRequestsRoute />,
+        handle: { hideBreadcrumb: true },
+      },
       { path: 'workspaces', element: <MyWorkspacesRoute /> },
       {
         path: 'workspaces/:workspaceId',
@@ -211,4 +218,5 @@ export const router = createBrowserRouter([
   // E09.01: a workspace's public page, once its managers published it.
   { path: '/w/:slug', element: <PublicWorkspaceRoute /> },
   { path: '/w/:slug/participer', element: <ParticipationRoute /> },
+  { path: '/w/:slug/candidater', element: <EntrepreneurAccessRoute /> },
 ])
