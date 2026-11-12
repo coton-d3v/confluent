@@ -81,6 +81,7 @@ const UPDATED_AT = new Set([
   'poolPublication',
   'investorInterest',
   'investorPledge',
+  'committee',
 ])
 const stamp = (name: string) => (UPDATED_AT.has(name) ? { updatedAt: new Date() } : {})
 
@@ -573,6 +574,13 @@ export function createFakePrisma() {
     investorPledge: model('investorPledge', () => ({ comment: null, version: 1 })),
     investorPositionDisclosure: model('investorPositionDisclosure'),
     readingSession: model('readingSession', () => ({ readerId: null, shareLinkId: null })),
+    committee: model('committee', () => ({
+      location: null,
+      meetingUrl: null,
+      internalNotes: null,
+      status: 'planned',
+      version: 1,
+    })),
     workspaceMembership: model('workspaceMembership', () => ({
       organization: null,
       investorType: null,

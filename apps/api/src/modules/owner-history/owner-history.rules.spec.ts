@@ -51,6 +51,9 @@ describe('owner history rules (E07.09)', () => {
       'investor_pledge_withdrawn',
       'investor_position_disclosed',
       'investor_position_disclosure_withdrawn',
+      'committee_created',
+      'committee_updated',
+      'committee_status_changed',
     ]) {
       expect([action, ownerRule(action)]).toEqual([action, null])
     }
