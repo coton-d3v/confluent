@@ -89,6 +89,20 @@ export interface ParticipationRequestInput {
 
 const ORDER = [{ startsAt: 'asc' as const }, { createdAt: 'asc' as const }]
 
+// THE sessions a workspace offers to participation requests now — opened by its managers, planned and
+// not started —, soonest first: what its public form proposes, and its public page lists (E09.01).
+export async function offeredCommittees(
+  db: Pick<Prisma.TransactionClient, 'committee'>,
+  workspaceId: string,
+  now: number,
+): Promise<Committee[]> {
+  const rows = await db.committee.findMany({
+    where: { workspaceId, participationRequestsOpen: true },
+    orderBy: ORDER,
+  })
+  return rows.filter((c) => committeeOpenToParticipationRequests(c, now))
+}
+
 // The public participation form of a workspace (ROADMAP E08.04, rules in @confluent/shared
 // `participation-request.schema.ts`), and the queue it feeds.
 //
@@ -252,12 +266,7 @@ export class ParticipationRequestsService {
     if (!workspaceSlugSchema.safeParse(slug).success) throw ParticipationRequestErrors.notFound()
     const workspace = await this.prisma.workspace.findUnique({ where: { slug } })
     if (!workspace) throw ParticipationRequestErrors.notFound()
-    const committees = (
-      await this.prisma.committee.findMany({
-        where: { workspaceId: workspace.id, participationRequestsOpen: true },
-        orderBy: ORDER,
-      })
-    ).filter((c) => committeeOpenToParticipationRequests(c, now))
+    const committees = await offeredCommittees(this.prisma, workspace.id, now)
     if (committees.length === 0) throw ParticipationRequestErrors.notFound()
     return { workspace, committees }
   }
