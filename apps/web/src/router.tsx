@@ -38,6 +38,7 @@ import CommitteeRoute from '@/routes/workspaces/[workspaceId]/comites/[committee
 import OpportunitiesRoute from '@/routes/opportunites'
 import OpportunityRoute from '@/routes/opportunites/[dossierId]'
 import PositionsRoute from '@/routes/positionnements'
+import NotificationsRoute from '@/routes/notifications'
 import CandidatureRoute from '@/routes/dashboard/candidatures/[candidatureId]'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
@@ -199,6 +200,8 @@ export const router = createBrowserRouter([
       },
       { path: 'opportunites', element: <OpportunitiesRoute /> },
       { path: 'positionnements', element: <PositionsRoute /> },
+      // E10.03: the signed-in person's notifications.
+      { path: 'notifications', element: <NotificationsRoute /> },
       {
         path: 'opportunites/:dossierId',
         element: <OpportunityRoute />,
