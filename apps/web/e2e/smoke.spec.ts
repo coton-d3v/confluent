@@ -171,4 +171,13 @@ test('en-têtes du serveur web : noindex partout sauf l’adresse d’une page p
   expect(publicPage.headers()['cache-control']).toBe('no-cache')
   const unknown = await request.get('/page-inconnue-smoke')
   expect(unknown.headers()['cache-control']).toBe('no-cache')
+
+  // E10.08: the hash-named scripts are kept a year, compressed for the browsers that accept it.
+  const script = /src="(\/assets\/index-[^"]+\.js)"/.exec(await home.text())?.[1]
+  expect(script).toBeTruthy()
+  const asset = await request.get(script!, { headers: { 'Accept-Encoding': 'gzip' } })
+  expect(asset.status()).toBe(200)
+  expect(asset.headers()['cache-control']).toBe('public, max-age=31536000, immutable')
+  expect(asset.headers()['content-encoding']).toBe('gzip')
+  expect(asset.headers()['x-robots-tag']).toBe(ROBOTS_CLOSED)
 })

@@ -108,10 +108,27 @@ test('clavier : évitement, focus après navigation, dialogue, erreur de profil'
   await expect(page.locator('main')).toBeFocused()
 
   // A page reached from the menu starts at its heading, not at the link left behind.
+  // E10.08: pages load on demand — while the page's script is on its way (slowed down here), the
+  // page left stays with the focus where it was, and the wait is said (status region, bar).
   const menu = page.getByRole('navigation', { name: 'Navigation principale' })
+  let releaseScripts = () => {}
+  const scriptsHeld = new Promise<void>((resolve) => (releaseScripts = resolve))
+  await page.route('**/assets/*.js', async (route) => {
+    await scriptsHeld
+    await route.continue().catch(() => {})
+  })
   await menu.getByRole('link', { name: 'Applications IA' }).focus()
   await page.keyboard.press('Enter')
+  await expect(page.getByTestId('page-loading-announce')).toHaveText('Chargement de la page…')
+  await expect(page.getByTestId('page-loading-announce')).toHaveAttribute('aria-live', 'polite')
+  await expect(page.getByTestId('page-loading-bar')).toBeVisible()
+  await expect(menu.getByRole('link', { name: 'Applications IA' })).toBeFocused()
+  await expect(page.getByRole('heading', { level: 1, name: 'Tableau de bord' })).toBeVisible()
+  releaseScripts()
   await expect(page.getByRole('heading', { level: 1, name: 'Applications IA' })).toBeFocused()
+  await expect(page.getByTestId('page-loading-bar')).toHaveCount(0)
+  await expect(page.getByTestId('page-loading-announce')).toHaveText('')
+  await page.unroute('**/assets/*.js')
   await expect(menu.getByRole('link', { name: 'Applications IA' })).toHaveAttribute(
     'aria-current',
     'page',

@@ -15,6 +15,12 @@ export function getDossier(id: string): Promise<DossierWithQuestionnaire> {
   )
 }
 
+// ROADMAP E10.08: a dossier's page finds it by its address, without the list of the account's
+// dossiers (same rights, same 404 as by its id).
+export function getDossierBySlug(slug: string): Promise<DossierWithQuestionnaire> {
+  return apiRequest<DossierWithQuestionnaire>(`/v1/dossiers/by-slug/${encodeURIComponent(slug)}`)
+}
+
 export function createDossier(input: { name: string }): Promise<Dossier> {
   return apiRequest<Dossier>('/v1/dossiers', {
     method: 'POST',
