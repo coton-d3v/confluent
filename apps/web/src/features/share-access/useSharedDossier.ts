@@ -16,12 +16,14 @@ export type SharedDossierState =
 // Resolves a share link for the current session: the content is only delivered to the recipient's
 // account, so an anonymous visitor first has to prove who they are.
 export function useSharedDossier(token: string): SharedDossierState {
-  const { user, loading } = useAuthState()
+  const { user, loading, unreachable, retry } = useAuthState()
   const query = useAsync<FinanceurShareResponse | null>(
     () => (user ? getSharedDossier(token) : Promise.resolve(null)),
     [token, user?.id],
   )
   if (loading) return { status: 'loading' }
+  // E10.06: whether this browser is signed in is not known yet (no answer from the server).
+  if (!user && unreachable) return { status: 'unavailable', retry }
   if (!user) return { status: 'anonymous' }
   if (query.isLoading) return { status: 'loading' }
   if (query.error) {

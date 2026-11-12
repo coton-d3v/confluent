@@ -6,6 +6,7 @@ import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { Button } from '@/components/ui/button'
 import { rememberReturnTo } from '@/features/auth/return-to'
+import { ServerUnreachable } from '@/components/confluent/ServerUnreachable'
 import { useAuthState } from '@/features/current-user/context'
 import {
   decideConsentRequest,
@@ -18,7 +19,7 @@ import { useAsync } from '@/lib/useAsync'
 export default function OAuthConsentRoute() {
   const [params] = useSearchParams()
   const location = useLocation()
-  const { user, loading } = useAuthState()
+  const { user, loading, unreachable, retry } = useAuthState()
   const requestId = params.get('request')
 
   if (loading) {
@@ -31,6 +32,7 @@ export default function OAuthConsentRoute() {
       </Shell>
     )
   }
+  if (!user && unreachable) return <ServerUnreachable onRetry={retry} />
   if (!user) {
     // Log in with the usual magic link, then come back here (see verify.tsx).
     rememberReturnTo(`${location.pathname}${location.search}`)

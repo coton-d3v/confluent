@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import DashboardRoute from '@/routes/dashboard'
 import TableauDeBordRoute from '@/routes/dashboard/tableau-de-bord'
@@ -45,6 +45,7 @@ import ShareDossierRoute from '@/routes/share/dossier'
 import AuthRoute from '@/routes/auth'
 import AuthVerifyRoute from '@/routes/auth/verify'
 import NotFoundRoute from '@/routes/not-found'
+import { RouteError } from '@/routes/error'
 import MentionsLegalesRoute from '@/routes/legal/mentions-legales'
 import ConfidentialiteRoute from '@/routes/legal/confidentialite'
 import OAuthConsentRoute from '@/routes/oauth/consent'
@@ -52,164 +53,162 @@ import ParticipationRoute from '@/routes/w/participer'
 import EntrepreneurAccessRoute from '@/routes/w/candidater'
 import PublicWorkspaceRoute from '@/routes/w/[slug]'
 
-export const router = createBrowserRouter([
+// The pages inside the application's shell (signed in).
+const appPages: RouteObject[] = [
+  { index: true, element: <Navigate to="/dashboard" replace /> },
+  { path: 'dashboard', element: <DashboardRoute /> },
+  { path: 'dashboard/tableau-de-bord', element: <TableauDeBordRoute /> },
+  { path: 'dashboard/applications', element: <ApplicationsRoute /> },
+  { path: 'dashboard/dossiers', element: <Navigate to="/dashboard" replace /> },
   {
-    path: '/',
-    element: <AppShell />,
-    children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
-      { path: 'dashboard', element: <DashboardRoute /> },
-      { path: 'dashboard/tableau-de-bord', element: <TableauDeBordRoute /> },
-      { path: 'dashboard/applications', element: <ApplicationsRoute /> },
-      { path: 'dashboard/dossiers', element: <Navigate to="/dashboard" replace /> },
-      {
-        path: 'dashboard/dossiers/nouveau',
-        element: <DossierNewRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/dossiers/nouveau/questionnaire',
-        element: <QuestionnaireRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/dossiers/nouveau/recapitulatif',
-        element: <RecapitulatifRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/dossiers/view/:slug',
-        element: <DossierViewRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/dossiers/view/:slug/apercu',
-        element: <DossierPreviewRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/entreprises/:companyId',
-        element: <CompanyRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/propositions',
-        element: <CompanyOffersRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'dashboard/candidatures/:candidatureId',
-        element: <CandidatureRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      { path: 'admin', element: <AdminRoute /> },
-      { path: 'admin/dossiers', element: <AdminDossiersRoute /> },
-      {
-        path: 'admin/dossiers/:slug',
-        element: <AdminDossierDetailRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/dossiers/:slug/apercu',
-        element: <AdminDossierPreviewRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      { path: 'admin/formulaires', element: <AdminFormsRoute /> },
-      { path: 'admin/classification', element: <AdminClassificationRoute /> },
-      {
-        path: 'admin/formulaires/:formId',
-        element: <AdminFormEditorRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      // Former single-questionnaire page, replaced by the form builder.
-      { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
-      { path: 'admin/utilisateurs', element: <AdminUtilisateursRoute /> },
-      { path: 'admin/workspaces', element: <AdminWorkspacesRoute /> },
-      { path: 'admin/workspaces/nouveau', element: <AdminWorkspaceNewRoute /> },
-      {
-        path: 'admin/workspaces/:workspaceId',
-        element: <AdminWorkspaceRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/membres',
-        element: <AdminWorkspaceMembersRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/formulaires',
-        element: <AdminWorkspaceFormsRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/formulaires/:formId',
-        element: <AdminWorkspaceFormEditorRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/sources',
-        element: <AdminWorkspaceSourcesRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/dispositifs',
-        element: <AdminWorkspaceSchemesRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/parcours',
-        element: <AdminWorkspaceSupportPathRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/page-publique',
-        element: <AdminWorkspacePublicPageRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'admin/workspaces/:workspaceId/demandes',
-        element: <AdminWorkspaceRequestsRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      { path: 'workspaces', element: <MyWorkspacesRoute /> },
-      {
-        path: 'workspaces/:workspaceId',
-        element: <WorkspaceRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'workspaces/:workspaceId/candidatures/:candidatureId',
-        element: <ReceivedCandidatureRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      // E08.01: its committees.
-      {
-        path: 'workspaces/:workspaceId/comites',
-        element: <WorkspaceCommitteesRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'workspaces/:workspaceId/comites/nouveau',
-        element: <NewCommitteeRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      {
-        path: 'workspaces/:workspaceId/comites/:committeeId',
-        element: <CommitteeRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      { path: 'opportunites', element: <OpportunitiesRoute /> },
-      { path: 'positionnements', element: <PositionsRoute /> },
-      // E10.03: the signed-in person's notifications.
-      { path: 'notifications', element: <NotificationsRoute /> },
-      {
-        path: 'opportunites/:dossierId',
-        element: <OpportunityRoute />,
-        handle: { hideBreadcrumb: true },
-      },
-      { path: '*', element: <NotFoundRoute /> },
-    ],
+    path: 'dashboard/dossiers/nouveau',
+    element: <DossierNewRoute />,
+    handle: { hideBreadcrumb: true },
   },
+  {
+    path: 'dashboard/dossiers/nouveau/questionnaire',
+    element: <QuestionnaireRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/dossiers/nouveau/recapitulatif',
+    element: <RecapitulatifRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/dossiers/view/:slug',
+    element: <DossierViewRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/dossiers/view/:slug/apercu',
+    element: <DossierPreviewRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/entreprises/:companyId',
+    element: <CompanyRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/propositions',
+    element: <CompanyOffersRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'dashboard/candidatures/:candidatureId',
+    element: <CandidatureRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  { path: 'admin', element: <AdminRoute /> },
+  { path: 'admin/dossiers', element: <AdminDossiersRoute /> },
+  {
+    path: 'admin/dossiers/:slug',
+    element: <AdminDossierDetailRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/dossiers/:slug/apercu',
+    element: <AdminDossierPreviewRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  { path: 'admin/formulaires', element: <AdminFormsRoute /> },
+  { path: 'admin/classification', element: <AdminClassificationRoute /> },
+  {
+    path: 'admin/formulaires/:formId',
+    element: <AdminFormEditorRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  // Former single-questionnaire page, replaced by the form builder.
+  { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
+  { path: 'admin/utilisateurs', element: <AdminUtilisateursRoute /> },
+  { path: 'admin/workspaces', element: <AdminWorkspacesRoute /> },
+  { path: 'admin/workspaces/nouveau', element: <AdminWorkspaceNewRoute /> },
+  {
+    path: 'admin/workspaces/:workspaceId',
+    element: <AdminWorkspaceRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/membres',
+    element: <AdminWorkspaceMembersRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/formulaires',
+    element: <AdminWorkspaceFormsRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/formulaires/:formId',
+    element: <AdminWorkspaceFormEditorRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/sources',
+    element: <AdminWorkspaceSourcesRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/dispositifs',
+    element: <AdminWorkspaceSchemesRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/parcours',
+    element: <AdminWorkspaceSupportPathRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/page-publique',
+    element: <AdminWorkspacePublicPageRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'admin/workspaces/:workspaceId/demandes',
+    element: <AdminWorkspaceRequestsRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  { path: 'workspaces', element: <MyWorkspacesRoute /> },
+  {
+    path: 'workspaces/:workspaceId',
+    element: <WorkspaceRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'workspaces/:workspaceId/candidatures/:candidatureId',
+    element: <ReceivedCandidatureRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  // E08.01: its committees.
+  {
+    path: 'workspaces/:workspaceId/comites',
+    element: <WorkspaceCommitteesRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'workspaces/:workspaceId/comites/nouveau',
+    element: <NewCommitteeRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  {
+    path: 'workspaces/:workspaceId/comites/:committeeId',
+    element: <CommitteeRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+  { path: 'opportunites', element: <OpportunitiesRoute /> },
+  { path: 'positionnements', element: <PositionsRoute /> },
+  // E10.03: the signed-in person's notifications.
+  { path: 'notifications', element: <NotificationsRoute /> },
+  {
+    path: 'opportunites/:dossierId',
+    element: <OpportunityRoute />,
+    handle: { hideBreadcrumb: true },
+  },
+]
+
+// The pages on their own: share links, sign-in, legal pages, consent, workspaces' public pages.
+const standalonePages: RouteObject[] = [
   { path: '/share/:token', element: <ShareRoute /> },
   { path: '/share/:token/dossier', element: <ShareDossierRoute /> },
   { path: '/auth', element: <AuthRoute /> },
@@ -222,4 +221,22 @@ export const router = createBrowserRouter([
   { path: '/w/:slug', element: <PublicWorkspaceRoute /> },
   { path: '/w/:slug/participer', element: <ParticipationRoute /> },
   { path: '/w/:slug/candidater', element: <EntrepreneurAccessRoute /> },
+]
+
+// ROADMAP E10.06: a page that fails to render shows an error screen — inside the shell for its pages
+// (navigation kept), on its own for the others — and an unknown address, signed in or not, the 404
+// page.
+export const router = createBrowserRouter([
+  {
+    errorElement: <RouteError fullPage />,
+    children: [
+      {
+        path: '/',
+        element: <AppShell />,
+        children: [{ errorElement: <RouteError />, children: appPages }],
+      },
+      ...standalonePages,
+      { path: '*', element: <NotFoundRoute /> },
+    ],
+  },
 ])

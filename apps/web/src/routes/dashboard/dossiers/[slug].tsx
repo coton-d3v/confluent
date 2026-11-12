@@ -32,6 +32,8 @@ import { formatActiveTime } from '@/features/analytics/format'
 import { buildAccessEntries } from '@/features/shares/build-access-entries'
 import type { AccessEntry, AccessLevel } from '@/features/shares/access-entry'
 import { useAsync } from '@/lib/useAsync'
+import { readFailure } from '@/lib/read-failure'
+import { LoadError } from '@/components/confluent/LoadError'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import type { ApiError } from '@/lib/api-client'
 import { useCurrentUser } from '@/features/current-user/context'
@@ -80,9 +82,11 @@ function DossierBySlug({ slug }: { slug: string }) {
   }
   if (dossiersQuery.error) {
     return (
-      <p className="pt-8 text-sm text-destructive">
-        Impossible de charger vos dossiers.
-      </p>
+      <LoadError
+        className="mt-8"
+        message={readFailure(dossiersQuery.error, 'Ce dossier n’a pas pu être chargé.')}
+        onRetry={dossiersQuery.refetch}
+      />
     )
   }
   if (!dossier) {
@@ -467,6 +471,17 @@ function DossierView({
         <TabsContent value={TAB_VALUES.content}>
           {!isContentReady ? (
             <p className="text-sm text-muted-foreground">Chargement du contenu…</p>
+          ) : dossierQuery.error || answersQuery.error ? (
+            <LoadError
+              message={readFailure(
+                dossierQuery.error ?? answersQuery.error,
+                'Le contenu du dossier n’a pas pu être chargé.',
+              )}
+              onRetry={() => {
+                if (dossierQuery.error) dossierQuery.refetch()
+                if (answersQuery.error) answersQuery.refetch()
+              }}
+            />
           ) : questionnaire ? (
             <div className="flex flex-col gap-10">
               {toConfirm > 0 && (

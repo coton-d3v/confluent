@@ -9,12 +9,14 @@ import {
   type DocumentVersion,
   type RecipientView,
 } from '@confluent/shared'
+import { toast } from 'sonner'
 import { DossierField } from '@/components/confluent/DossierField'
 import { Badge } from '@/components/ui/badge'
 import { buildDynamicQuestionnaire } from '@/features/questionnaire/adapter'
 import { answerLabel } from '@/features/questionnaire/answer-label'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { hasPresentation } from '@/features/dossiers/presentation'
+import { linkExpired } from '@/features/documents/link-lifetime'
 
 // The API already filters fields, answers and documents by the share's access level; this page only
 // explains to the recipient what the level leaves out.
@@ -244,14 +246,25 @@ function DocumentLink({ version, preview }: { version: DocumentVersion; preview:
       <a
         href={version.url}
         className="shrink-0 text-sm font-medium text-foreground underline underline-offset-4"
+        onClick={(event) => {
+          // E10.06: the storage's own error page otherwise.
+          if (!linkExpired(version)) return
+          event.preventDefault()
+          toast.error(
+            'Ce lien de téléchargement a expiré (il est valable 15 minutes) : rechargez la page pour en obtenir un nouveau.',
+          )
+        }}
       >
         Télécharger
       </a>
     )
   }
+  // E10.06: the rest of the request stays readable; the reader learns why this file is not offered.
   return (
     <span className="shrink-0 text-xs text-muted-foreground">
-      {version.availability === 'missing' ? 'Fichier à redéposer par le porteur' : 'Momentanément indisponible'}
+      {version.availability === 'missing'
+        ? 'Pièce indisponible : fichier à redéposer par le porteur'
+        : 'Pièce momentanément indisponible : rechargez la page plus tard'}
     </span>
   )
 }

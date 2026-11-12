@@ -20,6 +20,7 @@ import { Breadcrumbs } from './Breadcrumbs'
 import { NavItem } from './NavItem'
 import { VersionBadge } from './VersionBadge'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
+import { ServerUnreachable } from '@/components/confluent/ServerUnreachable'
 import { useMyWorkspaceMemberships } from '@/features/workspaces/useMyWorkspaceMemberships'
 import { WorkspaceMembershipsContext } from '@/features/workspaces/memberships-context'
 import { WorkspaceSwitcher } from '@/features/workspaces/components/WorkspaceSwitcher'
@@ -239,7 +240,7 @@ function MobileBottomNav({ navItems }: { navItems: NavItemSpec[] }) {
 }
 
 export function AppShell() {
-  const { user, loading } = useAuthState()
+  const { user, loading, unreachable, retry } = useAuthState()
   const navigate = useNavigate()
   // Derived, not initial state: during the session restore `user` is still null, and a useState
   // seeded then would keep the onboarding sheet open on every page reload.
@@ -268,6 +269,8 @@ export function AppShell() {
     )
   }
 
+  // E10.06: no answer from the server is not a sign-out: the sign-in page would not be the way back.
+  if (!user && unreachable) return <ServerUnreachable onRetry={retry} />
   if (!user) {
     return <Navigate to="/auth" replace />
   }
