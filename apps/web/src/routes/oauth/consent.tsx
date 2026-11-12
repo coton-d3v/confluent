@@ -65,7 +65,10 @@ const { write: WRITE } = OAUTH_SCOPES
 // requests, reading one's opportunities and positions and taking a position start unticked too —
 // they read or show what others see (investors' names and amounts, readers, pledges). E08.07: the
 // committees too — reading them (internal notes, participants, the public form's requests),
-// changing a request's entry on one, deciding a participation request (which adds a member).
+// changing a request's entry on one, deciding a participation request (which adds a member). E09.07:
+// the public pages too — reading one's workspaces' (and the access requests sent from them) or one's
+// requests' cards, changing a page, publishing it or opening it to search engines, deciding an access
+// request (which creates an account), showing a request's card to anyone.
 const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolean }> = [
   { scope: OAUTH_SCOPES.formsWrite, title: 'Concevoir des formulaires', ticked: true },
   { scope: OAUTH_SCOPES.submit, title: 'Soumettre un dossier', ticked: false },
@@ -105,6 +108,20 @@ const OPTIONAL_PERMISSIONS: Array<{ scope: string; title: string; ticked: boolea
   {
     scope: OAUTH_SCOPES.participationRequestsDecide,
     title: 'Décider des demandes de participation',
+    ticked: false,
+  },
+  { scope: OAUTH_SCOPES.publicPageRead, title: 'Lire la page publique', ticked: false },
+  { scope: OAUTH_SCOPES.publicPageWrite, title: 'Modifier la page publique', ticked: false },
+  { scope: OAUTH_SCOPES.publicPagePublish, title: 'Publier la page publique', ticked: false },
+  {
+    scope: OAUTH_SCOPES.accessRequestsDecide,
+    title: 'Décider des demandes d’accès',
+    ticked: false,
+  },
+  { scope: OAUTH_SCOPES.showcaseRead, title: 'Lire les cartes de vos demandes', ticked: false },
+  {
+    scope: OAUTH_SCOPES.showcaseWrite,
+    title: 'Afficher vos demandes sur les pages publiques',
     ticked: false,
   },
   { scope: OAUTH_SCOPES.formsPublish, title: 'Publier un formulaire', ticked: false },

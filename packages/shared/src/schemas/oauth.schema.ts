@@ -28,6 +28,12 @@ import { workspaceMemberRoleSchema } from './workspace-member.schema.js'
 // accepting, refusing), which implies reading, and deciding the participation requests (managers:
 // an acceptance adds the person to the workspace as an investor). None is gained by an earlier
 // authorization (R52).
+// E09.07: a workspace's public page and the cards shown on it are permissions of their own — for its
+// managers, reading the page's settings, preview, cards and the access requests sent from it;
+// changing its texts and blocks or hiding a card, which implies reading; publishing or unpublishing
+// it and allowing search engines to index it; deciding the access requests — and, for the owner of a
+// request, reading its cards and consenting to show one or withdrawing it, which implies reading.
+// None is gained by an earlier authorization (R52).
 export const OAUTH_SCOPES = {
   read: 'dossiers:read',
   write: 'dossiers:write',
@@ -44,6 +50,12 @@ export const OAUTH_SCOPES = {
   committeesRead: 'committees:read',
   committeesWrite: 'committees:write',
   participationRequestsDecide: 'participation-requests:decide',
+  publicPageRead: 'public-page:read',
+  publicPageWrite: 'public-page:write',
+  publicPagePublish: 'public-page:publish',
+  accessRequestsDecide: 'access-requests:decide',
+  showcaseRead: 'showcase:read',
+  showcaseWrite: 'showcase:write',
 } as const
 
 // ROADMAP E05.10: a connection reaches a workspace only if the person ticked it on the consent
