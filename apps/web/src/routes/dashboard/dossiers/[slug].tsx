@@ -39,8 +39,7 @@ import { getCompany } from '@/features/companies/api'
 import { RequestEditor } from '@/features/dossiers/components/RequestEditor'
 import { RequestPresentation } from '@/features/dossiers/components/RequestPresentation'
 import { DossierCandidatures } from '@/features/candidatures/components/DossierCandidatures'
-import { DossierInterestsSection } from '@/features/interests/components/DossierInterestsSection'
-import { DossierPledgesSection } from '@/features/pledges/components/DossierPledgesSection'
+import { DossierPositionsSection } from '@/features/positions/components/DossierPositionsSection'
 import { hasPresentation } from '@/features/dossiers/presentation'
 import {
   ACCESS_LEVELS,
@@ -568,8 +567,8 @@ function DossierView({
             />
           </div>
 
-          {isOwner && <DossierInterestsSection dossierId={dossierId} />}
-          {isOwner && <DossierPledgesSection dossierId={dossierId} />}
+          {/* E07.07: the marks of interest (E07.05) and pledges (E07.06), in one view. */}
+          {isOwner && <DossierPositionsSection dossierId={dossierId} />}
 
           <section className="mt-8">
             <h2 className="font-heading text-xl font-semibold text-foreground md:text-2xl">

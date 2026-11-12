@@ -32,6 +32,7 @@ import WorkspaceRoute from '@/routes/workspaces/[workspaceId]'
 import ReceivedCandidatureRoute from '@/routes/workspaces/[workspaceId]/candidatures/[candidatureId]'
 import OpportunitiesRoute from '@/routes/opportunites'
 import OpportunityRoute from '@/routes/opportunites/[dossierId]'
+import PositionsRoute from '@/routes/positionnements'
 import CandidatureRoute from '@/routes/dashboard/candidatures/[candidatureId]'
 import ShareRoute from '@/routes/share'
 import ShareDossierRoute from '@/routes/share/dossier'
@@ -163,6 +164,7 @@ export const router = createBrowserRouter([
         handle: { hideBreadcrumb: true },
       },
       { path: 'opportunites', element: <OpportunitiesRoute /> },
+      { path: 'positionnements', element: <PositionsRoute /> },
       {
         path: 'opportunites/:dossierId',
         element: <OpportunityRoute />,

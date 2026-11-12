@@ -1,4 +1,4 @@
-import type { DossierInterests, OpportunityInterest } from '@confluent/shared'
+import type { OpportunityInterest } from '@confluent/shared'
 import { apiRequest } from '@/lib/api-client'
 
 // ROADMAP E07.05: an investor's mark of interest on one of their opportunities. Neither call reads
@@ -16,9 +16,4 @@ export function markInterest(dossierId: string, nameVisible: boolean): Promise<O
 
 export function withdrawInterest(dossierId: string): Promise<void> {
   return apiRequest<void>(interestPath(dossierId), { method: 'DELETE' })
-}
-
-// What the owner of a request reads of its marks (D05): how many, and the names shown.
-export function getDossierInterests(dossierId: string): Promise<DossierInterests> {
-  return apiRequest<DossierInterests>(`/v1/dossiers/${encodeURIComponent(dossierId)}/interests`)
 }

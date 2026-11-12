@@ -27,6 +27,7 @@ import {
   MY_WORKSPACES_NAV_ITEM,
   NAV_ITEMS,
   OPPORTUNITIES_NAV_ITEM,
+  POSITIONS_NAV_ITEM,
   type NavItemSpec,
 } from './nav-items'
 import type { CurrentUser } from '@confluent/shared'
@@ -268,7 +269,7 @@ export function AppShell() {
   const readsOpportunities =
     user.role === 'financeur' || (memberships.data ?? []).some((m) => m.role === 'investisseur')
   const navItems = readsOpportunities
-    ? [baseNavItems[0], OPPORTUNITIES_NAV_ITEM, ...baseNavItems.slice(1)]
+    ? [baseNavItems[0], OPPORTUNITIES_NAV_ITEM, POSITIONS_NAV_ITEM, ...baseNavItems.slice(1)]
     : baseNavItems
 
   async function handleLogout() {
