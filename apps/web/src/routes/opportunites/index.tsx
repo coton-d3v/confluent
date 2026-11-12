@@ -465,7 +465,7 @@ function OpportunityCard({ item }: { item: OpportunityListItem }) {
         </Link>
         <Badge variant="outline">Accès {ACCESS_LEVEL_LABELS[item.accessLevel].toLowerCase()}</Badge>
       </div>
-      {(dossier.sector || isArchived(dossier) || item.interest) && (
+      {(dossier.sector || isArchived(dossier) || item.interest || item.pledge) && (
         <div className="flex flex-wrap gap-2">
           {dossier.sector && (
             <Badge variant="secondary" className="max-w-full whitespace-normal wrap-anywhere">
@@ -474,6 +474,7 @@ function OpportunityCard({ item }: { item: OpportunityListItem }) {
           )}
           {isArchived(dossier) && <Badge variant="outline">Demande archivée</Badge>}
           {item.interest && <Badge variant="outline">Intérêt marqué</Badge>}
+          {item.pledge && <Badge variant="outline">Promesse faite</Badge>}
         </div>
       )}
       {dossier.summary && (
