@@ -7,14 +7,25 @@ import { quietNotifications } from '../../src/testing/notifications'
 // cannot show. They run against a disposable, migrated database:
 //
 //   TEST_DATABASE_URL=postgresql://…/disposable pnpm --filter @confluent/api test:pg
-export function testDatabase(): PrismaService {
+//
+// `onQuery` (E10.08): told the SQL of every statement the client sends, to count them.
+export function testDatabase(options: { onQuery?: (sql: string) => void } = {}): PrismaService {
   const url = process.env.TEST_DATABASE_URL
   if (!url) throw new Error('TEST_DATABASE_URL must point to a disposable, migrated database.')
   if (url === process.env.DATABASE_URL)
     throw new Error('TEST_DATABASE_URL must not be DATABASE_URL.')
-  return new PrismaClient({
+  const { onQuery } = options
+  if (!onQuery) {
+    return new PrismaClient({
+      datasources: { db: { url: withPool(url) } },
+    }) as unknown as PrismaService
+  }
+  const client = new PrismaClient({
     datasources: { db: { url: withPool(url) } },
-  }) as unknown as PrismaService
+    log: [{ emit: 'event', level: 'query' }],
+  })
+  client.$on('query', (e) => onQuery(e.query))
+  return client as unknown as PrismaService
 }
 
 // Prisma sizes its pool from the machine (2 × CPUs + 1 connections): the concurrency tests hold

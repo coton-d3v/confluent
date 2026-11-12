@@ -401,3 +401,11 @@ export function notificationsDown(): string[] {
 export function notificationsUp(): string[] {
   return sqlStatements(join(MIGRATIONS, '20261213000000_notifications/migration.sql'))
 }
+
+// E10.08: the indexes of the measured reads (`audit_log` by share, unread notifications).
+export function performanceIndexesUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261214000000_performance_indexes/migration.sql'))
+}
+export function performanceIndexesDown(): string[] {
+  return sqlStatements(join(CHECKS, '20261214000000_performance_indexes.down.sql'))
+}

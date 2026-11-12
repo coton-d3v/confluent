@@ -281,23 +281,20 @@ export class DossiersService {
       },
       orderBy: { createdAt: 'desc' },
     })
-    const reached = rows.flatMap(({ shareLinks, ...row }) => {
+    const reached = rows.flatMap(({ shareLinks, user: owner, ...dossier }) => {
       const level = highestAccessLevel(
         shareLinks.filter(sentTo(user.email)).map((l) => grantedLevel(l.accessLevel)),
       )
-      return level ? [{ ...row, level }] : []
+      return level ? [{ dossier, owner, level }] : []
     })
-    return Promise.all(
-      reached.map(async ({ user: owner, level, ...d }) => {
-        const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
-        const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
-        return {
-          ...presentationForShare(await this.projectForLevel(d, level)),
-          ownerEmail: owner.email,
-          ownerName,
-        }
-      }),
-    )
+    // E10.08: the same projection, the fields of the dossiers' versions read once for the whole list
+    // (it read them once per dossier: 55 statements for 50 shares).
+    const projected = await this.projectEachForLevel(reached)
+    return reached.map(({ owner }, i) => {
+      const nameParts = [owner.firstName, owner.lastName].filter(Boolean)
+      const ownerName = nameParts.length > 0 ? nameParts.join(' ') : undefined
+      return { ...presentationForShare(projected[i]), ownerEmail: owner.email, ownerName }
+    })
   }
 
   // THE owner access to a dossier (every write, the owner's reads): its company's holder
@@ -391,6 +388,18 @@ export class DossiersService {
       ...(company ? { company: companySummary(company) } : {}),
       questionnaireVersion,
     }
+  }
+
+  // E10.08: the same reading, found by the address of its page (`slug`), so that the page needs not
+  // read the whole list of the account's dossiers first. Unknown slug or dossier not readable: the
+  // same 404 (`resolveReadAccess`).
+  async getBySlugWithQuestionnaire(
+    slug: string,
+    user: { id: string; email: string; role: string },
+  ) {
+    const found = await this.prisma.dossier.findUnique({ where: { slug }, select: { id: true } })
+    if (!found) throw dossierNotFound()
+    return this.getWithQuestionnaire(found.id, user)
   }
 
   // Derived data of a dossier as a share level may read it (code review R31): the only entry point

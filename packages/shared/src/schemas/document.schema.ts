@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 // Same limits for the site (immediate feedback) and the API (authoritative, content-based check).
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+// ROADMAP E10.08 (U10): what a company's documents may hold in all — every version deposited, a
+// restored version adding nothing (it is the same file). 25 files at the limit above.
+export const MAX_COMPANY_DOCUMENTS_BYTES = 500 * 1024 * 1024
 
 export const ACCEPTED_DOCUMENT_EXTENSIONS = [
   'pdf',

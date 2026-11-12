@@ -55,6 +55,7 @@ import {
   type MulterFile,
 } from './upload-request'
 import { UploadSizeGuard } from './upload-size.guard'
+import { UploadSlotsInterceptor } from './upload-slots.interceptor'
 import { DossiersService } from '../dossiers/dossiers.service'
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy'
 
@@ -79,7 +80,7 @@ export class DocumentsController {
 
   @Post()
   @UseGuards(UploadSizeGuard)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
+  @UseInterceptors(UploadSlotsInterceptor, FileInterceptor('file', UPLOAD_OPTIONS))
   @ApiOperation({
     summary: 'Upload d’un document',
     description:
@@ -124,7 +125,18 @@ export class DocumentsController {
   })
   @ApiPayloadTooLargeResponse({ description: 'Fichier > 20 MB.' })
   @ApiUnsupportedMediaTypeResponse({ description: 'Format de fichier non accepté.' })
-  @ApiResponse({ status: 507, description: 'Espace de stockage plein : fichier non enregistré.' })
+  @ApiResponse({
+    status: 507,
+    description:
+      'Espace de stockage plein, ou documents de l’entreprise à 500 Mo toutes versions comprises ' +
+      '(E10.08) : fichier non enregistré.',
+  })
+  @ApiResponse({
+    status: 429,
+    description:
+      'Trop d’envois en cours pour ce compte (3) ou pour le serveur (8) : `Retry-After`, fichier ' +
+      'ni conservé en mémoire ni enregistré (E10.08).',
+  })
   @ApiServiceUnavailableResponse({
     description: 'Stockage momentanément injoignable : fichier non enregistré, réessayer.',
   })
