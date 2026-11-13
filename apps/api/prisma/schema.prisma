@@ -147,6 +147,14 @@ enum audit_action {
   entrepreneur_access_request_discarded
   // E09.05: a manager accepted or refused such a request.
   entrepreneur_access_request_decided
+  // E10.10: a person downloaded their personal data.
+  personal_data_exported
+  // E10.10: a person asked for the deletion of their account, or withdrew that request.
+  account_deletion_requested
+  account_deletion_cancelled
+  // E10.10: an administrator declined a deletion request, or processed it (the account deleted).
+  account_deletion_declined
+  account_deleted
 
   @@map("audit_action")
 }
@@ -201,6 +209,8 @@ model User {
   showcaseCardsHidden         ShowcaseCard[]                    @relation("ShowcaseCardHider")
   accessRequestDecisions      EntrepreneurAccessRequest[]       @relation("EntrepreneurAccessDecider")
   accessRequestAdmissions     EntrepreneurAccessRequest[]       @relation("EntrepreneurAccessAccount")
+  deletionRequests            AccountDeletionRequest[]          @relation("DeletionRequester")
+  deletionDecisions           AccountDeletionRequest[]          @relation("DeletionDecider")
 
   @@map("users")
 }
@@ -1638,4 +1648,48 @@ model EntrepreneurAccessRequest {
   @@index([decidedById])
   @@index([accountUserId])
   @@map("entrepreneur_access_requests")
+}
+
+// ROADMAP E10.10: a person's request to delete their account, then an administrator's decision —
+// rules in @confluent/shared `privacy.schema.ts`. `pending` (at most one per account: partial unique
+// index of the migration) → `completed` (the account deleted: `user_id` is then null, which a CHECK
+// holds; `summary` counts what was deleted, `confirmation_email` whether the email to the former
+// address left) | `declined` (with the note the person reads) | `cancelled` (withdrawn by the
+// person). `subject_ref`: the pseudonym that names it once the account is gone. CHECK: closed values,
+// each status tied to its decision columns, bounded note (migration 20261215000000_privacy).
+model AccountDeletionRequest {
+  id                String    @id @default(uuid())
+  userId            String?   @map("user_id")
+  subjectRef        String    @map("subject_ref")
+  status            String    @default("pending")
+  requestedAt       DateTime  @default(now()) @map("requested_at")
+  decidedAt         DateTime? @map("decided_at")
+  decidedById       String?   @map("decided_by_id")
+  declineNote       String?   @map("decline_note")
+  summary           Json?
+  confirmationEmail String?   @map("confirmation_email")
+
+  user      User? @relation("DeletionRequester", fields: [userId], references: [id], onDelete: SetNull)
+  decidedBy User? @relation("DeletionDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status, requestedAt])
+  @@index([decidedById])
+  @@map("account_deletion_requests")
+}
+
+// ROADMAP E10.10: a stored file whose last document row was deleted (a request, a company or an
+// account deleted), to remove from the storage. Filled by the trigger `documents_storage_cleanup`
+// (migration 20261215000000_privacy) in the deleting transaction — whatever deleted the rows —, and
+// emptied by the retention job after the commit: the object is deleted only if no document row
+// refers to its key any more, then the row goes; a failure is counted and retried at the next run.
+model StorageDeletion {
+  storageKey    String    @id @map("storage_key")
+  requestedAt   DateTime  @default(now()) @map("requested_at")
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  lastError     String?   @map("last_error")
+
+  @@index([requestedAt])
+  @@map("storage_deletions")
 }

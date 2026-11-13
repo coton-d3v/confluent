@@ -71,6 +71,7 @@ const SAMPLES: Record<NotificationKind, Record<string, unknown>> = {
     audience: 'participant',
     candidatureId: null,
   },
+  account_deletion_declined: { requestId: '0b4f6a8e-0000-4000-8000-000000000001' },
 }
 
 // What an event's code could wrongly hand over: never recorded, never written.

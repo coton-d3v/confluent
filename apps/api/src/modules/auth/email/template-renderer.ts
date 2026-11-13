@@ -13,6 +13,7 @@ export type TemplateName =
   | 'committee-changed'
   | 'entrepreneur-access-accepted'
   | 'notification'
+  | 'account-deleted'
 
 export interface TemplateDynamicVars {
   'magic-link': { magicLinkUrl: string }
@@ -43,6 +44,7 @@ export interface TemplateDynamicVars {
   }
   'entrepreneur-access-accepted': { workspaceName: string; accountLine: string; signInUrl: string }
   notification: { title: string; preheader: string; body: string; actionUrl: string }
+  'account-deleted': { actionUrl: string }
 }
 
 export interface RenderedEmail {

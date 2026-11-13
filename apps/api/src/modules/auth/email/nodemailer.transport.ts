@@ -10,6 +10,7 @@ import type {
   SendMagicLinkInput,
   SendEntrepreneurAccessAcceptedInput,
   SendNotificationInput,
+  SendAccountDeletedInput,
   SendParticipationAcceptedInput,
   SendShareInviteInput,
   SendWorkspaceInviteInput,
@@ -139,6 +140,13 @@ export class NodemailerTransport implements EmailTransport {
       actionUrl: input.actionUrl,
     })
     await this.send({ to: input.to, subject: input.title, html, text })
+  }
+
+  async sendAccountDeleted(input: SendAccountDeletedInput): Promise<void> {
+    const { subject, html, text } = render('account-deleted', input.locale, {
+      actionUrl: input.privacyUrl,
+    })
+    await this.send({ to: input.to, subject, html, text })
   }
 
   private async send(payload: {

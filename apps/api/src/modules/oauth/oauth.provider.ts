@@ -42,6 +42,7 @@ import {
   hashToken,
   mcpResourceUrl,
   newOpaqueToken,
+  clientOrigin,
   expandScopes,
   type GrantContext,
   grantableScopes,
@@ -66,6 +67,13 @@ interface ConsentOptions extends GrantContext {
 function canonical(uri: string): string {
   const url = new URL(uri)
   return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}`.toLowerCase()
+}
+
+// E10.10 (U05): what the consent screen says of how long an authorization lasts.
+const CONSENT_DURATIONS = {
+  accessTokenMinutes: Math.round(ACCESS_TOKEN_TTL_MS / 60_000),
+  refreshTokenDays: Math.round(REFRESH_TOKEN_TTL_MS / 86_400_000),
+  connectionDays: Math.round(GRANT_TTL_MS / 86_400_000),
 }
 
 @Injectable()
@@ -271,6 +279,9 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         redirectHost: new URL(request.redirectUri).host,
         clientUri: typeof metadata.client_uri === 'string' ? metadata.client_uri : null,
         verifiedByMetadataDocument: request.client.source === 'cimd',
+        // E10.10 (U05): closed by default — only a metadata document Confluent fetched itself from
+        // the HTTPS address that is the client's identifier makes its identity verified.
+        ...clientOrigin(request.client),
       },
       // Effective permissions: writing implies reading on the server, so both are shown (R17). Only
       // what this account may grant: `forms:write` is never offered to whoever designs no form.
@@ -278,6 +289,7 @@ export class ConfluentOAuthProvider implements OAuthServerProvider {
         .sort()
         .map((scope) => ({ scope, label: SCOPE_LABELS[scope] ?? scope })),
       workspaces: options.workspaces,
+      durations: CONSENT_DURATIONS,
       expiresAt: request.expiresAt.toISOString(),
     }
   }

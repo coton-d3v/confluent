@@ -38,6 +38,7 @@ function buildModule(overrides?: {
     sendCommitteeChanged: jest.fn().mockResolvedValue(undefined),
     sendNotification: jest.fn().mockResolvedValue(undefined),
     sendEntrepreneurAccessAccepted: jest.fn().mockResolvedValue(undefined),
+    sendAccountDeleted: jest.fn().mockResolvedValue(undefined),
   }
   const auditMock = {
     record: overrides?.auditRecord ?? jest.fn().mockResolvedValue(undefined),

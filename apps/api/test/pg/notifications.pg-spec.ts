@@ -23,7 +23,7 @@ import { ReadingSessionsService } from '../../src/modules/reading-sessions/readi
 import { ShareLinksService } from '../../src/modules/share-links/share-links.service'
 import { quietNotifications } from '../../src/testing/notifications'
 import { testDatabase } from './database'
-import { notificationsDown, notificationsUp, performanceIndexesUp } from './sql-file'
+import { notificationsDown, notificationsUp, performanceIndexesUp, privacyUp } from './sql-file'
 
 const UP = notificationsUp()
 // Without the acceptance: what an operator runs first.
@@ -297,9 +297,10 @@ describe('notifications (PostgreSQL)', () => {
           { t: null },
         ])
         expect((await rows(tx, counts))[0]).toEqual(before)
-        // Applied again with the later migration that indexes the table (E10.08), as a deployment
+        // Applied again with the later migrations that index the table (E10.08) and widen its kinds
+        // (E10.10), as a deployment
         // replays the chain.
-        await run(tx, [...UP, ...performanceIndexesUp()])
+        await run(tx, [...UP, ...performanceIndexesUp(), ...privacyUp()])
         const reapplied = await fingerprint(tx, 'notifications')
         expect(JSON.parse(reapplied).constraints).toEqual(JSON.parse(migrated).constraints)
         expect(JSON.parse(reapplied).indexes).toEqual(JSON.parse(migrated).indexes)

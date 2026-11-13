@@ -35,6 +35,13 @@ function matches(row: Row, where: Where = {}, related?: Related): boolean {
         equals?: unknown
         contains?: string
         mode?: 'insensitive'
+        path?: string[]
+      }
+      // A JSON column's value at a path (`metadata: { path: ['clientId'], equals: … }`).
+      if (Array.isArray(c.path)) {
+        let at: unknown = v
+        for (const key of c.path) at = (at as Record<string, unknown> | null)?.[key]
+        return at === c.equals
       }
       if ('contains' in c) {
         if (typeof v !== 'string') return false
@@ -721,6 +728,23 @@ export function createFakePrisma() {
       canManageWorkspace: false,
       invitedById: null,
       deactivatedAt: null,
+    })),
+    // E10.10. Deleting an account removes its own rows only: the cascades are PostgreSQL's
+    // (test/pg/account-deletion.pg-spec.ts).
+    accountDeletionRequest: model('accountDeletionRequest', () => ({
+      status: 'pending',
+      requestedAt: new Date(),
+      decidedAt: null,
+      decidedById: null,
+      declineNote: null,
+      summary: null,
+      confirmationEmail: null,
+    })),
+    storageDeletion: model('storageDeletion', () => ({
+      requestedAt: new Date(),
+      attempts: 0,
+      lastAttemptAt: null,
+      lastError: null,
     })),
   }
   self.prisma = prisma

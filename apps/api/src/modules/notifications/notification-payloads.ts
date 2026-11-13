@@ -77,6 +77,8 @@ export const NOTIFICATION_PAYLOADS = {
   committee_rescheduled: committeeChange,
   committee_cancelled: committeeChange,
   committee_restored: committeeChange,
+  // E10.10: the request, nothing more — the administrator's note is read on « Mes données ».
+  account_deletion_declined: z.object({ requestId: id }),
 } satisfies Record<NotificationKind, z.ZodObject>
 
 export type NotificationPayload<K extends NotificationKind> = z.infer<
@@ -235,6 +237,11 @@ const TEXTS: Texts = {
     body: committeeBody(p, 'il a lieu le'),
     href: committeeHref(p),
   }),
+  account_deletion_declined: () => ({
+    title: 'Votre demande de suppression de compte n’a pas été acceptée',
+    body: 'Votre compte est conservé. La raison est indiquée dans « Mes données ».',
+    href: '/compte',
+  }),
 }
 
 const FALLBACK_TITLES: Record<NotificationKind, string> = {
@@ -256,6 +263,7 @@ const FALLBACK_TITLES: Record<NotificationKind, string> = {
   committee_rescheduled: 'Un comité change de date',
   committee_cancelled: 'Un comité est annulé',
   committee_restored: 'Un comité est rétabli',
+  account_deletion_declined: 'Demande de suppression de compte non acceptée',
 }
 
 // « mercredi 10 juin 2099 à 14:00 (Europe/Paris) »: the wall-clock time of the committee's own zone.

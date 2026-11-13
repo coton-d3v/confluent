@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { OAUTH_SCOPES, canOwnCompanies } from '@confluent/shared'
+import { OAUTH_SCOPES, OAUTH_SCOPE_LABELS, canOwnCompanies } from '@confluent/shared'
 import { canDesignForms } from '../questionnaires/form-design-access'
 
 // Scopes granted to MCP clients (names shared with the consent screen). `dossiers:write` implies
@@ -29,48 +29,8 @@ export const SUPPORTED_SCOPES: string[] = [
   OAUTH_SCOPES.showcaseRead,
   OAUTH_SCOPES.showcaseWrite,
 ]
-export const SCOPE_LABELS: Record<string, string> = {
-  [OAUTH_SCOPES.read]:
-    'Lire votre profil, vos dossiers, leurs questionnaires, réponses et documents',
-  [OAUTH_SCOPES.write]: 'Modifier les réponses de vos dossiers et y déposer des documents',
-  [OAUTH_SCOPES.submit]: 'Soumettre un dossier, uniquement à votre demande explicite',
-  [OAUTH_SCOPES.present]:
-    'Publier une demande de financement, choisir les documents qu’elle présente et l’envoyer en candidature à une structure, uniquement à votre demande explicite',
-  [OAUTH_SCOPES.formsWrite]:
-    'Créer et modifier des brouillons de formulaires (sections, champs, choix, limites, niveaux de lecture), sans les publier',
-  [OAUTH_SCOPES.formsPublish]:
-    'Publier un brouillon de formulaire, uniquement à votre demande explicite',
-  [OAUTH_SCOPES.support]:
-    'Comme conseiller, dans les workspaces autorisés : tenir le plan de financement et les dispositifs des candidatures reçues, lire et écrire leurs notes internes',
-  [OAUTH_SCOPES.decide]:
-    'Changer le statut de financement d’une candidature (comité, financé, refusé, abandon, reprise) et, comme conseiller, valider une étape du parcours ou vérifier un dispositif, uniquement à votre demande explicite',
-  [OAUTH_SCOPES.opportunitiesRead]:
-    'Comme investisseur : lire vos opportunités (demandes partagées avec vous, et celles des viviers des workspaces autorisés) et vos positionnements (marques d’intérêt, promesses, consentements donnés aux structures) ; comme conseiller d’un workspace autorisé : les positionnements que des investisseurs ont choisi de montrer à votre structure',
-  [OAUTH_SCOPES.opportunitiesWrite]:
-    'Marquer ou retirer votre intérêt, faire, modifier ou retirer une promesse (jamais un engagement ferme), montrer ou non votre positionnement à une structure, uniquement à votre demande explicite ; inclut la lecture de vos opportunités',
-  [OAUTH_SCOPES.sharingRead]:
-    'Lire les accès ouverts à vos demandes de financement, leur historique (consultations, accès, interventions de l’administration) et les positionnements des investisseurs, tels que le site vous les montre',
-  [OAUTH_SCOPES.sharingWrite]:
-    'Inviter un destinataire à lire une demande de financement au niveau choisi, changer ce niveau ou révoquer un accès, uniquement à votre demande explicite ; inclut le suivi de la diffusion',
-  [OAUTH_SCOPES.committeesRead]:
-    'Lire les comités tels que le site vous les montre : comme porteur, ceux de vos candidatures ; comme participant accepté, vos sessions ; comme conseiller d’un workspace autorisé, ses comités (notes internes comprises), les demandes présentées et leur avancement ; comme gestionnaire, aussi les participants, les notifications envoyées et les demandes de participation reçues (nom, organisation, adresse, message)',
-  [OAUTH_SCOPES.committeesWrite]:
-    'Candidater à un comité, confirmer une proposition ou retirer votre demande ; comme conseiller d’un workspace autorisé, rattacher une demande à un comité, accepter ou refuser une candidature, la retirer — uniquement à votre demande explicite ; inclut la lecture des comités',
-  [OAUTH_SCOPES.participationRequestsDecide]:
-    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande de participation à ses comités (une acceptation ajoute la personne au workspace comme investisseur et la prévient par email), uniquement à votre demande explicite',
-  [OAUTH_SCOPES.publicPageRead]:
-    'Comme gestionnaire d’un workspace autorisé, lire les réglages de sa page publique (textes, blocs, publication, indexation), son aperçu, les cartes des projets et les demandes d’accès envoyées depuis la page (nom, entreprise, adresse, message)',
-  [OAUTH_SCOPES.publicPageWrite]:
-    'Comme gestionnaire d’un workspace autorisé, modifier les critères, le contact et les blocs de sa page publique, masquer ou rétablir la carte d’un projet — visibles de tous si la page est publiée —, uniquement à votre demande explicite ; inclut la lecture de la page',
-  [OAUTH_SCOPES.publicPagePublish]:
-    'Comme gestionnaire d’un workspace autorisé, publier ou dépublier sa page publique et autoriser ou non son indexation par les moteurs de recherche, uniquement à votre demande explicite',
-  [OAUTH_SCOPES.accessRequestsDecide]:
-    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande d’accès envoyée depuis sa page publique (une acceptation crée le compte porteur de projet de la personne s’il n’existe pas et la prévient par email), uniquement à votre demande explicite',
-  [OAUTH_SCOPES.showcaseRead]:
-    'Lire les cartes de vos demandes sur les pages publiques des structures auxquelles vous les présentez (pseudonyme, région, état, aperçu)',
-  [OAUTH_SCOPES.showcaseWrite]:
-    'Afficher la carte anonyme d’une de vos demandes sur la page publique d’une structure sous le pseudonyme choisi, la modifier ou la retirer, uniquement à votre demande explicite ; inclut la lecture de vos cartes',
-}
+// ROADMAP E10.10: the labels live in @confluent/shared, so that the privacy page lists the same words.
+export const SCOPE_LABELS: Record<string, string> = OAUTH_SCOPE_LABELS
 
 export function expandScopes(scopes: readonly string[]): Set<string> {
   const set = new Set(scopes)
@@ -161,3 +121,20 @@ export function hashToken(token: string): string {
 }
 
 export const mcpResourceUrl = (apiPublicUrl: string): string => `${apiPublicUrl}/mcp`
+
+// E10.10 (U05): where a client's identity comes from. Closed by default: only a metadata document
+// Confluent fetched itself (`cimd`) from the HTTPS address that is the client's identifier makes it
+// verified, naming the host that publishes it; a self-registered client (`dcr`) only declares it.
+export function clientOrigin(client: { id: string; source: string }): {
+  origin: 'verified' | 'declared'
+  originHost: string | null
+} {
+  if (client.source !== 'cimd') return { origin: 'declared', originHost: null }
+  try {
+    const url = new URL(client.id)
+    if (url.protocol === 'https:') return { origin: 'verified', originHost: url.host }
+  } catch {
+    // Not an address: declared.
+  }
+  return { origin: 'declared', originHost: null }
+}

@@ -141,6 +141,12 @@ export const OWNER_HISTORY_RULES = {
   entrepreneur_access_request_received: PLATFORM,
   entrepreneur_access_request_discarded: SECURITY,
   entrepreneur_access_request_decided: PLATFORM,
+  // E10.10: a person's own account (export, deletion), never a request's history.
+  personal_data_exported: SECURITY,
+  account_deletion_requested: SECURITY,
+  account_deletion_cancelled: SECURITY,
+  account_deletion_declined: SECURITY,
+  account_deleted: SECURITY,
 } as const satisfies Record<audit_action, ShownAction | HiddenAction>
 
 // Closed by default: an action missing from the map (a value added to the enum, a value read from a
