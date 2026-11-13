@@ -24,7 +24,8 @@ export class OAuthGrantsController {
     summary: 'Mes applications connectées',
     description:
       'Une entrée par application (client OAuth) ayant au moins une connexion active : permissions ' +
-      'cumulées, nombre de connexions, première connexion, dernière utilisation, expiration.',
+      'cumulées, nombre de connexions, première connexion, dernière utilisation, dernier outil ' +
+      'appelé (`lastAction`, E10.10), expiration.',
   })
   @ApiOkResponse({ description: 'Applications connectées.' })
   list(@CurrentUser() user: AuthenticatedUser): Promise<ConnectedApplication[]> {
@@ -37,10 +38,11 @@ export class OAuthGrantsController {
     summary: 'Retirer l’accès d’une application',
     description:
       'Révoque **toutes** les connexions de l’application et tous leurs jetons, immédiatement : ' +
-      'le prochain appel de l’application au serveur MCP reçoit `401`. `clientId` encodé dans l’URL.',
+      'le prochain appel de l’application au serveur MCP reçoit `401`. `clientId` encodé dans l’URL. ' +
+      'Idempotent (E10.10) : une application déjà révoquée répond aussi `204`.',
   })
-  @ApiNoContentResponse({ description: 'Toutes les connexions de l’application sont révoquées.' })
-  @ApiNotFoundResponse({ description: 'Aucune connexion active de cette application.' })
+  @ApiNoContentResponse({ description: 'L’application n’a plus aucun accès au compte.' })
+  @ApiNotFoundResponse({ description: 'Application jamais connectée à ce compte.' })
   async revoke(
     @CurrentUser() user: AuthenticatedUser,
     @Param('clientId') clientId: string,

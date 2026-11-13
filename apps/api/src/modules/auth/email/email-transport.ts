@@ -99,6 +99,13 @@ export interface SendNotificationInput {
   locale: Locale
 }
 
+// ROADMAP E10.10: the last message to the address of an account just deleted.
+export interface SendAccountDeletedInput {
+  to: string
+  privacyUrl: string
+  locale: Locale
+}
+
 export interface EmailTransport {
   sendMagicLink(input: SendMagicLinkInput): Promise<void>
   sendShareInvite(input: SendShareInviteInput): Promise<void>
@@ -108,4 +115,5 @@ export interface EmailTransport {
   sendCommitteeChanged(input: SendCommitteeChangedInput): Promise<void>
   sendEntrepreneurAccessAccepted(input: SendEntrepreneurAccessAcceptedInput): Promise<void>
   sendNotification(input: SendNotificationInput): Promise<void>
+  sendAccountDeleted(input: SendAccountDeletedInput): Promise<void>
 }

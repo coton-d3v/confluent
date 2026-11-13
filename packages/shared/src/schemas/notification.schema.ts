@@ -58,6 +58,8 @@ export const NOTIFICATION_KINDS = [
   'committee_rescheduled',
   'committee_cancelled',
   'committee_restored',
+  // To the person whose request to delete their account an administrator declined (E10.10).
+  'account_deletion_declined',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 export const notificationKindSchema = z.enum(NOTIFICATION_KINDS)
@@ -104,6 +106,8 @@ export const NOTIFICATION_EMAILED: Record<NotificationKind, boolean> = {
   committee_rescheduled: true,
   committee_cancelled: true,
   committee_restored: true,
+  // Their account is kept: they learn it, and where to read why, also by email.
+  account_deletion_declined: true,
 }
 
 export const NOTIFICATION_EMAIL_STATES = [

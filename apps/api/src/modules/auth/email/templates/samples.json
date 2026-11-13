@@ -44,5 +44,8 @@
     "preheader": "Nouvelle promesse pour « Levée d’amorçage »",
     "body": "Une intention de financement, non engageante. Le total est à jour sur votre demande ; le nom et le montant n’apparaissent que si l’investisseur a choisi de les montrer.",
     "actionUrl": "https://confluent.local/dashboard/dossiers/view/levee-d-amorcage"
+  },
+  "account-deleted": {
+    "actionUrl": "https://confluent.local/confidentialite"
   }
 }

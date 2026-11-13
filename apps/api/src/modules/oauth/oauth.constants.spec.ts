@@ -1,4 +1,4 @@
-import { SUPPORTED_SCOPES, expandScopes, grantableScopes } from './oauth.constants'
+import { SUPPORTED_SCOPES, clientOrigin, expandScopes, grantableScopes } from './oauth.constants'
 
 const OPPORTUNITIES = ['opportunities:read', 'opportunities:write']
 const SHARING = ['sharing:read', 'sharing:write']
@@ -170,5 +170,25 @@ describe('expandScopes', () => {
       'opportunities:read',
       'sharing:read',
     ])
+  })
+})
+
+// ROADMAP E10.10 (U05): what the consent screen says of a client's identity.
+describe('clientOrigin', () => {
+  it('is verified only for a fetched metadata document at an HTTPS identifier, naming its host', () => {
+    expect(clientOrigin({ id: 'https://claude.ai/oauth/client.json', source: 'cimd' })).toEqual({
+      origin: 'verified',
+      originHost: 'claude.ai',
+    })
+    expect(clientOrigin({ id: 'https://claude.ai/oauth/client.json', source: 'dcr' })).toEqual({
+      origin: 'declared',
+      originHost: null,
+    })
+    expect(clientOrigin({ id: 'http://claude.ai/client.json', source: 'cimd' })).toEqual({
+      origin: 'declared',
+      originHost: null,
+    })
+    expect(clientOrigin({ id: 'not an address', source: 'cimd' }).origin).toBe('declared')
+    expect(clientOrigin({ id: 'https://x.dev/c', source: 'unknown' }).origin).toBe('declared')
   })
 })

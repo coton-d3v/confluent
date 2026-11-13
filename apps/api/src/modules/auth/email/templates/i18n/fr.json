@@ -120,5 +120,17 @@
     "signInHint": "Connectez-vous avec l’adresse qui a reçu ce message : un lien de connexion vous sera envoyé, sans mot de passe. Cette notification figure aussi dans le site, sous la cloche.",
     "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
     "footer": "Ce message est envoyé automatiquement quand un changement vous concerne sur Confluent : votre accès à une demande, une promesse reçue, le suivi de vos candidatures par une structure, une proposition d’entreprise."
+  },
+  "account-deleted": {
+    "lang": "fr",
+    "subject": "Votre compte Confluent a été supprimé",
+    "brandLabel": "Confluent",
+    "title": "Votre compte Confluent a été supprimé",
+    "preheader": "Votre demande de suppression a été traitée.",
+    "body": "Votre demande de suppression a été traitée : votre compte, vos entreprises, vos demandes, leurs réponses et leurs documents ont été supprimés. Vous ne pouvez plus vous connecter avec cette adresse.",
+    "keptLine": "Comme l’indique notre politique de confidentialité, le journal d’activité garde la trace des actions passées sans plus vous nommer, et les structures conservent les notes et décisions qu’elles avaient prises.",
+    "cta": "Lire la politique de confidentialité",
+    "fallbackLabel": "Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :",
+    "footer": "Vous recevez ce message parce qu’une demande de suppression de compte a été faite depuis votre compte Confluent. C’est le dernier message que nous vous envoyons à cette adresse."
   }
 }

@@ -409,3 +409,9 @@ export function performanceIndexesUp(): string[] {
 export function performanceIndexesDown(): string[] {
   return sqlStatements(join(CHECKS, '20261214000000_performance_indexes.down.sql'))
 }
+export function privacyUp(): string[] {
+  return sqlStatements(join(MIGRATIONS, '20261215000000_privacy/migration.sql'))
+}
+export function privacyDown(): string[] {
+  return sqlStatements(join(CHECKS, '20261215000000_privacy.down.sql'))
+}

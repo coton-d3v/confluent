@@ -35,6 +35,8 @@ export const configSchema = z
       .default(true),
     SWAGGER_USER: z.string().min(1).default('admin'),
     SWAGGER_PASSWORD: z.string().min(8).default('change-me-in-prod-min-8-chars'),
+    // E10.10: how often the retention job runs (minutes); 0 turns it off. Never in tests.
+    RETENTION_PURGE_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(10_080).default(360),
   })
   .refine((c) => !(c.NODE_ENV === 'production' && c.STORAGE_DRIVER === 'memory'), {
     path: ['STORAGE_DRIVER'],

@@ -2019,6 +2019,11 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
     expect(list[0].application.name).toBe('Claude')
     expect(list[0].scopes.map((s) => s.scope)).toEqual(['dossiers:read', 'dossiers:write'])
     expect(list[0].lastUsedAt).not.toBeNull()
+    // E10.10 (U06): the last tool it called for this account, from the journal.
+    expect((list[0] as { lastAction?: unknown }).lastAction).toMatchObject({
+      tool: 'whoami',
+      succeeded: true,
+    })
 
     const unknown = await fetch(`${base}/v1/oauth/applications/client-inconnu`, {
       method: 'DELETE',
@@ -2034,6 +2039,12 @@ describe('MCP endpoint /mcp (e2e, official MCP client)', () => {
       },
     )
     expect(revoked.status).toBe(204)
+    // E10.10 (U07): a retry after a lost answer is told the same — the application has no access.
+    const retried = await fetch(
+      `${base}/v1/oauth/applications/${encodeURIComponent('client-claude')}`,
+      { method: 'DELETE', headers: auth },
+    )
+    expect(retried.status).toBe(204)
     for (const t of [token, secondToken]) {
       const after = await fetch(`${base}/mcp`, {
         method: 'POST',

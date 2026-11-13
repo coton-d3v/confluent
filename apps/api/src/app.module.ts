@@ -35,6 +35,7 @@ import { EntrepreneurAccessRequestsModule } from './modules/entrepreneur-access-
 import { ShowcaseCardsModule } from './modules/showcase-cards/showcase-cards.module'
 import { WorkspacePagesModule } from './modules/workspace-pages/workspace-pages.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
+import { PrivacyModule } from './modules/privacy/privacy.module'
 import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audit.interceptor'
 
 @Module({
@@ -52,6 +53,7 @@ import { RateLimitAuditInterceptor } from './common/interceptors/rate-limit-audi
     AuthModule,
     NotificationsModule,
     ShareLinksModule,
+    PrivacyModule,
     QuestionnairesModule,
     DossiersModule,
     AnswersModule,

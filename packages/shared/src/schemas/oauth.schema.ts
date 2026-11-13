@@ -58,6 +58,51 @@ export const OAUTH_SCOPES = {
   showcaseWrite: 'showcase:write',
 } as const
 
+// What each permission lets an application read or do, in plain French: shown on the consent
+// screen, the « Applications IA » page and the privacy page (E10.10).
+export const OAUTH_SCOPE_LABELS: Record<string, string> = {
+  [OAUTH_SCOPES.read]:
+    'Lire votre profil, vos dossiers, leurs questionnaires, réponses et documents',
+  [OAUTH_SCOPES.write]: 'Modifier les réponses de vos dossiers et y déposer des documents',
+  [OAUTH_SCOPES.submit]: 'Soumettre un dossier, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.present]:
+    'Publier une demande de financement, choisir les documents qu’elle présente et l’envoyer en candidature à une structure, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.formsWrite]:
+    'Créer et modifier des brouillons de formulaires (sections, champs, choix, limites, niveaux de lecture), sans les publier',
+  [OAUTH_SCOPES.formsPublish]:
+    'Publier un brouillon de formulaire, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.support]:
+    'Comme conseiller, dans les workspaces autorisés : tenir le plan de financement et les dispositifs des candidatures reçues, lire et écrire leurs notes internes',
+  [OAUTH_SCOPES.decide]:
+    'Changer le statut de financement d’une candidature (comité, financé, refusé, abandon, reprise) et, comme conseiller, valider une étape du parcours ou vérifier un dispositif, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.opportunitiesRead]:
+    'Comme investisseur : lire vos opportunités (demandes partagées avec vous, et celles des viviers des workspaces autorisés) et vos positionnements (marques d’intérêt, promesses, consentements donnés aux structures) ; comme conseiller d’un workspace autorisé : les positionnements que des investisseurs ont choisi de montrer à votre structure',
+  [OAUTH_SCOPES.opportunitiesWrite]:
+    'Marquer ou retirer votre intérêt, faire, modifier ou retirer une promesse (jamais un engagement ferme), montrer ou non votre positionnement à une structure, uniquement à votre demande explicite ; inclut la lecture de vos opportunités',
+  [OAUTH_SCOPES.sharingRead]:
+    'Lire les accès ouverts à vos demandes de financement, leur historique (consultations, accès, interventions de l’administration) et les positionnements des investisseurs, tels que le site vous les montre',
+  [OAUTH_SCOPES.sharingWrite]:
+    'Inviter un destinataire à lire une demande de financement au niveau choisi, changer ce niveau ou révoquer un accès, uniquement à votre demande explicite ; inclut le suivi de la diffusion',
+  [OAUTH_SCOPES.committeesRead]:
+    'Lire les comités tels que le site vous les montre : comme porteur, ceux de vos candidatures ; comme participant accepté, vos sessions ; comme conseiller d’un workspace autorisé, ses comités (notes internes comprises), les demandes présentées et leur avancement ; comme gestionnaire, aussi les participants, les notifications envoyées et les demandes de participation reçues (nom, organisation, adresse, message)',
+  [OAUTH_SCOPES.committeesWrite]:
+    'Candidater à un comité, confirmer une proposition ou retirer votre demande ; comme conseiller d’un workspace autorisé, rattacher une demande à un comité, accepter ou refuser une candidature, la retirer — uniquement à votre demande explicite ; inclut la lecture des comités',
+  [OAUTH_SCOPES.participationRequestsDecide]:
+    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande de participation à ses comités (une acceptation ajoute la personne au workspace comme investisseur et la prévient par email), uniquement à votre demande explicite',
+  [OAUTH_SCOPES.publicPageRead]:
+    'Comme gestionnaire d’un workspace autorisé, lire les réglages de sa page publique (textes, blocs, publication, indexation), son aperçu, les cartes des projets et les demandes d’accès envoyées depuis la page (nom, entreprise, adresse, message)',
+  [OAUTH_SCOPES.publicPageWrite]:
+    'Comme gestionnaire d’un workspace autorisé, modifier les critères, le contact et les blocs de sa page publique, masquer ou rétablir la carte d’un projet — visibles de tous si la page est publiée —, uniquement à votre demande explicite ; inclut la lecture de la page',
+  [OAUTH_SCOPES.publicPagePublish]:
+    'Comme gestionnaire d’un workspace autorisé, publier ou dépublier sa page publique et autoriser ou non son indexation par les moteurs de recherche, uniquement à votre demande explicite',
+  [OAUTH_SCOPES.accessRequestsDecide]:
+    'Comme gestionnaire d’un workspace autorisé, accepter ou refuser une demande d’accès envoyée depuis sa page publique (une acceptation crée le compte porteur de projet de la personne s’il n’existe pas et la prévient par email), uniquement à votre demande explicite',
+  [OAUTH_SCOPES.showcaseRead]:
+    'Lire les cartes de vos demandes sur les pages publiques des structures auxquelles vous les présentez (pseudonyme, région, état, aperçu)',
+  [OAUTH_SCOPES.showcaseWrite]:
+    'Afficher la carte anonyme d’une de vos demandes sur la page publique d’une structure sous le pseudonyme choisi, la modifier ou la retirer, uniquement à votre demande explicite ; inclut la lecture de vos cartes',
+}
+
 // ROADMAP E05.10: a connection reaches a workspace only if the person ticked it on the consent
 // screen, among their active memberships — closed by default: none is ticked beforehand, and an
 // authorization given before this choice existed reaches none. The choice is stored with the
@@ -81,8 +126,21 @@ export const oauthConsentRequestSchema = z.object({
     redirectHost: z.string(),
     clientUri: z.string().nullable(),
     verifiedByMetadataDocument: z.boolean(),
+    // E10.10 (U05): where the application's identity comes from. `verified`: its identifier is an
+    // HTTPS address whose metadata document Confluent fetched (`originHost`, the host that publishes
+    // it); `declared`: it registered itself (dynamic registration) — its name is what it says, only
+    // the redirection host is known.
+    origin: z.enum(['verified', 'declared']),
+    originHost: z.string().nullable(),
   }),
   scopes: z.array(z.object({ scope: z.string(), label: z.string() })),
+  // E10.10 (U05): how long what is granted lasts — each access token, its renewal, and the
+  // authorization itself (the user reconnects afterwards; revocable at any time).
+  durations: z.object({
+    accessTokenMinutes: z.number().int().positive(),
+    refreshTokenDays: z.number().int().positive(),
+    connectionDays: z.number().int().positive(),
+  }),
   // The workspaces the application may be allowed to reach. Absent from a server that predates them
   // (E05.10): nothing to choose.
   workspaces: z.array(oauthConsentWorkspaceSchema).optional(),
@@ -113,6 +171,12 @@ export const connectedApplicationSchema = z.object({
   connections: z.number().int().positive(),
   connectedAt: z.string().datetime(),
   lastUsedAt: z.string().datetime().nullable(),
+  // E10.10 (U06): the last tool it called on the person's behalf, from the journal (`null`: none yet,
+  // or before E10.10 on a server that predates it).
+  lastAction: z
+    .object({ tool: z.string(), at: z.string().datetime(), succeeded: z.boolean() })
+    .nullable()
+    .optional(),
   expiresAt: z.string().datetime(),
 })
 

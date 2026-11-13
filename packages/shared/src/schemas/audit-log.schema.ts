@@ -84,6 +84,11 @@ export const auditActionSchema = z.enum([
   'entrepreneur_access_request_received',
   'entrepreneur_access_request_discarded',
   'entrepreneur_access_request_decided',
+  'personal_data_exported',
+  'account_deletion_requested',
+  'account_deletion_cancelled',
+  'account_deletion_declined',
+  'account_deleted',
 ])
 
 export const auditLogSchema = z.object({

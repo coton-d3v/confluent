@@ -103,6 +103,14 @@ describe('OAuth 2.1 server for MCP clients (e2e)', () => {
       .set('Authorization', `Bearer ${userJwt}`)
       .expect(200)
     expect(shown.body.client).toMatchObject({ name: clientName, redirectHost: 'claude.ai' })
+    // E10.10 (U05): a self-registered client's identity is declared, never verified; how long the
+    // authorization lasts is stated.
+    expect(shown.body.client).toMatchObject({ origin: 'declared', originHost: null })
+    expect(shown.body.durations).toEqual({
+      accessTokenMinutes: 60,
+      refreshTokenDays: 30,
+      connectionDays: 90,
+    })
 
     const decided = await http()
       .post(`/v1/oauth/requests/${requestId}/decision`)

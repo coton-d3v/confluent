@@ -18,6 +18,20 @@ describe('template-renderer', () => {
     expect(result.text).not.toContain('<')
   })
 
+  // ROADMAP E10.10: the last message to a deleted account's address — no sign-in invitation.
+  it('renders account-deleted with the privacy page and without any sign-in hint', () => {
+    const result = render('account-deleted', 'fr', {
+      actionUrl: 'https://confluent.example/confidentialite',
+    })
+    expect(result.subject).toBe('Votre compte Confluent a été supprimé')
+    expect(result.html).toContain('href="https://confluent.example/confidentialite"')
+    expect(result.text).toContain(
+      'Lire la politique de confidentialité : https://confluent.example/confidentialite',
+    )
+    expect(result.text).not.toMatch(/connectez-vous|lien de connexion/i)
+    expect(result.text).not.toContain('{{')
+  })
+
   it('renders share-invite with the dossier name', () => {
     const result = render('share-invite', 'fr', {
       dossierName: 'Biosensio',

@@ -1,0 +1,11 @@
+{{brandLabel}}
+
+{{title}}
+
+{{body}}
+
+{{keptLine}}
+
+{{cta}} : {{actionUrl}}
+
+{{footer}}

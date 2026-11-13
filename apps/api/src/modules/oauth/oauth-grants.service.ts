@@ -25,6 +25,7 @@ export class OAuthGrantsService {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     })
+    const lastActions = await this.lastActions(userId, [...new Set(grants.map((g) => g.clientId))])
     const byClient = new Map<string, typeof grants>()
     for (const grant of grants)
       byClient.set(grant.clientId, [...(byClient.get(grant.clientId) ?? []), grant])
@@ -53,21 +54,56 @@ export class OAuthGrantsService {
         connections: clientGrants.length,
         connectedAt: new Date(Math.min(...times((g) => g.createdAt))).toISOString(),
         lastUsedAt: lastUsed.length ? new Date(Math.max(...lastUsed)).toISOString() : null,
+        lastAction: lastActions.get(client.id) ?? null,
         expiresAt: new Date(Math.max(...times((g) => g.expiresAt))).toISOString(),
       }
     })
   }
 
-  // Revokes every authorization of the application and all their tokens.
+  // E10.10 (U06): the last tool each application called on the person's behalf, from their own
+  // journal (`mcp_tool_called`: who, which client, which tool, its outcome). One read per
+  // application, on the actor's index.
+  private async lastActions(
+    userId: string,
+    clientIds: string[],
+  ): Promise<Map<string, { tool: string; at: string; succeeded: boolean }>> {
+    const found = new Map<string, { tool: string; at: string; succeeded: boolean }>()
+    for (const clientId of clientIds) {
+      const entry = await this.prisma.auditLog.findFirst({
+        where: {
+          actorId: userId,
+          actionType: 'mcp_tool_called',
+          metadata: { path: ['clientId'], equals: clientId },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, metadata: true },
+      })
+      const meta = (entry?.metadata ?? {}) as { tool?: unknown; result?: unknown }
+      if (entry && typeof meta.tool === 'string') {
+        found.set(clientId, {
+          tool: meta.tool,
+          at: entry.createdAt.toISOString(),
+          succeeded: meta.result === 'ok',
+        })
+      }
+    }
+    return found
+  }
+
+  // Revokes every authorization of the application and all their tokens. E10.10 (U07): asked again
+  // — a retry after a lost answer, a second click — it answers the same: the application has no
+  // access any more. Only an application this account never connected is unknown (`404`).
   async revokeApplication(userId: string, clientId: string): Promise<number> {
     const grants = await this.prisma.oAuthGrant.findMany({
       where: { userId, clientId, revokedAt: null },
       select: { id: true },
     })
     if (grants.length === 0) {
+      const known = await this.prisma.oAuthGrant.count({ where: { userId, clientId } })
+      if (known > 0) return 0
       throw new NotFoundException({
         code: 'OAUTH_APPLICATION_NOT_FOUND',
-        message: 'Aucune connexion active pour cette application.',
+        message: 'Cette application n’est pas connectée à votre compte.',
       })
     }
     let revoked = 0
