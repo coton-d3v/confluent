@@ -4,7 +4,16 @@ import { ConfluentWordmark } from '@/components/confluent/ConfluentWordmark'
 import { LegalLinks } from '@/components/confluent/LegalLinks'
 import { LEGAL_INFO } from '@/features/legal/legal-info'
 
-export function LegalPage({ title, children }: { title: string; children: ReactNode }) {
+export function LegalPage({
+  title,
+  updated = LEGAL_INFO.lastUpdated,
+  children,
+}: {
+  title: string
+  // The date of the page's own text (the legal information's by default).
+  updated?: string
+  children: ReactNode
+}) {
   return (
     <>
       <title>{`${title} · Confluent`}</title>
@@ -15,7 +24,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
         <header className="flex flex-col gap-2">
           <h1 className="font-heading text-2xl font-semibold text-foreground md:text-3xl">{title}</h1>
           <p className="text-sm text-muted-foreground">
-            Dernière mise à jour : {LEGAL_INFO.lastUpdated}
+            Dernière mise à jour : {updated}
           </p>
         </header>
         <div className="flex flex-col gap-8 text-sm leading-relaxed text-foreground">{children}</div>
@@ -25,9 +34,17 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
   )
 }
 
-export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
+export function LegalSection({
+  title,
+  id,
+  children,
+}: {
+  title: string
+  id?: string
+  children: ReactNode
+}) {
   return (
-    <section className="flex flex-col gap-3">
+    <section id={id} className="flex scroll-mt-6 flex-col gap-3">
       <h2 className="font-heading text-lg font-medium text-foreground">{title}</h2>
       {children}
     </section>

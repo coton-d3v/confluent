@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { LoaderCircleIcon } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
@@ -225,6 +225,12 @@ function DesktopSidebar({
             {user.email}
           </div>
         </button>
+        <Link
+          to="/compte"
+          className="mb-3 block rounded-md px-1 py-1 text-sm text-sidebar-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+        >
+          Mes données
+        </Link>
         <Button type="button" variant="outline" size="sm" className="w-full" onClick={onLogout}>
           Se déconnecter
         </Button>

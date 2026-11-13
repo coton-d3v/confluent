@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -157,7 +157,10 @@ function AdminUtilisateursList() {
         </div>
 
         <p className="mt-2 text-sm text-muted-foreground">
-          Gérez les comptes et les invitations de la plateforme.
+          Gérez les comptes et les invitations de la plateforme.{' '}
+          <Link to="/admin/utilisateurs/suppressions" className="underline underline-offset-4">
+            Demandes de suppression de compte
+          </Link>
         </p>
 
         {usersQuery.isLoading ? (
