@@ -1,17 +1,22 @@
 import { z, ZodError } from 'zod'
 
+// Published in this repository: a Swagger guarded by it is open to anyone (see swaggerMode).
+export const DEFAULT_SWAGGER_PASSWORD = 'change-me-in-prod-min-8-chars'
+const withoutTrailingSlash = (v: string) => v.replace(/\/+$/, '')
+
 export const configSchema = z
   .object({
     DATABASE_URL: z.string().url(),
     PORT: z.coerce.number().int().positive().default(3000),
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-    FRONTEND_URL: z.string().url(),
+    // An origin: CORS compares it exactly, so a trailing slash would refuse the site (E10.11).
+    FRONTEND_URL: z.string().url().transform(withoutTrailingSlash),
     // Public base URL of this API (OAuth issuer; the MCP endpoint is `${API_PUBLIC_URL}/mcp`).
     API_PUBLIC_URL: z
       .string()
       .url()
       .default('http://localhost:3000')
-      .transform((v) => v.replace(/\/+$/, '')),
+      .transform(withoutTrailingSlash),
     // Extra browser origins allowed to call /mcp (comma-separated). Server-to-server MCP clients
     // (Claude, ChatGPT) send no Origin header and are not affected.
     MCP_ALLOWED_ORIGINS: z.string().optional().default(''),
@@ -34,7 +39,7 @@ export const configSchema = z
       .transform((v) => v === true || v === 'true')
       .default(true),
     SWAGGER_USER: z.string().min(1).default('admin'),
-    SWAGGER_PASSWORD: z.string().min(8).default('change-me-in-prod-min-8-chars'),
+    SWAGGER_PASSWORD: z.string().min(8).default(DEFAULT_SWAGGER_PASSWORD),
     // E10.10: how often the retention job runs (minutes); 0 turns it off. Never in tests.
     RETENTION_PURGE_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(10_080).default(360),
   })
@@ -44,6 +49,18 @@ export const configSchema = z
   })
 
 export type AppConfig = z.infer<typeof configSchema>
+
+// How the OpenAPI documentation is served: open in development, behind HTTP Basic in production —
+// never behind the published default password, which would leave it open (E10.11): not served then.
+export function swaggerMode(
+  config: Pick<AppConfig, 'NODE_ENV' | 'SWAGGER_ENABLED' | 'SWAGGER_PASSWORD'>,
+): 'off' | 'open' | 'basic-auth' | 'refused-default-password' {
+  if (!config.SWAGGER_ENABLED) return 'off'
+  if (config.NODE_ENV !== 'production') return 'open'
+  return config.SWAGGER_PASSWORD === DEFAULT_SWAGGER_PASSWORD
+    ? 'refused-default-password'
+    : 'basic-auth'
+}
 
 export function validateConfig(raw: Record<string, unknown>): AppConfig {
   try {

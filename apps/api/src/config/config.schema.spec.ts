@@ -1,4 +1,4 @@
-import { validateConfig } from './config.schema'
+import { DEFAULT_SWAGGER_PASSWORD, swaggerMode, validateConfig } from './config.schema'
 
 const validEnv = {
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
@@ -60,5 +60,45 @@ describe('STORAGE_DRIVER', () => {
       validateConfig({ ...validEnv, NODE_ENV: 'production', STORAGE_DRIVER: 'memory' }),
     ).toThrow(/STORAGE_DRIVER/)
     expect(validateConfig({ ...validEnv, STORAGE_DRIVER: 'memory' }).STORAGE_DRIVER).toBe('memory')
+  })
+})
+
+describe('public addresses (E10.11)', () => {
+  it('drops a trailing slash from FRONTEND_URL, an origin CORS compares exactly', () => {
+    const cfg = validateConfig({ ...validEnv, FRONTEND_URL: 'https://confluent.example.org/' })
+    expect(cfg.FRONTEND_URL).toBe('https://confluent.example.org')
+    expect(validateConfig(validEnv).FRONTEND_URL).toBe('http://localhost:5173')
+  })
+
+  it('drops a trailing slash from API_PUBLIC_URL', () => {
+    const cfg = validateConfig({ ...validEnv, API_PUBLIC_URL: 'https://api.example.org//' })
+    expect(cfg.API_PUBLIC_URL).toBe('https://api.example.org')
+  })
+})
+
+describe('swaggerMode (E10.11)', () => {
+  const prod = { ...validEnv, NODE_ENV: 'production' }
+  const withoutSwagger: Record<string, string | undefined> = {
+    ...prod,
+    SWAGGER_PASSWORD: undefined,
+    SWAGGER_ENABLED: undefined,
+  }
+
+  it('never serves Swagger in production behind the published default password', () => {
+    expect(validateConfig(withoutSwagger).SWAGGER_PASSWORD).toBe(DEFAULT_SWAGGER_PASSWORD)
+    expect(swaggerMode(validateConfig(withoutSwagger))).toBe('refused-default-password')
+    expect(
+      swaggerMode(validateConfig({ ...prod, SWAGGER_PASSWORD: DEFAULT_SWAGGER_PASSWORD })),
+    ).toBe('refused-default-password')
+  })
+
+  it('serves it behind HTTP Basic in production with an operator-chosen password', () => {
+    expect(swaggerMode(validateConfig(prod))).toBe('basic-auth')
+  })
+
+  it('serves it open in development, and not at all when disabled', () => {
+    expect(swaggerMode(validateConfig({ ...validEnv, SWAGGER_PASSWORD: undefined }))).toBe('open')
+    expect(swaggerMode(validateConfig({ ...prod, SWAGGER_ENABLED: 'false' }))).toBe('off')
+    expect(swaggerMode(validateConfig({ ...withoutSwagger, SWAGGER_ENABLED: 'false' }))).toBe('off')
   })
 })

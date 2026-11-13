@@ -13,7 +13,7 @@ import { corsOptions } from './common/http/cors'
 import { noIndex } from './common/http/no-index'
 import { mountOAuthServer } from './modules/oauth/oauth.http'
 import { mountMcpEndpoint } from './modules/mcp/mcp.http'
-import type { AppConfig } from './config/config.schema'
+import { swaggerMode, type AppConfig } from './config/config.schema'
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
@@ -34,19 +34,27 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new GlobalExceptionFilter())
   app.enableCors(corsOptions(config.get('FRONTEND_URL', { infer: true })))
 
-  const nodeEnv = config.get('NODE_ENV', { infer: true })
-  const swaggerEnabled = config.get('SWAGGER_ENABLED', { infer: true })
-  if (swaggerEnabled) {
-    setupSwagger(app, config, nodeEnv === 'production')
+  const swagger = swaggerMode({
+    NODE_ENV: config.get('NODE_ENV', { infer: true }),
+    SWAGGER_ENABLED: config.get('SWAGGER_ENABLED', { infer: true }),
+    SWAGGER_PASSWORD: config.get('SWAGGER_PASSWORD', { infer: true }),
+  })
+  if (swagger === 'open' || swagger === 'basic-auth') {
+    setupSwagger(app, config, swagger === 'basic-auth')
   }
 
   const port = config.get('PORT', { infer: true })
   await app.listen(port)
   const logger = new Logger('Bootstrap')
   logger.log(`Application is running on: http://localhost:${port}`)
-  if (swaggerEnabled) {
-    const guarded = nodeEnv === 'production' ? ' (basic auth)' : ' (open, dev mode)'
+  if (swagger === 'open' || swagger === 'basic-auth') {
+    const guarded = swagger === 'basic-auth' ? ' (basic auth)' : ' (open, dev mode)'
     logger.log(`Swagger UI: http://localhost:${port}/api/docs${guarded}`)
+  } else if (swagger === 'refused-default-password') {
+    logger.warn(
+      'Swagger UI not served: SWAGGER_PASSWORD still has its published default value ' +
+        '(set your own, or SWAGGER_ENABLED=false).',
+    )
   }
 }
 
