@@ -39,10 +39,24 @@ export default function OAuthConsentRoute() {
     return <Navigate to="/auth" replace />
   }
   if (!requestId) return <Expired />
-  return <ConsentForm requestId={requestId} email={user.email} />
+  return (
+    <ConsentForm
+      requestId={requestId}
+      email={user.email}
+      name={user.name !== user.email ? user.name : ''}
+    />
+  )
 }
 
-function ConsentForm({ requestId, email }: { requestId: string; email: string }) {
+function ConsentForm({
+  requestId,
+  email,
+  name,
+}: {
+  requestId: string
+  email: string
+  name: string
+}) {
   const { data, isLoading, error } = useAsync(() => getConsentRequest(requestId), [requestId])
   if (isLoading) {
     return (
@@ -52,7 +66,7 @@ function ConsentForm({ requestId, email }: { requestId: string; email: string })
     )
   }
   if (error || !data) return <Expired />
-  return <ConsentDecision request={data} email={email} />
+  return <ConsentDecision request={data} email={email} name={name} />
 }
 
 const { write: WRITE } = OAUTH_SCOPES
@@ -146,7 +160,15 @@ function accessChoices(dossierScopes: string[]): AccessChoice[] {
   ]
 }
 
-function ConsentDecision({ request, email }: { request: OAuthConsentRequest; email: string }) {
+function ConsentDecision({
+  request,
+  email,
+  name,
+}: {
+  request: OAuthConsentRequest
+  email: string
+  name: string
+}) {
   const requested = request.scopes.map((s) => s.scope)
   const choices = accessChoices(requested.filter((s) => !OPTIONAL_SCOPES.has(s)))
   // Never implied by « Lire et modifier »: each is a choice of its own.
@@ -204,10 +226,48 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
           <h1 className="font-heading text-2xl font-medium text-foreground">
             {request.client.name} souhaite accéder à votre compte Confluent
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Connecté en tant que <span className="font-medium text-foreground">{email}</span>
-          </p>
         </header>
+
+        {/* E10.10 (U05): who asks, for which account, and for how long. */}
+        <dl className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-sm">
+          <div>
+            <dt className="font-medium text-foreground">Application</dt>
+            <dd className="wrap-anywhere text-muted-foreground">
+              {request.client.origin === 'verified' ? (
+                <>
+                  Identité <span className="font-medium text-foreground">vérifiée</span> : publiée
+                  par <span className="font-medium text-foreground">{request.client.originHost}</span>.
+                </>
+              ) : (
+                <>
+                  Identité <span className="font-medium text-foreground">déclarée</span> par
+                  l’application elle-même, non vérifiée par Confluent : seul son domaine de retour,{' '}
+                  <span className="font-medium text-foreground">{request.client.redirectHost}</span>,
+                  est connu.
+                </>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-foreground">Compte</dt>
+            <dd className="wrap-anywhere text-muted-foreground">
+              Elle agira pour {name ? <>{name} (</> : null}
+              <span className="font-medium text-foreground">{email}</span>
+              {name ? ')' : null}, avec vos droits, jamais au-delà.
+            </dd>
+          </div>
+          {request.durations && (
+            <div>
+              <dt className="font-medium text-foreground">Durée</dt>
+              <dd className="text-muted-foreground">
+                Jusqu’à {request.durations.connectionDays} jours, puis il faudra la reconnecter. Chaque
+                accès vaut {request.durations.accessTokenMinutes} minutes et se renouvelle pendant{' '}
+                {request.durations.refreshTokenDays} jours sans nouvel usage. Révocable à tout moment
+                dans « Applications IA ».
+              </dd>
+            </div>
+          )}
+        </dl>
 
         <fieldset className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
           <legend className="px-1 text-sm font-medium text-foreground">Accès demandé</legend>
@@ -293,9 +353,15 @@ function ConsentDecision({ request, email }: { request: OAuthConsentRequest; ema
 
         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
           <p className="flex items-center gap-1.5">
-            <ShieldCheckIcon className="size-3.5" aria-hidden="true" />
-            L’application agira avec vos droits, jamais au-delà, et chacune de ses actions sera
-            inscrite à votre journal.
+            <ShieldCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Chacune de ses actions sera inscrite à votre journal. Ce qu’elle reçoit est traité par
+              son éditeur selon ses propres conditions (
+              <a href="/confidentialite#applications-ia" className="underline underline-offset-4">
+                confidentialité
+              </a>
+              ).
+            </span>
           </p>
           <p>
             Après votre choix, vous serez redirigé vers{' '}

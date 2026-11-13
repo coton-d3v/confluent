@@ -84,6 +84,11 @@ const appPages: RouteObject[] = [
   // Former single-questionnaire page, replaced by the form builder.
   { path: 'admin/questionnaire', element: <Navigate to="/admin/formulaires" replace /> },
   { path: 'admin/utilisateurs', ...page(() => import('@/routes/admin/utilisateurs')) },
+  // E10.10: the deletion requests to process.
+  {
+    path: 'admin/utilisateurs/suppressions',
+    ...page(() => import('@/routes/admin/suppressions')),
+  },
   { path: 'admin/workspaces', ...page(() => import('@/routes/admin/workspaces')) },
   { path: 'admin/workspaces/nouveau', ...page(() => import('@/routes/admin/workspaces/nouveau')) },
   {
@@ -160,6 +165,8 @@ const appPages: RouteObject[] = [
   },
   { path: 'opportunites', ...page(() => import('@/routes/opportunites')) },
   { path: 'positionnements', ...page(() => import('@/routes/positionnements')) },
+  // E10.10: the signed-in person's data — export, deletion of their account.
+  { path: 'compte', ...page(() => import('@/routes/compte')) },
   // E10.03: the signed-in person's notifications.
   { path: 'notifications', ...page(() => import('@/routes/notifications')) },
   {

@@ -69,6 +69,7 @@ test('pages publiques et connexion : aucune violation WCAG grave', async ({ page
     '/auth',
     '/auth/verify?token=jeton-invalide-smoke',
     '/mentions-legales',
+    '/confidentialite',
     '/page-inconnue-smoke',
   ]) {
     await page.goto(path)
@@ -87,7 +88,13 @@ test('espace porteur : aucune violation WCAG grave, titre de page, un seul h1', 
   await page.getByRole('tab', { name: 'Demande' }).click()
   await expectAccessible(page, 'la page du dossier (demande)')
 
-  for (const path of ['/dashboard', '/dashboard/dossiers/nouveau', '/dashboard/applications', '/notifications']) {
+  for (const path of [
+    '/dashboard',
+    '/dashboard/dossiers/nouveau',
+    '/dashboard/applications',
+    '/notifications',
+    '/compte',
+  ]) {
     await page.goto(path)
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expectAccessible(page, path)
@@ -213,7 +220,13 @@ test('téléphone (320 px) : sans défilement horizontal, compte et informations
 test('administration : aucune violation WCAG grave', async ({ page }) => {
   await signIn(page, FIXTURES.admin)
   await page.waitForURL(/\/admin$/)
-  for (const path of ['/admin', '/admin/dossiers', '/admin/utilisateurs', '/admin/workspaces']) {
+  for (const path of [
+    '/admin',
+    '/admin/dossiers',
+    '/admin/utilisateurs',
+    '/admin/utilisateurs/suppressions',
+    '/admin/workspaces',
+  ]) {
     await page.goto(path)
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expectAccessible(page, path)

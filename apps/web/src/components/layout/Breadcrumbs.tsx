@@ -14,6 +14,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   utilisateurs: 'Utilisateurs',
   workspaces: 'Workspaces',
   membres: 'Membres',
+  suppressions: 'Demandes de suppression',
 }
 
 function toLabel(segment: string): string {

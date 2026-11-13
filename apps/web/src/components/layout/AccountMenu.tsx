@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { CircleUserRound } from 'lucide-react'
 import type { CurrentUser } from '@confluent/shared'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Sheet,
   SheetContent,
@@ -69,6 +70,14 @@ export function AccountMenu({
           >
             Modifier mon profil
           </Button>
+          {/* E10.10: export and deletion of one's data. */}
+          <Link
+            to="/compte"
+            className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'h-11')}
+            onClick={() => setOpen(false)}
+          >
+            Mes données
+          </Link>
           <Button type="button" variant="outline" size="lg" className="h-11" onClick={onLogout}>
             Se déconnecter
           </Button>

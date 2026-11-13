@@ -1,10 +1,16 @@
+import { Link } from 'react-router-dom'
+import { OAUTH_SCOPE_LABELS, OAUTH_SCOPES, RETENTION_RULES } from '@confluent/shared'
 import { LEGAL_INFO } from '@/features/legal/legal-info'
 import { LegalPage, LegalSection } from './LegalPage'
+
+// E10.10: what each permission an AI application may be granted lets it read or do — the words of
+// the consent screen.
+const AI_PERMISSIONS = Object.values(OAUTH_SCOPES).map((scope) => OAUTH_SCOPE_LABELS[scope] ?? scope)
 
 export default function ConfidentialiteRoute() {
   const contact = LEGAL_INFO.privacyContact
   return (
-    <LegalPage title="Politique de confidentialité">
+    <LegalPage title="Politique de confidentialité" updated="13 novembre 2026">
       <LegalSection title="Notre principe">
         <p>
           Vos données vous appartiennent. Vous décidez qui peut consulter votre dossier, vous voyez
@@ -34,7 +40,8 @@ export default function ConfidentialiteRoute() {
           </li>
           <li>
             Journal d&apos;activité : connexions, consultations d&apos;un dossier partagé (date,
-            adresse IP, navigateur), actions des administrateurs sur votre dossier.
+            adresse IP, navigateur), actions des administrateurs sur votre dossier, exports de vos
+            données et demandes de suppression de compte.
           </li>
           <li>
             Applications d&apos;IA connectées : nom de l&apos;application, permissions accordées,
@@ -93,23 +100,25 @@ export default function ConfidentialiteRoute() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Applications d’IA connectées">
+      <LegalSection title="Applications d’IA connectées" id="applications-ia">
         <p>
           Vous pouvez connecter une application d&apos;intelligence artificielle (par exemple Claude
           ou ChatGPT) à votre compte. Rien ne lui est transmis sans votre consentement explicite,
-          donné sur un écran de Confluent qui indique l&apos;application et les permissions
-          demandées.
+          donné sur un écran de Confluent qui indique l&apos;application, si son identité est
+          vérifiée ou seulement déclarée, le compte pour lequel elle agira, chaque permission
+          demandée et la durée de l&apos;autorisation.
         </p>
         <ul className="flex list-disc flex-col gap-1 pl-5">
           <li>
-            Ce qui lui est transmis : votre profil (email, prénom, nom, rôle), la liste des dossiers
-            auxquels vous avez accès, leurs questions et réponses, et leur classification. Pour un
-            dossier qui vous est partagé, seulement ce que le niveau du partage vous permet de voir.
-            Les documents déposés ne lui sont pas transmis.
+            Ce qui lui est transmis dépend des permissions que vous cochez, et toujours de vos
+            droits : jamais plus que ce que le site vous montre. Pour une demande qui vous est
+            partagée, seulement ce que le niveau du partage vous permet de voir. Avec la lecture de
+            vos dossiers, le texte des documents déposés lui est transmis.
           </li>
           <li>
-            Ce qu&apos;elle peut faire : lire seulement, ou lire et modifier les réponses de vos
-            propres dossiers, selon votre choix. L&apos;autorisation dure au plus 90 jours.
+            L&apos;autorisation dure au plus 90 jours ; chaque accès vaut une heure et se renouvelle
+            pendant 30 jours sans nouvel usage. Les permissions qui agissent en votre nom
+            (soumettre, publier, partager, vous positionner…) ne sont jamais cochées d&apos;avance.
           </li>
           <li>
             L&apos;application est éditée par un tiers, qui traite les informations reçues selon ses
@@ -118,19 +127,32 @@ export default function ConfidentialiteRoute() {
             transmettre vos données.
           </li>
           <li>
-            Vous pouvez révoquer une application à tout moment depuis la page « Applications IA ».
-            La révocation arrête immédiatement tout nouvel accès ; elle ne supprime pas ce que
-            l&apos;application a déjà reçu, qui reste soumis aux conditions de son éditeur.
+            La page « Applications IA » montre ce que chaque application peut voir et sa dernière
+            action. Vous pouvez la révoquer à tout moment : ses accès sont coupés immédiatement ;
+            ce qu&apos;elle a déjà reçu reste soumis aux conditions de son éditeur.
           </li>
         </ul>
+        <details className="rounded-md border border-border p-3">
+          <summary className="cursor-pointer font-medium">
+            Chaque permission, telle que l&apos;écran de consentement la décrit
+          </summary>
+          <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-muted-foreground">
+            {AI_PERMISSIONS.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        </details>
       </LegalSection>
 
-      <LegalSection title="Durée de conservation">
-        <p>
-          Vos données sont conservées tant que votre compte est actif. À la suppression de votre
-          compte, votre dossier, vos documents et vos accès sont supprimés. Le journal des accès
-          et des actions peut être conservé jusqu&apos;à un an pour des raisons de sécurité.
-        </p>
+      <LegalSection title="Durée de conservation" id="conservation">
+        <ul className="flex flex-col gap-2">
+          {RETENTION_RULES.map((r) => (
+            <li key={r.data}>
+              <span className="font-medium">{r.data} : </span>
+              {r.rule}
+            </li>
+          ))}
+        </ul>
       </LegalSection>
 
       <LegalSection title="Cookies">
@@ -140,10 +162,29 @@ export default function ConfidentialiteRoute() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Vos droits">
+      <LegalSection title="Vos droits" id="vos-droits">
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          <li>
+            Accès et export : depuis{' '}
+            <Link to="/compte" className="underline underline-offset-4">
+              Mes données
+            </Link>
+            , téléchargez un fichier contenant votre compte, vos entreprises, demandes, réponses,
+            partages, positionnements, notifications, applications connectées et votre propre
+            activité (5 fois par heure au plus).
+          </li>
+          <li>Rectification : depuis votre profil et vos demandes, ou en nous écrivant.</li>
+          <li>
+            Suppression : depuis Mes données, demandez la suppression de votre compte ; un
+            administrateur la traite. Elle n&apos;est faite que lorsque plus aucune de vos demandes
+            n&apos;est partagée ni présentée à une structure (la page indique quoi retirer). Votre
+            compte et tout ce qu&apos;il détient sont alors supprimés ; le journal garde la trace des
+            actions passées sans plus vous nommer, et les structures conservent les notes et
+            décisions qu&apos;elles ont prises. Un email vous le confirme.
+          </li>
+        </ul>
         <p>
-          Vous pouvez à tout moment accéder à vos données, les corriger, les exporter ou demander
-          leur suppression, en écrivant à{' '}
+          Pour toute autre demande, écrivez à{' '}
           <a href={`mailto:${contact}`} className="underline underline-offset-4">
             {contact}
           </a>
