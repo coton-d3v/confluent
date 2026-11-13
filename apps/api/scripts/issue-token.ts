@@ -14,6 +14,7 @@
 import { PrismaClient } from '@prisma/client'
 import { config as loadEnv } from 'dotenv'
 import jwt from 'jsonwebtoken'
+import { emailArgument } from './lib/email-argument'
 import { refuseOutsideDevelopment } from './lib/environment-guard'
 
 async function main(): Promise<void> {
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
 
   const ACCESS_TOKEN_TTL_SECONDS = 15 * 60
 
-  const email = process.argv[2]?.trim().toLowerCase()
+  const email = emailArgument(process.argv)
   if (!email) {
     console.error('Usage: pnpm api:token <email>')
     console.error('Example: pnpm api:token sophie@confluent.dev')

@@ -1,9 +1,10 @@
 import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
+import { emailArgument } from './lib/email-argument'
 
-const email = process.argv[2]?.trim().toLowerCase()
+const email = emailArgument(process.argv)
 if (!email) {
-  console.error('Usage: tsx scripts/bootstrap-admin.ts <email>')
+  console.error('Usage: pnpm --filter @confluent/api bootstrap:admin <email>')
   process.exit(1)
 }
 
