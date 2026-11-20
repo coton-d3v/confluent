@@ -11,3 +11,16 @@ _bmad
 
 # Product roadmap: private document of its owner, kept out of this public repository (R24)
 docs/ROADMAP.md
+
+# Local review scheduler: counters, quota status and private execution logs.
+.review-watch/
+
+# Local AI review loop (to be extracted into its own tool): never in this public repository.
+ops/review-watch/
+docs/review.md
+CLAUDE.local.md
+
+# Private product documents (never published before): owner's archives and specifications.
+docs/archive/2026-11-08/cadrage-v1-confluent-moneyplace.md
+docs/archive/2026-11-08/cahier-des-charges.md
+docs/feedback.md

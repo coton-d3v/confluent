@@ -1,6 +1,8 @@
 # Environnement de développement
 
-> TL;DR — `docker compose up -d && pnpm db:sync --seed && pnpm dev`
+Ce fichier décrit les commandes et le dépannage. Le périmètre et le travail restant sont suivis uniquement dans [la roadmap](ROADMAP.md).
+
+> Les services du serveur peuvent déjà être disponibles depuis Coder : vérifier les cibles configurées avant de lancer une deuxième instance. Le Compose local est un exemple ; il ne prouve pas la persistance de l'installation réelle.
 
 ---
 
@@ -24,7 +26,7 @@ pnpm install
 
 ```bash
 cp apps/api/.env.example apps/api/.env
-# Les valeurs par défaut fonctionnent avec les services docker-compose
+# Adapter les hôtes, bases et identifiants aux services réellement utilisés
 ```
 
 ### 3. Services de fond
@@ -39,8 +41,7 @@ docker compose up -d
 | minio    | Stockage S3-compatible (docs)   | 9000 (API)        | http://localhost:9001     |
 | mailhog  | SMTP catch-all (emails dev)     | 1025 (SMTP)       | http://localhost:8025     |
 
-> L'API refuse de démarrer si postgres n'est pas disponible. Mailhog et MinIO peuvent
-> démarrer après l'API sans conséquence — les appels échouent proprement avec un log WARN.
+> L'API refuse de démarrer si PostgreSQL n'est pas disponible. Les autres services peuvent être administrés séparément. Le provider de documents actuel est encore en mémoire : configurer `S3_*` ou lancer un serveur S3 ne suffit pas à y enregistrer les fichiers. Le raccordement est suivi dans l'épique E02 de la roadmap.
 
 ### 4. Migrations + seed
 
@@ -134,16 +135,13 @@ L'email n'existe pas en base.
 
 ### `P3014` — permission denied to create database
 
-Le user postgres n'a pas `CREATEDB` (nécessaire pour la shadow DB de `migrate dev`). Voir [docs/database-migrations.md](database-migrations.md) § Prérequis.
+`migrate dev` a besoin d'une base shadow. Sur un PostgreSQL partagé, prévoir une base shadow dédiée plutôt que d'accorder globalement `CREATEDB` au compte applicatif. Voir [Base et migrations](database-migrations.md).
 
 ### MinIO : bucket absent
 
-MinIO démarre vide. Créer le bucket via l'UI (http://localhost:9001 → login `minioadmin` / `minioadmin`) ou :
+Un serveur S3 neuf peut nécessiter la création du bucket privé. Utiliser l'outil d'administration correspondant au logiciel et à la version effectivement installés. Le client `mc` n'est pas garanti présent dans l'image serveur.
 
-```bash
-docker compose exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
-docker compose exec minio mc mb local/confluent-dev
-```
+Les identifiants applicatifs doivent être limités au bucket de leur environnement ; les identifiants de démonstration du Compose ne sont pas une configuration de production.
 
 ---
 
@@ -186,10 +184,9 @@ SMTP_FROM=noreply@confluent.local
 2. Créer un inbox → récupérer les SMTP credentials
 3. Même format `.env` que ci-dessus
 
-### Stockage fichiers : S3 ou Cloudflare R2
+### Stockage fichiers : service S3-compatible externe à Coder
 
-Pour le stockage de documents sans MinIO local, utilise un bucket S3 (AWS) ou R2
-(Cloudflare, plan gratuit généreux). Renseigne les variables `S3_*` dans `.env` en conséquence.
+La cible retenue est un service S3-compatible persistant sur le serveur, hors du workspace Coder, avec espaces et identifiants dev/prod séparés. Renseigner les variables `S3_*` après installation et raccordement de l'adaptateur applicatif E02. Ne pas annoncer les uploads persistants avant un test de téléchargement et de redémarrage.
 
 ---
 
