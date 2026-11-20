@@ -1,6 +1,8 @@
 # Base de données & migrations Prisma
 
-> **TL;DR** — Dev : `pnpm db:sync --seed`. Prod : `docker compose -f docker-compose.prod.yml up -d`, le service `api-migrate` fait tout.
+Ce fichier décrit les procédures PostgreSQL/Prisma. Les priorités et les travaux d'infrastructure sont suivis dans [la roadmap](ROADMAP.md), épique E02.
+
+> Avant toute écriture, identifier la base ciblée. `pnpm db:sync --seed` est réservé aux données de démonstration en développement. Le service de migration du déploiement doit utiliser la même cible que l'API.
 
 Référence unique pour toute opération sur la DB Confluent.
 
@@ -15,12 +17,13 @@ pnpm install
 # 2. Démarrer les services dev
 docker compose up -d                          # postgres + minio + mailhog
 
-# 3. Donner le droit CREATEDB au user dev (pour la shadow DB de `migrate dev`)
-docker compose exec postgres psql -U confluent -d postgres \
-  -c "ALTER USER <ton_dev_user> CREATEDB;"
+# 3. Vérifier la cible et l'historique, sans appliquer de migration
+pnpm db:migrate:status
 ```
 
-`<ton_dev_user>` = user de `DATABASE_URL` dans `apps/api/.env`.
+Le compte utilisé est celui de `DATABASE_URL` dans la configuration de l'API. Si les services existent déjà sur le serveur, ne pas lancer une deuxième instance de PostgreSQL.
+
+Pour générer des migrations, `migrate dev` utilise une base shadow. Sur le serveur partagé, faire préparer une base dédiée, par exemple `confluent_dev_shadow`, et un accès limité à celle-ci. Avec Prisma 5.22, son usage explicite demande `shadowDatabaseUrl = env("SHADOW_DATABASE_URL")` dans la datasource et la variable correspondante ; ce réglage reste à implémenter. Ne jamais utiliser une base contenant des données à conserver comme base shadow.
 
 ---
 
@@ -51,7 +54,7 @@ git commit -m "feat(db): add User.phone"
 ### Commandes quotidiennes
 
 ```bash
-pnpm db:migrate:status  # diff migrations/ ↔ DB (read-only)
+pnpm db:migrate:status  # historique migrations/ ↔ DB (lecture seule)
 pnpm db:studio          # UI Prisma Studio (http://localhost:5555)
 pnpm db:seed            # rejoue le seed (idempotent)
 pnpm db:migrate:reset   # drop + recreate + apply all (destructif, dev only)
@@ -77,7 +80,7 @@ Ce qui se passe :
 
 1. `postgres` démarre, passe son healthcheck.
 2. `api-migrate` (one-shot) attend postgres healthy, exécute `prisma migrate deploy`, exit.
-3. `api` démarre uniquement si `api-migrate` exit(0). Sinon déploiement bloqué, ancienne version reste en ligne.
+3. `api` démarre uniquement si `api-migrate` exit(0). En cas d'échec, le nouveau démarrage est bloqué ; le maintien de l'ancienne version dépend de la procédure de déploiement et n'est pas garanti par ce Compose.
 
 ### Vérifications post-deploy
 
@@ -111,15 +114,15 @@ docker compose -f docker-compose.prod.yml restart api
 
 ### `P3014` — permission denied to create database
 
-Le user dev n'a pas `CREATEDB`. Voir [Prérequis](#prérequis-une-fois-par-machine).
+La création automatique de la base shadow n'est pas autorisée. Prévoir une base shadow dédiée et sa configuration explicite ; voir [Prérequis](#prérequis-une-fois-par-machine).
 
 ### Drift détecté
 
-`pnpm db:migrate:status` signale une divergence :
+`pnpm db:migrate:status` compare l'historique des migrations, pas toutes les colonnes et contraintes du schéma réel :
 
 - **Migrations locales absentes de la DB** → `pnpm db:migrate`.
 - **Migrations en DB absentes du code** → reconstituer le SQL, commit.
-- **Schéma modifié sans migration** → reconstituer via `prisma migrate diff`, puis `prisma migrate resolve --applied <nom>`.
+- **Schéma modifié sans migration** → comparer le schéma réel, préparer une correction revue et vérifier le SQL. Ne marquer une migration « applied » que si son effet exact est déjà présent et vérifié.
 
 ### Rollback
 

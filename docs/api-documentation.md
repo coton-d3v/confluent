@@ -1,5 +1,7 @@
 # Documentation API (Swagger)
 
+Ce fichier décrit l'utilisation de l'API et de ses outils. Le serveur MCP et les fonctionnalités restant à livrer sont suivis dans [la roadmap](ROADMAP.md).
+
 Le backend expose une doc OpenAPI 3 interactive à `/api/docs`.
 
 ## Accès
@@ -7,7 +9,7 @@ Le backend expose une doc OpenAPI 3 interactive à `/api/docs`.
 | Environnement | URL | Protection |
 |---|---|---|
 | Dev (`NODE_ENV=development`) | http://localhost:3000/api/docs | Ouverte |
-| Prod (`NODE_ENV=production`) | https://api.confluent.fr/api/docs | **HTTP Basic Auth** |
+| Prod (`NODE_ENV=production`) | `<origine-api-configurée>/api/docs` | **HTTP Basic Auth** si Swagger est activé |
 
 En dev, la doc est accessible sans credentials — pensée pour l'itération rapide.
 
@@ -78,32 +80,19 @@ export TOKEN=$(pnpm api:token admin@localhost.dev 2>/dev/null)
 curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/v1/admin/dossiers
 ```
 
-### Tests end-to-end / préprod
+### Tests HTTP et recette de préproduction
 
-Le CLI fonctionne partout où `JWT_SECRET` + `DATABASE_URL` sont exposés. Exemple GitHub Actions sur une préprod :
-
-```yaml
-- name: Seed test users (idempotent)
-  env:
-    DATABASE_URL: ${{ secrets.PREPROD_DATABASE_URL }}
-  run: pnpm db:seed
-
-- name: Run e2e against preprod
-  env:
-    DATABASE_URL: ${{ secrets.PREPROD_DATABASE_URL }}
-    JWT_SECRET: ${{ secrets.PREPROD_JWT_SECRET }}
-    API_URL: https://api-preprod.confluent.fr
-  run: |
-    ADMIN_TOKEN=$(pnpm api:token admin@localhost.dev 2>/dev/null)
-    ENTREPRENEUR_TOKEN=$(pnpm api:token entrepreneur@localhost.dev 2>/dev/null)
-    pnpm --filter @confluent/api test:e2e
+```bash
+pnpm --filter @confluent/api test:e2e --runInBand
 ```
 
-Les tests consomment les tokens via `process.env`. Aucun endpoint dev-only n'est appelé — les tests frappent les mêmes routes que les clients réels.
+La suite actuelle démarre NestJS avec Prisma et les transports remplacés par des dépendances simulées. Elle vérifie les routes HTTP, sans utiliser une base ou des identifiants de préproduction. Elle ne réalise pas une recette de PostgreSQL, du SMTP ou du stockage réels.
+
+La recette de l'installation cible est distincte : utiliser des comptes de test autorisés, vérifier les parcours du site et du MCP, les emails reçus, les téléchargements et les droits. Les scénarios sont définis dans [la roadmap](ROADMAP.md#7-définition-de-terminé-et-recette-finale). Il n'est pas nécessaire de semer des données sur un serveur réel pour exécuter la suite HTTP ci-dessus.
 
 ### Règles d'or
 
-- Le CLI **n'est pas exposé en HTTP**. Il vit dans `apps/api/scripts/`, jamais dans `dist/`, jamais dans l'image Docker de prod.
+- Le CLI **n'est pas exposé en HTTP**. Il vit dans `apps/api/scripts/` ; le Dockerfile actuel copie ce répertoire dans l'image. Son accès et les secrets de signature doivent donc rester réservés aux opérateurs autorisés.
 - L'API ne contient **aucune branche dev/prod** sur l'auth. Le CLI est strictement équivalent à avoir accès à `JWT_SECRET` + la DB — aucune surface d'attaque supplémentaire.
 - Les users `@localhost.dev` sont réservés aux fixtures, pas aux vrais comptes.
 
